@@ -603,11 +603,13 @@ SQLite 数据库文件为 `backend/clawAVC.db`，表结构在 `db.py` 的 `init_
 
 | 成员 | 职责 |
 |------|------|
-| @jjq0425 | 主研 |
-| @xiaoxuan668 | 主研 |
+| [@jjq0425](https://github.com/jjq0425) | 主研 |
+| [@xiaoxuan668](https://github.com/xiaoxuan668) | 主研 |
 
 
 也一并感谢 claude code、codex、Hy3、mimo、longcat、doubao、qwen、deepseek、 stepfun 的coding支持 （排名不分先后）
+
+
 ---
 
 <div align="center">
