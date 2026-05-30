@@ -371,7 +371,7 @@ def run_translate():
     try:
         from auditor.translator.core import translate, get_llm_config
         config = get_llm_config()
-        result = translate(query, config=config, is_ui_test=False)
+        result = translate(query, config=config, is_ui_test=False, round_id=round_id)
         return jsonify({"ok": True, "data": result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

@@ -13,11 +13,30 @@
     <div class="tables-card">
       <div class="card-title">数据表</div>
       <div class="tables-grid">
-        <div v-for="t in tables" :key="t.name" class="table-chip" :class="{ active: selectedTable === t.name, privileged: t.name === 'config' }" @click="selectTable(t.name)">
-          <t-icon v-if="t.name === 'config'" name="lock-on" size="14px" style="color: #ED7B2F;" />
+        <div v-for="t in visibleTables" :key="t.name" class="table-chip" :class="{ active: selectedTable === t.name }" @click="selectTable(t.name)">
           <span class="table-name">{{ t.name }}</span>
           <span class="table-count">{{ t.count }}</span>
         </div>
+        <t-popup trigger="click" placement="bottom">
+          <template #content>
+            <div class="hidden-tables-pop">
+              <div v-for="t in hiddenTables" :key="t.name" class="table-chip hidden-chip" :class="{ active: selectedTable === t.name }" @click="selectHiddenTable(t.name)">
+                <t-icon name="lock-on" size="14px" style="color: #ED7B2F;" />
+                <span class="table-name">{{ t.name }}</span>
+                <span class="table-count">{{ t.count }}</span>
+              </div>
+            </div>
+          </template>
+          <t-button variant="text" size="small" class="more-btn">
+            <t-icon name="ellipsis" size="16px" />
+          </t-button>
+        </t-popup>
+      </div>
+
+      <!-- Warning for sensitive tables -->
+      <div v-if="isSensitiveTable" class="sensitive-warn">
+        <t-icon name="error-circle-filled" size="16px" />
+        <span>当前为系统核心表，误操作可能导致平台运行异常，请谨慎修改！</span>
       </div>
     </div>
 
@@ -184,6 +203,20 @@ async function fetchTables() {
     const json = await res.json()
     if (json.ok) tables.value = json.tables
   } catch (e) {}
+}
+
+const HIDDEN_TABLES = ["config", "sqlite_sequence"]
+const visibleTables = computed(() => tables.value.filter(t => !HIDDEN_TABLES.includes(t.name)))
+const hiddenTables = computed(() => tables.value.filter(t => HIDDEN_TABLES.includes(t.name)))
+const isSensitiveTable = computed(() => HIDDEN_TABLES.includes(selectedTable.value))
+
+function selectHiddenTable(name) {
+  const token = sessionStorage.getItem("clawavc_admin_session")
+  if (!token) {
+    MessagePlugin.warning("访问系统表需要特权验证")
+    return
+  }
+  selectTable(name)
 }
 
 async function selectTable(name) {
@@ -418,4 +451,9 @@ function truncate(s) { return s.length > 60 ? s.slice(0, 60) + "..." : s }
 .sql-result pre { background: #f8f9fa; border-radius: 6px; padding: 10px; font-size: 11px; overflow-x: auto; max-height: 300px; }
 
 
+
+.more-btn { margin-left: 4px; }
+.hidden-tables-pop { display: flex; flex-direction: column; gap: 6px; padding: 4px; }
+.hidden-chip { border-color: #ffe8d0 !important; }
+.sensitive-warn { margin-top: 12px; display: flex; align-items: center; gap: 8px; background: #fff8e6; border: 1px solid #ffe58f; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #d48806; }
 </style>

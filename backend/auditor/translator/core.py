@@ -524,7 +524,7 @@ def validate_ir(ir: Dict[str, Any]) -> ValidationReport:
 # ---------------------------------------------------------------------------
 # End-to-end
 # ---------------------------------------------------------------------------
-def translate(query: str, config: Optional[Dict[str, Any]] = None, is_ui_test: bool = False) -> Dict[str, Any]:
+def translate(query: str, config: Optional[Dict[str, Any]] = None, is_ui_test: bool = False, round_id: str = "") -> Dict[str, Any]:
     """Full pipeline: query -> level1 -> level2 -> normalize -> validate -> store."""
     cfg = config or get_llm_config()
 
@@ -557,7 +557,7 @@ def translate(query: str, config: Optional[Dict[str, Any]] = None, is_ui_test: b
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
         import db
-        db.insert_translation_log(result, is_ui_test=is_ui_test)
+        db.insert_translation_log(result, is_ui_test=is_ui_test, round_id=round_id)
     except Exception:
         pass
 

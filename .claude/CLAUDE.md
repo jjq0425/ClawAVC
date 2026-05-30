@@ -166,7 +166,7 @@ OpenClaw 日志变化 → FileTailer 读取 → parse_line → RoundStateMachine
 
 | Key 前缀 | 说明 |
 |----------|------|
-| `monitor_conf.*` | 监控配置 (gateway_log_path, openclaw_root) |
+| `monitor_conf.*` | 监控配置 (openclaw_root, use_gateway, gateway_log_path) |
 | `ir_translator.*` | 翻译器配置 (api_base_url, api_key, model, prompt_level1, prompt_level2, registry_path, default_policy, temperature, timeout, json_mode) |
 | `admin_key` | 特权密钥 (admin, 不可 UI 修改) |
 | `entry_password` | 入门口令 |
