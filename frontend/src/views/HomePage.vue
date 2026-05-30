@@ -76,13 +76,22 @@
       </div>
     </div>
       <div class="credits">
-     本平台Vibe Coding生成
+     本平台Vibe Coding生成 ｜ 
+     <t-link theme="primary" underline href="https://github.com/jjq0425/clawAVC" target="_blank">
+      <template #prefix-icon>
+        <logo-github-icon />
+      </template>
+      ClawAVC
+    </t-link>
     </div>
 </div>
 </template>
 
-<script setup>
-</script>
+ <script setup>
+  import { LogoGithubIcon } from 'tdesign-icons-vue-next'
+  </script>
+
+  
 
 <style scoped>
 .home-page {
