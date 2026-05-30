@@ -50,6 +50,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: "/navigator",
+    name: "Navigator",
+    component: () => import("../views/NavigatorPage.vue"),
+    meta: { requiresAuth: true },
+  },
+  {
     path: "/settings",
     name: "Settings",
     component: () => import("../views/SettingsPage.vue"),

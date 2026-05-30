@@ -807,6 +807,25 @@ def monitor_status_api():
     return jsonify({"ok": True, "data": {"running": running}})
 
 
+# ─── Navigator Config ──────────────────────────────────
+@app.route("/api/config/navigator", methods=["GET"])
+def get_navigator_config():
+    """获取快捷导航配置。"""
+    val = db.get_config("navigator.conf")
+    return jsonify({"ok": True, "data": val or ""})
+
+@app.route("/api/config/navigator", methods=["PUT"])
+def set_navigator_config():
+    """保存快捷导航配置。"""
+    """保存快捷导航配置（需特权）。"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    data = request.get_json(force=True)
+    value = data.get("value", "")
+    db.set_config("navigator.conf", value)
+    return jsonify({"ok": True})
+
 # ─── API Documentation ─────────────────────────────────
 @app.route("/api/docs", methods=["GET"])
 def get_api_docs():

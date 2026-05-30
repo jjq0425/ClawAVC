@@ -36,6 +36,7 @@ const navItems = [
   { path: "/database", icon: "server", label: "数据运维" },
   { path: "/export", icon: "download", label: "数据导出" },
   { path: "/api-docs", icon: "code", label: "对外接口" },
+  { path: "/navigator", icon: "link", label: "快捷导航" },
   { path: "/settings", icon: "setting", label: "平台管理" },
 ]
 </script>
