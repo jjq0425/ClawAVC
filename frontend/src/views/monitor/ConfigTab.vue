@@ -46,34 +46,11 @@
         <t-icon name="setting" size="20px" />
         <span>数据源配置</span>
       </div>
-      <p class="section-desc">配置监控数据来源路径。启动监控前需填写以下配置。</p>
+      <p class="section-desc">配置监控数据来源。启动监控前需填写 OpenClaw 根文件夹路径。</p>
 
       <div class="form-group">
-        <label class="form-label">网关日志路径</label>
-        <p class="form-hint">Portkey 网关日志目录路径，系统将从中读取请求/响应数据并解析 action。</p>
-        <div class="input-row">
-          <t-input
-            v-model="gateway_log_path"
-            placeholder="请输入网关日志目录的绝对路径"
-            clearable
-            size="large"
-          />
-          <t-button theme="primary" @click="saveSingle('gateway_log_path')" :loading="saving === 'gateway_log_path'">
-            保存
-          </t-button>
-        </div>
-        <div v-if="pathStatus.gateway_log_path" class="path-status">
-          <t-tag :theme="pathStatus.gateway_log_path === 'ok' ? 'success' : 'warning'" variant="light" size="small">
-            {{ pathStatus.gateway_log_path === 'ok' ? '路径有效' : '路径不存在或不可读' }}
-          </t-tag>
-        </div>
-      </div>
-
-      <t-divider />
-
-      <div class="form-group">
-        <label class="form-label">OpenClaw 根文件夹</label>
-        <p class="form-hint">指定 OpenClaw 的根文件夹路径，系统将访问其下的 agents/sessions 等日志文件。</p>
+        <label class="form-label">OpenClaw 根文件夹 <t-tag size="small" theme="danger" variant="light">必填</t-tag></label>
+        <p class="form-hint">指定 OpenClaw 的根文件夹路径，系统将访问其下的 agents/sessions 等日志文件来检测 Round 事件。</p>
         <div class="input-row">
           <t-input
             v-model="openclaw_root"
@@ -91,6 +68,38 @@
           </t-tag>
         </div>
       </div>
+
+      <t-divider />
+
+      <div class="form-group">
+        <label class="form-label">交互数据来源</label>
+        <p class="form-hint">选择从何处获取 Agent 的工具调用和请求/响应数据。默认从 OpenClaw 日志直接解析，也可选择从网关日志获取。</p>
+        <t-switch v-model="use_gateway" @change="saveSingle('use_gateway')"><template #label>{{ use_gateway ? '从网关获取' : '从 OpenClaw 日志获取' }}</template></t-switch>
+      </div>
+
+      <div v-if="use_gateway">
+        <t-divider />
+        <div class="form-group">
+          <label class="form-label">网关日志路径</label>
+          <p class="form-hint">Portkey 网关日志目录路径，系统将从中读取请求/响应数据并解析 action。</p>
+          <div class="input-row">
+            <t-input
+              v-model="gateway_log_path"
+              placeholder="请输入网关日志目录的绝对路径"
+              clearable
+              size="large"
+            />
+            <t-button theme="primary" @click="saveSingle('gateway_log_path')" :loading="saving === 'gateway_log_path'">
+              保存
+            </t-button>
+          </div>
+          <div v-if="pathStatus.gateway_log_path" class="path-status">
+            <t-tag :theme="pathStatus.gateway_log_path === 'ok' ? 'success' : 'warning'" variant="light" size="small">
+              {{ pathStatus.gateway_log_path === 'ok' ? '路径有效' : '路径不存在或不可读' }}
+            </t-tag>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -101,6 +110,7 @@ import { MessagePlugin } from "tdesign-vue-next"
 
 const gateway_log_path = ref("")
 const openclaw_root = ref("")
+const use_gateway = ref(false)
 const saving = ref("")
 const pathStatus = ref({})
 const monitorRunning = ref(false)
@@ -119,6 +129,7 @@ async function loadConfig() {
       const d = j.data
       gateway_log_path.value = d.gateway_log_path || ""
       openclaw_root.value = d.openclaw_root || ""
+      use_gateway.value = d.use_gateway === "true"
       pathStatus.value = d._path_status || {}
     }
   } catch {}
@@ -167,6 +178,7 @@ async function saveSingle(key) {
   const valueMap = {
     gateway_log_path: gateway_log_path.value,
     openclaw_root: openclaw_root.value,
+    use_gateway: use_gateway.value ? "true" : "false",
   }
   try {
     const r = await fetch("/api/monitor/config", {

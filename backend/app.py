@@ -719,7 +719,7 @@ def handle_disconnect():
 
 
 # ─── Monitor Config API ───────────────────────────────
-MONITOR_CONF_KEYS = ["gateway_log_path", "openclaw_root"]
+MONITOR_CONF_KEYS = ["gateway_log_path", "openclaw_root", "use_gateway"]
 
 @app.route("/api/monitor/config", methods=["GET"])
 def get_monitor_config():
@@ -764,15 +764,17 @@ def start_monitor_api():
     config = get_config_from_db()
     openclaw_logs = config.get("openclaw_root", "").strip()
     gateway_logs = config.get("gateway_log_path", "").strip()
+    use_gateway = config.get("use_gateway", "false").lower() == "true"
 
     if not openclaw_logs:
         return jsonify({"ok": False, "error": "请先配置 OpenClaw 根文件夹路径"}), 400
-    if not gateway_logs:
-        return jsonify({"ok": False, "error": "请先配置网关日志文件路径"}), 400
     if not os.path.exists(openclaw_logs):
         return jsonify({"ok": False, "error": f"OpenClaw 根文件夹路径不存在: {openclaw_logs}"}), 400
-    if not os.path.exists(gateway_logs):
-        return jsonify({"ok": False, "error": f"网关日志路径不存在: {gateway_logs}"}), 400
+    if use_gateway:
+        if not gateway_logs:
+            return jsonify({"ok": False, "error": "启用网关数据源时需配置网关日志路径"}), 400
+        if not os.path.exists(gateway_logs):
+            return jsonify({"ok": False, "error": f"网关日志路径不存在: {gateway_logs}"}), 400
 
     _monitor_instance = MonitorOrchestrator(
         openclaw_log_root=openclaw_logs,

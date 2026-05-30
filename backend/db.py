@@ -253,6 +253,14 @@ def init_config_table():
     conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('secret_key', 'abc')")
     # Default subdomain (二级域名密钥)
     conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('admin_key', 'admin')")
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('monitor_conf.use_gateway', 'false')")
+    # ir
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('ir_translator.prompt_level1', ')'")
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('ir_translator.prompt_level2', ')'")
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('ir_translator.default_policy', '{}'")
+    
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('navigator.conf', '[]'")
+
     conn.commit()
     conn.close()
 

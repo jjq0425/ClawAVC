@@ -995,6 +995,128 @@ def get_config_from_db() -> Dict[str, str]:
     return {}
 
 
+
+def extract_from_openclaw_session(openclaw_root: Path, round_id: str, start_time: float) -> Dict[str, Any]:
+    """Extract user_query, actions (with results), last_llm_message from OpenClaw session logs.
+    
+    OpenClaw log format:
+      assistant (stopReason=toolUse): content[] has {type:toolCall, id, name, arguments}
+      toolResult (parentId=assistant.id): content[] has {type:text, text:result_text}
+      assistant (stopReason=stop): content[] has {type:text, text:final_reply}
+    """
+    result = {"user_query": None, "actions": [], "last_llm_msg": None}
+    
+    sessions_dir = openclaw_root / "agents" / "main" / "sessions"
+    if not sessions_dir.exists():
+        return result
+    
+    # Find session file containing this round_id
+    session_files = sorted(sessions_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    target_file = None
+    for sf in session_files[:10]:
+        try:
+            text = sf.read_text(encoding="utf-8", errors="replace")
+            if round_id in text:
+                target_file = sf
+                break
+        except Exception:
+            continue
+    
+    if not target_file:
+        return result
+    
+    found_round = False
+    actions = []
+    last_assistant_text = None
+    # Track pending tool calls by assistant message id
+    pending_tool_calls: Dict[str, List[dict]] = {}  # assistant_id -> [action dicts]
+    current_assistant_id = ""
+    
+    try:
+        with target_file.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                
+                msg_id = obj.get("id", "")
+                parent_id = obj.get("parentId", "")
+                msg = obj.get("message", {})
+                role = msg.get("role", "")
+                content = msg.get("content", [])
+                stop_reason = msg.get("stopReason", "")
+                
+                # Find the user message that starts this round
+                if msg_id == round_id and role == "user":
+                    found_round = True
+                    if isinstance(content, list):
+                        for c in content:
+                            if isinstance(c, dict) and c.get("type") == "text":
+                                text = c.get("text", "")
+                                import re as _re
+                                text = _re.sub(r"Sender\s*\(untrusted metadata\):\s*```json\s*\{[^}]*\}\s*```\s*", "", text, flags=_re.DOTALL).strip()
+                                lines_t = [l.strip() for l in text.splitlines() if l.strip()]
+                                if lines_t:
+                                    last_line = _re.sub(r"^\[.*?\]\s*", "", lines_t[-1])
+                                    if last_line:
+                                        result["user_query"] = last_line
+                    continue
+                
+                if not found_round:
+                    continue
+                
+                # If we hit a new user message, this round is over
+                if role == "user" and msg_id != round_id:
+                    break
+                
+                # Assistant with tool calls
+                if role == "assistant" and isinstance(content, list):
+                    tool_calls_in_msg = []
+                    for c in content:
+                        if isinstance(c, dict) and c.get("type") == "toolCall":
+                            action = {
+                                "tool": c.get("name", ""),
+                                "arguments": c.get("arguments", {}),
+                                "resources": resources_from_arguments(c.get("name", ""), c.get("arguments", {})),
+                            }
+                            tool_calls_in_msg.append(action)
+                            actions.append(action)
+                        elif isinstance(c, dict) and c.get("type") == "text" and c.get("text"):
+                            last_assistant_text = c.get("text", "")
+                    
+                    if tool_calls_in_msg and msg_id:
+                        pending_tool_calls[msg_id] = tool_calls_in_msg
+                        current_assistant_id = msg_id
+                    
+                    if stop_reason in ("stop", "end_turn", "complete"):
+                        break
+                
+                # toolResult - attach result to matching action
+                if role == "toolResult" and parent_id and isinstance(content, list):
+                    result_text = ""
+                    for c in content:
+                        if isinstance(c, dict) and c.get("type") == "text":
+                            result_text += c.get("text", "")
+                    
+                    # Find the action(s) from the parent assistant message
+                    if parent_id in pending_tool_calls:
+                        parent_actions = pending_tool_calls[parent_id]
+                        # Attach result to first action without result
+                        for pa in parent_actions:
+                            if "result" not in pa:
+                                pa["result"] = result_text[:2000]
+                                break
+    except Exception:
+        pass
+    
+    result["actions"] = actions
+    result["last_llm_msg"] = last_assistant_text
+    return result
+
 class MonitorOrchestrator:
     """Main monitor process that coordinates watcher + gateway + IR + judge."""
 
@@ -1022,6 +1144,12 @@ class MonitorOrchestrator:
         if self.gateway_log_path and self.gateway_log_path.exists():
             return self.gateway_log_path if self.gateway_log_path.is_dir() else self.gateway_log_path.parent
         return None
+
+    def _should_use_gateway(self) -> bool:
+        """Check config: whether to use gateway logs for action data."""
+        config = get_config_from_db()
+        return config.get("use_gateway", "false").lower() == "true"
+
 
     def _on_round_start(self, r: RoundLedger) -> None:
         self._round_start_times[r.round_id] = r.started_at
@@ -1088,23 +1216,33 @@ class MonitorOrchestrator:
         user_query = self._round_queries.pop(r.round_id, None)
         ir_result = self._round_ir_results.pop(r.round_id, None)
 
-        gw_dir = self._get_gateway_dir()
+        use_gw = self._should_use_gateway()
         trajectory = []
         last_llm_msg = None
-        if gw_dir:
-            for obj in read_gateway_logs_since(gw_dir, start_dt):
-                if not user_query:
-                    q = extract_user_query_from_obj(obj)
-                    if q:
-                        user_query = q
-                messages = extract_messages_from_obj(obj)
-                if messages:
-                    trajectory = build_current_round_trajectory(messages)
-                msg = extract_last_llm_message(obj)
-                if msg:
-                    last_llm_msg = msg
+        actions = []
 
-        actions = build_actions_from_trajectory(trajectory) if trajectory else []
+        if use_gw:
+            gw_dir = self._get_gateway_dir()
+            if gw_dir:
+                for obj in read_gateway_logs_since(gw_dir, start_dt):
+                    if not user_query:
+                        q = extract_user_query_from_obj(obj)
+                        if q:
+                            user_query = q
+                    messages = extract_messages_from_obj(obj)
+                    if messages:
+                        trajectory = build_current_round_trajectory(messages)
+                    msg = extract_last_llm_message(obj)
+                    if msg:
+                        last_llm_msg = msg
+            actions = build_actions_from_trajectory(trajectory) if trajectory else []
+        else:
+            # Extract from OpenClaw session log
+            oc_data = extract_from_openclaw_session(self.openclaw_log_root, r.round_id, start_time)
+            if not user_query:
+                user_query = oc_data.get("user_query")
+            actions = oc_data.get("actions", [])
+            last_llm_msg = oc_data.get("last_llm_msg")
 
         if ir_result is None and user_query:
             try:
