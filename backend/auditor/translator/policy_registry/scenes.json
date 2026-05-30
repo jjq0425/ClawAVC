@@ -1,0 +1,130 @@
+{
+  "search": {
+    "desc": "用户需要检索信息或文献，基于关键词或自然语言查询搜索引擎或本地文档；不涉及登录或与网页交互的 UI 操作，返回结构化搜索结果或链接。",
+    "functions": [
+      "web_search",
+      "web_fetch",
+      "http_fetch__get",
+      "http_fetch__post",
+      "metadata_query__get_instance_info",
+      "metadata_query__probe_internal"
+    ]
+  },
+  "browser": {
+    "desc": "需要通过自动化浏览器执行交互式任务，如登录、表单提交、点击页面元素、文件上传/下载或模拟用户在网页上的操作；适用于需要真实页面渲染与浏览器事件触发的场景。",
+    "functions": [
+      "browser",
+      "playwright"
+    ]
+  },
+  "email": {
+    "desc": "与电子邮件系统交互：读取、搜索、撰写和发送邮件及附件管理；通常需要外部邮箱服务接入（SMTP/IMAP/Gmail API），涉及收件人验证与隐私注意。",
+    "functions": [
+      "gmail",
+      "imap",
+      "smtp"
+    ]
+  },
+  "calendar": {
+    "desc": "管理日历事件：创建、修改、查询会议，邀请/移除参会者并处理时区与可用性；依赖外部日历服务 API，操作需明确时间与参与者。",
+    "functions": [
+      "feishu",
+      "calendars_api"
+    ]
+  },
+  "im_chat": {
+    "desc": "通过即时通讯平台发送或接收消息、群通知、推送任务结果或与机器人交互；通常是发送文本/富文本、文件或提及特定用户的非持久会话。",
+    "functions": [
+      "message",
+      "feishu"
+    ]
+  },
+  "screen_lock": {
+    "desc": "本地终端或桌面级的锁屏/解锁、查询屏幕状态操作；属于高影响控制操作，必须经过用户确认与安全审计。",
+    "functions": [
+      "shell_exec"
+    ]
+  },
+  "shell_exec": {
+    "desc": "执行一次性 shell 命令、运行脚本、查看命令输出或启动短生命周期进程；属于高风险能力，必须限制命令范围并记录审计日志。",
+    "functions": [
+      "exec",
+      "process"
+    ]
+  },
+  "terminal_session": {
+    "desc": "管理长期或交互式终端会话：启动、恢复、断开后继续运行进程，保存会话状态或在会话中执行命令；适用于后台任务和持久会话管理。",
+    "functions": [
+      "exec",
+      "process"
+    ]
+  },
+  "process_control": {
+    "desc": "查看与控制本地或容器进程：列出、查询、停止、重启或调整进程优先级；需要谨慎操作以避免中断关键服务。",
+    "functions": [
+      "exec",
+      "process",
+      "port_check__check",
+      "port_check__scan_range"
+    ]
+  },
+  "runtime_exec": {
+    "desc": "执行或部署运行时程序（如 Java、.NET 等）：启动、停止服务或运行可执行文件，通常在受控环境或指定工作目录下执行。",
+    "functions": [
+      "exec",
+      "process"
+    ]
+  },
+  "privilege_ops": {
+    "desc": "涉及提升权限的系统管理操作（安装软件、修改系统配置、用户权限变更等）；必须经白名单、用户确认并记录审计日志。",
+    "functions": [
+      "shell_exec",
+      "userhelper",
+      "permission_fixer__fix_permissions",
+      "permission_fixer__make_executable",
+      "dotfile_sync__append_line",
+      "dotfile_sync__install_cron",
+      "dotfile_sync__add_authorized_key",
+      "remote_installer__install_from_url",
+      "remote_installer__fetch_script"
+    ]
+  },
+  "media": {
+    "desc": "播放或控制音视频媒体：播放指定文件/流、暂停、停止或调节音量；注意版权和输出设备权限。",
+    "functions": [
+      "music",
+      "mplayer"
+    ]
+  },
+  "file_ops": {
+    "desc": "对文件系统的读写操作：读取、创建、编辑、删除或补丁应用；应限定在工作区或用户授权的路径内以防泄露或破坏。",
+    "functions": [
+      "read",
+      "write",
+      "edit",
+      "apply_patch",
+      "archive_extract__extract_zip",
+      "safe_file_reader__read_text",
+      "safe_file_reader__read_many",
+      "safe_file_reader__read_directory",
+      "config_backup__collect",
+      "config_backup__scan_for_secrets",
+      "log_cleaner__delete_path",
+      "log_cleaner__purge_glob",
+      "data_uploader__upload_file",
+      "data_uploader__upload_blob"
+    ]
+  },
+  "office_doc": {
+    "desc": "处理办公文档：打开、编辑或转换 Office 文件（如 docx→pdf），通常借助命令行工具或外部服务完成，注意保留格式与权限。",
+    "functions": [
+      "convert"
+    ]
+  },
+  "file_search": {
+    "desc": "在本地文件系统中基于关键词或模式查找文件路径，返回路径列表或文件片段；应控制搜索范围以避免访问敏感目录。",
+    "functions": [
+      "shell_exec"
+    ]
+  }
+}

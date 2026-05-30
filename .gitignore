@@ -1,0 +1,36 @@
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+logs/
+
+# Nod
+frontend/node_modules/*
+frontend/dist/*
+
+# Python
+backend/.venv/
+backend/__pycache__/*
+__pycache__/*
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Env
+.env
+.env.local
+
+logs/*
+
+*.pyc

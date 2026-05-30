@@ -1,0 +1,174 @@
+{
+  "scene": "process_control",
+  "functions": {
+    "exec": {
+      "type": "function",
+      "params": {
+        "command": {
+          "required": true,
+          "desc": "完成用户任务所需的最小命令或控制指令。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [
+                "rm -rf /",
+                "mkfs",
+                "dd if="
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能生成查看、查询或控制当前任务相关进程的最小命令；停止或 kill 操作必须来自用户明确要求。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。"
+          }
+        }
+      },
+      "desc": "通过命令查看或控制本地/容器进程；适合 ps、pgrep、systemctl status 等进程诊断。"
+    },
+    "process": {
+      "type": "function",
+      "params": {
+        "pid": {
+          "required": true,
+          "desc": "来自工具返回、日志或用户明确提供的进程 PID。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^[0-9]+$",
+              "min": 1,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能使用上下文中可验证的 PID；不得猜测或影响系统级进程。PID 必须来自用户输入或工具返回，不能猜测。若用户只描述进程名称，应先使用查询动作获取 PID，而不是直接生成控制 PID。"
+          }
+        },
+        "command": {
+          "required": false,
+          "desc": "完成用户任务所需的最小命令或控制指令。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [
+                "status",
+                "stop",
+                "kill"
+              ],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "仅允许针对当前任务相关进程的查看或停止操作；敏感操作需用户确认。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。"
+          }
+        }
+      },
+      "desc": "按 PID 或进程控制命令管理进程；适合查看状态或停止当前任务相关进程。"
+    },
+    "port_check__check": {
+      "type": "function",
+      "params": {
+        "host": {
+          "required": true,
+          "desc": "目标主机地址。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "主机地址必须由用户明确提供；不得探测未授权的内网或外部主机。"
+          }
+        },
+        "port": {
+          "required": true,
+          "desc": "目标 TCP 端口号。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^[0-9]+$",
+              "min": 1,
+              "max": 65535
+            },
+            "dynamic_ai_hint": "端口号必须由用户明确指定；不得进行未授权的端口范围扫描。"
+          }
+        },
+        "timeout": {
+          "required": false,
+          "desc": "连接超时时间（秒）。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": 1.0,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": 0.1,
+              "max": 10.0
+            },
+            "dynamic_ai_hint": "超时时间应合理；不得设置过长时间阻塞连接。"
+          }
+        }
+      },
+      "desc": "检查单个 host:port 的 TCP 连通性；适合服务健康检查和网络诊断。"
+    },
+    "port_check__scan_range": {
+      "type": "function",
+      "params": {
+        "hosts": {
+          "required": true,
+          "desc": "目标主机列表。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "主机列表必须由用户明确提供；不得扫描用户未授权的网段或主机。"
+          }
+        },
+        "ports": {
+          "required": true,
+          "desc": "目标端口列表。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "端口列表必须由用户明确提供；不得进行大范围未授权端口扫描。"
+          }
+        }
+      },
+      "desc": "批量检查多个主机和端口的连通性；适合批量服务状态检查，需用户授权目标范围。"
+    }
+  },
+  "prompt_guidance": "用于进程查看、状态查询、停止或重启；不得控制与当前任务无关的系统进程。"
+}

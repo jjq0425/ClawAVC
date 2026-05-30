@@ -1,0 +1,29 @@
+{
+  "scene": "file_search",
+  "functions": {
+    "shell_exec": {
+      "type": "function",
+      "params": {
+        "query": {
+          "required": true,
+          "desc": "用户请求中可验证的查询文本、关键词、搜索条件或过滤条件。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户提供的查询；限制搜索范围以防泄露敏感目录。抽取时保留用户核心意图，去掉礼貌语和无关上下文；不得添加用户没有要求的品牌、站点、人物、隐私信息或敏感词。若查询范围不明确，生成最窄且可解释的查询。"
+          }
+        }
+      },
+      "desc": "在本地文件系统中查找文件名、路径或文件内容片段；只返回搜索结果，不修改文件。"
+    }
+  },
+  "prompt_guidance": "用于查找文件路径或内容片段；只读查询，不应写入或删除。"
+}

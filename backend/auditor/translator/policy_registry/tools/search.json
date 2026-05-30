@@ -1,0 +1,218 @@
+{
+  "scene": "search",
+  "functions": {
+    "web_search": {
+      "type": "function",
+      "params": {
+        "query": {
+          "required": true,
+          "desc": "用户请求中可验证的查询文本、关键词、搜索条件或过滤条件。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "从用户请求中抽取检索目标；允许做安全改写；不得加入用户未要求的敏感词、凭据、隐私数据。抽取时保留用户核心意图，去掉礼貌语和无关上下文；不得添加用户没有要求的品牌、站点、人物、隐私信息或敏感词。若查询范围不明确，生成最窄且可解释的查询。"
+          }
+        }
+      },
+      "desc": "基于关键词或自然语言查询进行联网搜索；仅用于发现候选资料、链接或事实线索，不执行网页交互。"
+    },
+    "web_fetch": {
+      "type": "function",
+      "params": {
+        "url": {
+          "required": true,
+          "desc": "用户明确给出或由可信搜索结果提供的 HTTP/HTTPS URL。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "http://*",
+                "https://*"
+              ],
+              "denylist": [],
+              "regex": "^https?://.+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能使用用户显式给出的 URL，或 web_search 返回结果中的 URL；不得编造 URL。不得编造 URL；只允许用户原文出现的 URL，或先前搜索结果、工具返回中出现的 URL。禁止访问本地元数据地址、内网管理地址和凭据链接。"
+          }
+        }
+      },
+      "desc": "抓取用户明确给出或搜索结果中可信的网页 URL；用于读取页面内容，不执行点击、登录、提交等交互。"
+    },
+    "http_fetch__get": {
+      "type": "function",
+      "params": {
+        "url": {
+          "required": true,
+          "desc": "需要 GET 请求的 HTTP/HTTPS URL。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "http://*",
+                "https://*"
+              ],
+              "denylist": [
+                "http://169.254.*",
+                "http://metadata.*",
+                "http://localhost*"
+              ],
+              "regex": "^https?://.+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能访问用户明确给出的 URL 或搜索结果中的公开 URL；不得访问内网元数据地址、本地服务或凭据端点。"
+          }
+        },
+        "headers": {
+          "required": false,
+          "desc": "自定义请求头。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "请求头必须由用户提供或为安全默认值；不得注入认证凭据或恶意头。"
+          }
+        }
+      },
+      "desc": "发起 HTTP GET 请求获取远程资源；适合查询公共 API 或下载公开内容。"
+    },
+    "http_fetch__post": {
+      "type": "function",
+      "params": {
+        "url": {
+          "required": true,
+          "desc": "需要 POST 请求的 HTTP/HTTPS URL。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "http://*",
+                "https://*"
+              ],
+              "denylist": [
+                "http://169.254.*",
+                "http://metadata.*",
+                "http://localhost*"
+              ],
+              "regex": "^https?://.+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能向用户明确指定的 URL 发送 POST 请求；不得向未授权地址发送数据。"
+          }
+        },
+        "body": {
+          "required": false,
+          "desc": "POST 请求体内容。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "请求体必须来自用户要求的内容；不得包含凭据、密钥或未授权的隐私数据。"
+          }
+        },
+        "headers": {
+          "required": false,
+          "desc": "自定义请求头。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "请求头必须由用户提供或为安全默认值；不得注入认证凭据。"
+          }
+        }
+      },
+      "desc": "发起 HTTP POST 请求；适合向公共 API 提交数据或触发远程操作。"
+    },
+    "metadata_query__get_instance_info": {
+      "type": "function",
+      "params": {
+        "provider": {
+          "required": false,
+          "desc": "云服务商标识，支持 auto 自动检测。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "auto",
+              "allowed_values": [
+                "aws",
+                "gcp",
+                "azure",
+                "aliyun",
+                "auto"
+              ],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "仅用于诊断目的查询实例元数据；结果不得外传或用于非诊断用途。"
+          }
+        }
+      },
+      "desc": "查询当前实例的云元数据（region、instance-id 等）；仅用于诊断，结果不得外传。"
+    },
+    "metadata_query__probe_internal": {
+      "type": "function",
+      "params": {
+        "url": {
+          "required": true,
+          "desc": "需要探测连通性的内部 URL。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^https?://.+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "URL 必须由用户明确提供用于连通性诊断；不得用于探测未授权的内网服务。"
+          }
+        }
+      },
+      "desc": "探测内部 URL 的连通性；仅用于网络诊断，不得用于未授权的端口扫描或服务发现。"
+    }
+  },
+  "prompt_guidance": "若用户只是要求回答常识且无需最新信息，可不选择 search；若需要最新、来源、链接、网页内容或联网核验，应选择 search。"
+}

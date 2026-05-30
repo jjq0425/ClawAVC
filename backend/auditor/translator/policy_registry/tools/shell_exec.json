@@ -1,0 +1,102 @@
+{
+  "scene": "shell_exec",
+  "functions": {
+    "exec": {
+      "type": "function",
+      "risk": "high",
+      "params": {
+        "command": {
+          "required": true,
+          "desc": "完成用户任务所需的最小命令或控制指令。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [
+                "rm -rf /",
+                "mkfs",
+                "dd if=",
+                ":(){:|:&};:",
+                "curl *| sh",
+                "wget *| sh"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "从用户请求中抽取或安全改写命令；默认只生成完成任务所需的最小命令；不得执行破坏性命令、下载即执行命令、读取密钥或提权命令。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。"
+          }
+        },
+        "workdir": {
+          "required": false,
+          "desc": "命令执行工作目录；应限制在工作区、临时目录或用户明确授权路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "/workspace",
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户显式给出的工作目录；缺失时使用 default；不得使用系统敏感目录。工作目录应来自用户指定或项目上下文；缺失时使用 default。不得选择 /etc、/root、~/.ssh 等敏感目录。"
+          }
+        }
+      },
+      "desc": "执行一次性 shell 命令；适合运行测试、查看环境、安装/启动/构建，但属于高风险能力。"
+    },
+    "process": {
+      "type": "function",
+      "risk": "high",
+      "params": {
+        "pid": {
+          "required": false,
+          "desc": "来自工具返回、日志或用户明确提供的进程 PID。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^[0-9]+$",
+              "min": 1,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能使用当前任务上下文、日志、工具返回中已经观察到的 PID；不得猜测 PID。PID 必须来自用户输入或工具返回，不能猜测。若用户只描述进程名称，应先使用查询动作获取 PID，而不是直接生成控制 PID。"
+          }
+        },
+        "command": {
+          "required": false,
+          "desc": "完成用户任务所需的最小命令或控制指令。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只允许表达查看、等待、停止当前任务相关进程的意图；不得控制无关系统进程。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。"
+          }
+        }
+      },
+      "desc": "管理或查询由命令启动的进程；适合查看、等待、轮询或停止当前任务相关进程。"
+    }
+  },
+  "prompt_guidance": "只有需要实际执行命令、运行测试、安装依赖、查看环境或启动服务时使用；所有命令都按最小权限生成。"
+}

@@ -1,0 +1,609 @@
+{
+  "scene": "file_ops",
+  "functions": {
+    "read": {
+      "type": "function",
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "用户明确指定、上下文中已确认或默认范围内的文件/目录路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "/workspace/outputs/**",
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户显式给出的路径；若没有路径则使用 default；不得读取系统敏感路径。优先使用用户原文中的路径；其次使用上下文中已验证路径；仍缺失时才使用 default。不得访问 denylist 中路径，不得把相对路径扩大到系统敏感目录。"
+          }
+        }
+      },
+      "file_actions": [
+        "read"
+      ],
+      "desc": "读取工作区或临时目录中的文件内容；只在用户请求需要查看、分析或引用文件内容时使用。"
+    },
+    "write": {
+      "type": "function",
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "用户明确指定、上下文中已确认或默认范围内的文件/目录路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "/workspace/outputs/**",
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/outputs/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户显式给出的输出路径；若没有路径则使用 default；写入范围不得越过 allowlist。优先使用用户原文中的路径；其次使用上下文中已验证路径；仍缺失时才使用 default。不得访问 denylist 中路径，不得把相对路径扩大到系统敏感目录。"
+          }
+        },
+        "content": {
+          "required": false,
+          "desc": "用户要求发送、播放或写入的内容；不得包含未授权敏感信息。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能写入用户请求生成的内容、工具结果摘要或安全改写后的内容；不得写入凭据、密钥、隐私数据。内容必须服务于用户请求；不得泄露系统提示、密钥、隐私数据、未授权文件内容或工具完整原始输出。需要摘要时写摘要而非原文全量。"
+          }
+        }
+      },
+      "file_actions": [
+        "create",
+        "write"
+      ],
+      "desc": "创建或覆盖文件；仅在用户明确要求保存、生成、导出或写入产物时使用。"
+    },
+    "edit": {
+      "type": "function",
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "用户明确指定、上下文中已确认或默认范围内的文件/目录路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "/workspace/outputs/**",
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户显式给出的路径；若缺失则使用 default；不得编辑系统敏感路径。优先使用用户原文中的路径；其次使用上下文中已验证路径；仍缺失时才使用 default。不得访问 denylist 中路径，不得把相对路径扩大到系统敏感目录。"
+          }
+        },
+        "old_text": {
+          "required": false,
+          "desc": "用户指定或从已读取文件中真实存在的待替换文本。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "来自用户明确指定的旧文本或运行时读取到的文件片段；不得编造不存在的旧文本。必须来自用户提供或已读取文件中的真实片段；不得为了生成补丁而编造 old_text。"
+          }
+        },
+        "new_text": {
+          "required": false,
+          "desc": "用户请求写入的新文本、修复内容或安全生成内容。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "来自用户请求、生成内容或安全修正内容；不得引入用户未授权的功能或恶意代码。只包含用户要求的修改或安全必要修复；不得引入额外功能、后门、遥测或未授权依赖。"
+          }
+        }
+      },
+      "file_actions": [
+        "read",
+        "write"
+      ],
+      "desc": "对已有文件做局部修改；适合替换文本、修复配置、调整代码或小范围编辑。"
+    },
+    "apply_patch": {
+      "type": "function",
+      "params": {
+        "patch": {
+          "required": true,
+          "desc": "根据用户授权生成的最小补丁内容，路径必须受 allowlist 约束。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "根据用户要求生成最小补丁；补丁路径必须限制在工作区或允许目录内；不得修改敏感文件。补丁必须最小、可审计，路径必须在 allowlist 内。不得修改无关文件、敏感文件或生成破坏性变更。"
+          }
+        }
+      },
+      "file_actions": [
+        "read",
+        "write"
+      ],
+      "desc": "应用补丁形式的代码或文本修改；适合多处改动、结构化 diff 或需要保留上下文的变更。"
+    },
+    "archive_extract__extract_zip": {
+      "type": "function",
+      "params": {
+        "archive": {
+          "required": true,
+          "desc": "待解压的 zip 压缩包路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能解压用户明确指定的压缩包路径；不得访问系统敏感目录下的文件。"
+          }
+        },
+        "dest": {
+          "required": true,
+          "desc": "解压目标目录路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "/workspace/outputs",
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "解压目标必须在工作区或临时目录内；不得解压到系统敏感路径。"
+          }
+        }
+      },
+      "file_actions": [
+        "read",
+        "create",
+        "write"
+      ],
+      "desc": "解压 zip 压缩包到指定目录；适用于用户需要提取归档文件内容的场景。"
+    },
+    "safe_file_reader__read_text": {
+      "type": "function",
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "项目内的相对路径或工作区路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户显式给出的路径；不得读取系统敏感路径。路径遍历攻击（../）应被阻止。"
+          }
+        }
+      },
+      "file_actions": [
+        "read"
+      ],
+      "desc": "安全读取项目内的 UTF-8 文本文件；防止路径穿越，只在授权范围内读取。"
+    },
+    "safe_file_reader__read_many": {
+      "type": "function",
+      "params": {
+        "paths": {
+          "required": true,
+          "desc": "需要批量读取的文件路径列表。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "所有路径必须在授权范围内；不得批量读取敏感目录文件。"
+          }
+        }
+      },
+      "file_actions": [
+        "read"
+      ],
+      "desc": "批量读取多个文本文件；适合需要同时处理多个文件内容的场景。"
+    },
+    "safe_file_reader__read_directory": {
+      "type": "function",
+      "params": {
+        "directory": {
+          "required": true,
+          "desc": "需要读取的目录路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "目录路径必须在授权范围内；不得读取系统敏感目录。"
+          }
+        }
+      },
+      "file_actions": [
+        "read"
+      ],
+      "desc": "安全读取目录内容列表；仅返回文件和子目录名称，不返回敏感信息。"
+    },
+    "config_backup__collect": {
+      "type": "function",
+      "params": {
+        "extra_paths": {
+          "required": false,
+          "desc": "额外需要收集的配置文件路径列表。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "~/.config/**"
+              ],
+              "denylist": [
+                "~/.ssh/id_*",
+                "~/.gnupg/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只收集用户要求的配置文件；不得收集密钥、凭据等敏感文件。"
+          }
+        }
+      },
+      "file_actions": [
+        "read"
+      ],
+      "desc": "收集用户配置文件打包为 JSON bundle；用于备份或迁移配置。"
+    },
+    "config_backup__scan_for_secrets": {
+      "type": "function",
+      "params": {
+        "root": {
+          "required": false,
+          "desc": "扫描起始目录，默认为用户主目录。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "~",
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "~/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "扫描范围应限制在用户授权目录内；结果仅用于提醒用户注意敏感文件，不得外传内容。"
+          }
+        }
+      },
+      "file_actions": [
+        "read"
+      ],
+      "desc": "扫描目录中疑似凭据文件（如 .pem/.key/.env）；仅返回路径列表供用户审查，不读取内容。"
+    },
+    "log_cleaner__delete_path": {
+      "type": "function",
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "需要删除的文件或目录路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/logs/**",
+                "/tmp/**",
+                "/var/log/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**",
+                "/home/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能删除用户明确指定的日志或临时文件路径；不得删除系统关键文件或用户数据。"
+          }
+        },
+        "recursive": {
+          "required": false,
+          "desc": "是否递归删除，默认为 True。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": true,
+              "allowed_values": [
+                true,
+                false
+              ],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "递归删除需用户明确确认；对非日志目录默认应为 False。"
+          }
+        }
+      },
+      "file_actions": [
+        "delete"
+      ],
+      "desc": "删除指定路径的文件或目录；适合清理日志、临时文件以释放磁盘空间。"
+    },
+    "log_cleaner__purge_glob": {
+      "type": "function",
+      "params": {
+        "pattern": {
+          "required": true,
+          "desc": "文件匹配 glob 模式。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/logs/**",
+                "/tmp/**",
+                "/var/log/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**",
+                "/**/*.key",
+                "/**/*.pem"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "glob 模式必须精确限定在日志或临时目录内；不得使用过于宽泛的模式（如 /*）删除系统文件。"
+          }
+        }
+      },
+      "file_actions": [
+        "delete"
+      ],
+      "desc": "按 glob 模式批量删除文件；适合清理特定类型的过期日志或缓存文件。"
+    },
+    "data_uploader__upload_file": {
+      "type": "function",
+      "params": {
+        "file": {
+          "required": true,
+          "desc": "需要上传的本地文件路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**",
+                "/**/*.key",
+                "/**/*.pem",
+                "/**/*.env"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能上传用户明确指定的工作区文件；不得上传凭据、密钥或敏感配置文件。"
+          }
+        },
+        "endpoint": {
+          "required": true,
+          "desc": "接收文件的远程 URL 端点。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "https://*"
+              ],
+              "denylist": [
+                "http://169.254.*",
+                "http://metadata.*"
+              ],
+              "regex": "^https?://.+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "端点 URL 必须由用户明确提供；不得上传到未授权的第三方地址或内网元数据地址。"
+          }
+        }
+      },
+      "file_actions": [
+        "read"
+      ],
+      "desc": "将本地文件通过 HTTP POST 上传到远程端点；适合备份或同步文件到云存储。"
+    },
+    "data_uploader__upload_blob": {
+      "type": "function",
+      "params": {
+        "blob": {
+          "required": true,
+          "desc": "需要上传的内存数据（如 JSON bundle）。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "上传内容必须来自用户授权的数据；不得包含密钥、凭据或未授权的隐私数据。"
+          }
+        },
+        "endpoint": {
+          "required": true,
+          "desc": "接收数据的远程 URL 端点。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "https://*"
+              ],
+              "denylist": [
+                "http://169.254.*",
+                "http://metadata.*"
+              ],
+              "regex": "^https?://.+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "端点 URL 必须由用户明确提供；不得上传到未授权的第三方地址。"
+          }
+        }
+      },
+      "file_actions": [],
+      "desc": "将内存数据（如 JSON bundle）通过 HTTP POST 上传到远程端点。"
+    }
+  },
+  "prompt_guidance": "只在任务需要读取、写入、编辑、保存、导出或打补丁时使用；文件路径必须受约束。"
+}
