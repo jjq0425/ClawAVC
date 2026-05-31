@@ -37,6 +37,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
 from .ir_client import translate as ir_translate
+from .proc_info import collect_for_round
 from .judge import judge
 
 
@@ -169,6 +170,11 @@ class RoundLedger:
 
     start_printed: bool = False
     end_printed: bool = False
+
+    # Path of the OpenClaw session JSONL whose first event opened this round.
+    # Used by _on_round_start to find the writing process and snapshot its
+    # security/process context.
+    source_file: str = ""
 
     def status(self) -> str:
         if self.failed:
@@ -406,7 +412,11 @@ class RoundStateMachine:
         r = self.rounds.get(round_id)
         if r is None:
             r = RoundLedger(round_id=round_id, session_key=session_key)
+            r.source_file = ev.source_file or ""
             self.rounds[round_id] = r
+        elif not r.source_file and ev.source_file:
+            # Backfill if a later event from the same file is the first we saw with a path.
+            r.source_file = ev.source_file
 
         if session_key != "unknown":
             self.active_by_session[session_key] = round_id
@@ -1148,6 +1158,10 @@ class MonitorOrchestrator:
         self._round_ir_results: Dict[str, Dict] = {}
         self._round_queries: Dict[str, str] = {}
         self._round_workers: Dict[str, threading.Thread] = {}
+        # Cache the OpenClaw main process across rounds: (pid, starttime_ticks).
+        # If the cached PID still exists with the same starttime at the next
+        # round_start, proc_info.collect_for_round skips its full /proc scan.
+        self._main_pid_cache = None
 
         self.sm = RoundStateMachine(
             on_round_start=self._on_round_start,
@@ -1177,7 +1191,43 @@ class MonitorOrchestrator:
         session_id = r.ids.get("session_id") or r.ids.get("sessionId") or ""
         # 从 API 读取当前攻击配置（key 空=全部），作为本轮快照随上报固化
         attack_config = get_attack_config_snapshot()
-        report_to_clawavc({"event": "start", "round_id": r.round_id, "time_start": format_bj_time(), "session_key": session_key, "session_id": session_id, "attack_config": attack_config})
+
+        # Snapshot the OpenClaw main agent process and ALL its tool-calling
+        # subprocesses (each with their own SELinux/AppArmor label). The
+        # main process is located via cmdline match against 'openclaw' (with
+        # cwd boost when it's under self.openclaw_log_root) — NOT via fd
+        # writers of the JSONL, since most loggers close-and-reopen on each
+        # write. Result is cached across rounds via _main_pid_cache.
+        pid_info = ""
+        try:
+            pid_info_data = collect_for_round(
+                openclaw_root=str(self.openclaw_log_root) if self.openclaw_log_root else "",
+                jsonl_path=r.source_file or "",
+                cached_main=self._main_pid_cache,
+            )
+            disc = pid_info_data.get("discovery") or {}
+            main_obj = pid_info_data.get("main") or {}
+            main_pid = main_obj.get("pid")
+            main_starttime = (main_obj.get("start_time") or {}).get("clock_ticks")
+            if main_pid and main_starttime is not None:
+                self._main_pid_cache = (main_pid, main_starttime)
+
+            pid_info = json.dumps(pid_info_data, ensure_ascii=False, default=str)
+            descendants_count = len(pid_info_data.get("descendants") or [])
+            print(
+                f"[monitor] pid_info captured: "
+                f"pid={main_pid} method={disc.get('method')} "
+                f"main_label={pid_info_data.get('main_selinux_label')!r} "
+                f"descendants={descendants_count} "
+                f"ms={pid_info_data.get('collect_duration_ms')}",
+                flush=True,
+            )
+            if pid_info_data.get("error"):
+                print(f"[monitor] pid_info note: {pid_info_data['error']}", flush=True)
+        except Exception as e:
+            print(f"[monitor] pid_info capture failed: {e}", flush=True)
+
+        report_to_clawavc({"event": "start", "round_id": r.round_id, "time_start": format_bj_time(), "session_key": session_key, "session_id": session_id, "attack_config": attack_config, "pid_info": pid_info})
 
         t = threading.Thread(target=self._query_and_ir_worker, args=(r.round_id, r.started_at), daemon=True)
         self._round_workers[r.round_id] = t

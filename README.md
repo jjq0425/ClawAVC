@@ -36,6 +36,9 @@
 - [核心能力](#核心能力)
 - [检测引擎](#检测引擎)
 - [快速部署](#快速部署)
+- [内置监控](#内置监控)
+- [进程 & 安全上下文采集](#进程--安全上下文采集)
+- [模拟攻击](#模拟攻击)
 - [页面模块](#页面模块)
 - [权限体系](#权限体系)
 - [API 文档](#api-文档)
@@ -124,6 +127,10 @@ Backend 持久化到 SQLite + WebSocket 推送到前端
 ### 可视化审计
 
 卡片式设计，分组展示 Access（行为轨迹）、View（意图策略）、Compliance（合规判定），支持折叠展开，一目了然。
+
+### 进程 & 安全上下文回放
+
+每一轮 ROUND_START 都会主动定位 OpenClaw 主进程，连同它启动的所有工具调用子进程一并采集 SELinux/AppArmor 标签、capabilities、namespaces、cgroup、loginuid、容器运行时等信息，作为 `pid_info` JSON 快照固化到本轮记录中。审计时可完整回放"谁在跑、跑在什么标签下、能做什么"。详见 [进程 & 安全上下文采集](#进程--安全上下文采集)。
 
 ---
 
@@ -253,6 +260,135 @@ ClawAVC 自带一个轻量监控引擎，无需外部 orchestrator 也能独立�
 > 整个过程完全异步，不阻塞 Agent 正常运行。
 >
 > 📦 默认从 OpenClaw 日志直接解析（零额外依赖），也支持从 Portkey 网关获取更丰富的 trajectory 数据。
+>
+> 🛡 每一轮 ROUND_START 都会**主动定位 OpenClaw 主进程**并枚举它派生的工具调用子进程，逐个抓 SELinux/AppArmor 标签、capabilities、namespaces、cgroup、loginuid 等，作为 `pid_info` JSON 快照固化到 `rounds.pid_info`。详见下一节「[进程 & 安全上下文采集](#进程--安全上下文采集)」。
+
+---
+
+## 进程 & 安全上下文采集
+
+ClawAVC 内置了一个独立模块 [`backend/auditor/monitor/proc_info.py`](./backend/auditor/monitor/proc_info.py)（与 `watcher.py` 平级），在每次 ROUND_START 时**主动定位 OpenClaw 主进程**并采集它本身和它启动的工具调用子孙进程的完整安全上下文。结果作为 JSON 字符串写入 `rounds.pid_info` 字段，可在前端审计卡片上完整回放本轮的"谁在跑、跑在什么标签下"。
+
+### 为什么不靠扫日志文件 fd
+
+最直觉的做法是「谁打开了 session.jsonl 谁就是 OpenClaw」，但**绝大多数 logger 写一行就 flush + close fd**，watcher 拿到事件那一刻 fd 早已关闭，扫 `/proc/*/fd/` 是空的。所以 ClawAVC 改用**主动启发式定位**：基于 `cmdline`、`comm`、`cwd` 三路信号定位主进程，再从主进程反向遍历进程树枚举所有活着的工具子进程。
+
+### 主进程定位策略
+
+| 优先级 | 方法 | 说明 |
+|:--:|------|------|
+| 0 | `cached` | 上一轮的 `(pid, starttime_ticks)` 仍存活且 starttime 未变 → 直接复用，跳过整次 `/proc` 扫描 |
+| 1 | `cmdline_match` | 扫所有进程的 `argv` 与 `comm`，按评分制选最佳候选（精确匹配 100，前缀匹配 95，路径组件匹配 60，等） |
+| 2 | `cwd_boost` | 候选的 `cwd` 在 `openclaw_root` 目录下时 +20 加权（用于多个 OpenClaw 实例时消歧） |
+| 3 | `fd_writer_fallback` | 兜底：扫 fd 表找 jsonl 写入者（多数 logger 行不通） |
+
+**默认黑名单**（`comm_blacklist`）—— 这些进程**永远不算** OpenClaw，即使它们的 `cwd` 或参数里碰巧含 `openclaw`：
+`bash / sh / zsh / fish / dash / ksh / csh / tmux / tmux: server / screen / sudo / su / systemd / init / login / sshd / agetty / ...`
+
+**默认排除关键字**（`exclude_keywords`）：`clawavc / claw-avc / claw_avc` —— 防止 ClawAVC 自身被误识别为被监控对象。
+
+### 每个进程采集到的字段
+
+| 类别 | 字段 |
+|------|------|
+| **身份** | pid, ppid, tgid, comm, cmdline, argv, exe, cwd, root（chroot 检测） |
+| **凭证** | uid 四元组（real/effective/saved/fs，自动解析用户名）、gid 四元组、附加组、**loginuid**（审计登录 uid）、**audit_session_id** |
+| **资源** | state、threads、vm_rss/size/peak/swap_kb、num_fds、`/proc/<pid>/io` 全部计数器 |
+| **能力（caps）** | CapInh / CapPrm / CapEff / CapBnd / CapAmb 全部按位**解码成 41 个 cap 名**（CAP_SYS_ADMIN…），同时保留原始 hex |
+| **沙箱** | seccomp 模式（disabled / strict / filter）、no_new_privs、**全部 9~10 个 namespaces 的 inode**（mnt/pid/net/uts/ipc/cgroup/user/time/`pid_for_children`/`time_for_children`） |
+| **MAC 标签** | `/proc/<pid>/attr/{current,exec,prev,fscreate,keycreate,sockcreate}` —— 同时覆盖 SELinux 与 AppArmor |
+| **容器/cgroup** | cgroup 全文 + 自动识别 docker / kubernetes / cri-o / podman / containerd / lxc |
+| **环境** | 白名单环境变量（PATH / USER / HOME / LANG / CONTAINER 等，规避秘密泄漏） |
+| **启动时间** | clock_ticks → epoch → ISO（精确到秒） |
+| **fd 采样** | num_fds + 前 20 个 fd 的目标路径 |
+
+### 一次 ROUND_START 输出示例
+
+```jsonc
+{
+  "openclaw_root": "/root/.openclaw",
+  "jsonl_path": "/root/.openclaw/agents/main/sessions/<uuid>.jsonl",
+  "captured_at": "2026-05-31T22:30:00+08:00",
+  "discovery": {
+    "method": "cmdline_match",       // 或 "cached" / "fd_writer_fallback"
+    "candidates_count": 1,
+    "selected_pid": 1017536,
+    "selected_score": 95,
+    "selected_reason": "score=95"
+  },
+  "main": {                          // 完整 collect_pid_info
+    "pid": 1017536,
+    "comm": "openclaw-gatewa",
+    "cmdline": "openclaw-gateway",
+    "exe": "/usr/bin/node",
+    "uid": { "real": 0, "effective": 0, "real_name": "root", "effective_name": "root" },
+    "capabilities": { "effective": ["CAP_CHOWN", "CAP_SYS_ADMIN", ... 41 项], ... },
+    "seccomp": "disabled",
+    "no_new_privs": false,
+    "security_labels": {
+      "current": "unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023",
+      "prev":    "unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023"
+    },
+    "namespaces": { "mnt": "mnt:[4026531841]", "pid": "pid:[4026531836]", ... },
+    "cgroups": [...], "container": null,
+    "loginuid": 0, "audit_session_id": 23,
+    "start_time": { "clock_ticks": 558931836, "iso": "2026-05-25T12:30:11+08:00" }
+  },
+  "ancestors": [ /* 4 层父链 (pid/comm/cmdline/exe/user/label) */ ],
+  "descendants": [
+    {
+      "pid": 1660195, "depth": 1, "comm": "python3",
+      "cmdline": "python3 /home/hx/.../tools/safe_file_reader/server.py",
+      "user": "root",
+      "security_labels": { "current": "unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023" }
+    }
+    /* ... 还有 10 个工具调用子进程 */
+  ],
+
+  // 顶层 shortcut：方便前端按工具 PID 直接列展、做异常对比
+  "main_selinux_label":   "unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023",
+  "main_exec_label":      null,
+  "tool_subprocess_labels": [
+    { "pid": 1660195, "comm": "python3",
+      "cmdline": "...safe_file_reader/server.py",
+      "label": "unconfined_u:..." }
+    /* ... */
+  ],
+
+  "system": {
+    "selinux":  { "mode": "permissive", "policyvers": "33", "mls": "1" },
+    "apparmor": { "enabled": false },
+    "kernel":   "Linux version 5.14.0-...",
+    "hostname": "..."
+    // 故意不包含 ClawAVC 后端自身的 SELinux label —— 我们只关心被监控目标
+  },
+
+  "collect_duration_ms": 43
+}
+```
+
+### 性能
+
+- 单次采集典型 **40–80 ms**（root + 标准服务器规模 `/proc`）
+- `_main_pid_cache` 命中 (`method=cached`) 时只扫一棵进程树，不再扫整个 `/proc`
+- 任何采集失败被 watcher 静默捕获，**不阻塞** round 上报；日志会落 `[monitor] pid_info note: ...`
+
+### 独立调试
+
+```bash
+cd backend
+uv run python3 auditor/monitor/proc_info.py \
+    --openclaw-root /root/.openclaw \
+    --hint openclaw \
+    --ancestors 4 --descendants-depth 6 --descendants-max 64
+```
+直接打印 JSON 结果，可用于排查"为什么这台机器上 OpenClaw 没被定位到"。
+
+### 安全约束
+
+- **不**采集任意进程的环境变量原文（仅白名单），避免 token / API key 通过 `pid_info` 落到 DB
+- **不**采集 ClawAVC 后端自身的 SELinux label —— 我们只关心被监控目标
+- 所有读取均 best-effort：`FileNotFoundError` / `PermissionError` 都被静默吞掉，不影响整体快照
 
 ---
 
@@ -576,7 +712,8 @@ clawAVC/
 │   │   └── monitor/           # 内置监控模块
 │   │       ├── watcher.py     # OpenClaw日志监听 + 网关解析 + 调度
 │   │       ├── ir_client.py   # 调用翻译接口获取 IR
-│   │       └── judge.py       # 用户态行为合规判定引擎
+│   │       ├── judge.py       # 用户态行为合规判定引擎
+│   │       └── proc_info.py   # OpenClaw 主进程定位 + 工具子进程 SELinux/caps/ns 采集
 │   ├── pyproject.toml         # uv 依赖声明
 │   ├── requirements.txt       # pip 兼容依赖
 │   └── .venv/                 # Python 虚拟环境（git ignored）

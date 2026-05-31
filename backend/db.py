@@ -35,13 +35,16 @@ def init_db():
             is_abnormal INTEGER DEFAULT 0,
             overall_score REAL DEFAULT 1.0,
             attack_config TEXT DEFAULT '',
+            pid_info TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # Migration: add attack_config column for existing databases
+    # Migration: add columns added after initial release
     cols = [r[1] for r in conn.execute("PRAGMA table_info(rounds)").fetchall()]
     if "attack_config" not in cols:
         conn.execute("ALTER TABLE rounds ADD COLUMN attack_config TEXT DEFAULT ''")
+    if "pid_info" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN pid_info TEXT DEFAULT ''")
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_rounds_time ON rounds(time_start DESC)
     """)
@@ -113,10 +116,12 @@ def insert_round(data: Dict[str, Any]) -> Optional[int]:
 
 
 def insert_round_start(round_id: str, time_start: str, session_key: str, session_id: str,
-                       attack_config: str = "") -> Optional[int]:
+                       attack_config: str = "", pid_info: str = "") -> Optional[int]:
     """Insert a round record at ROUND_START (partial data, no score yet).
 
     attack_config: 当前攻击配置的完整 JSON 快照，在 round 开始时固化保存。
+    pid_info: OpenClaw 进程及其安全/隔离上下文（PID、SELinux/AppArmor、capabilities、
+              namespaces、cgroup、ancestors 等）的 JSON 快照。
     """
     conn = get_conn()
     try:
@@ -124,11 +129,11 @@ def insert_round_start(round_id: str, time_start: str, session_key: str, session
             INSERT OR IGNORE INTO rounds
             (round_id, time_start, time_end, session_key, session_id,
              user_query, last_llm_message, action_json, ir_json,
-             judge_result, is_abnormal, overall_score, attack_config)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             judge_result, is_abnormal, overall_score, attack_config, pid_info)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             round_id, time_start, "", session_key, session_id,
-            "", "", "[]", "{}", "", 0, -1.0, attack_config,
+            "", "", "[]", "{}", "", 0, -1.0, attack_config, pid_info,
         ))
         conn.commit()
         return cursor.lastrowid if cursor.rowcount > 0 else None

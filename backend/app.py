@@ -83,12 +83,17 @@ def report_round():
         attack_config = data.get("attack_config")
         if attack_config is None:
             attack_config = json.dumps(_read_all_attack_config(), ensure_ascii=False)
+        # pid_info 由 monitor 在 ROUND_START 时通过扫描 /proc 采集（OpenClaw 进程 PID、
+        # SELinux/AppArmor 标签、capabilities、namespaces、cgroup、ancestors 等），
+        # 直接以已编码的 JSON 字符串透传；缺省存空串。
+        pid_info = data.get("pid_info") or ""
         row_id = db.insert_round_start(
             round_id=round_id,
             time_start=data.get("time_start", ""),
             session_key=data.get("session_key") or data.get("sessionKey", ""),
             session_id=data.get("session_id") or data.get("sessionID", ""),
             attack_config=attack_config,
+            pid_info=pid_info,
         )
         if row_id:
             record = db.get_round_by_id(round_id)

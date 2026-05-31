@@ -74,12 +74,14 @@
 #### db.py — SQLite 数据层
 
 **表结构:**
-- `rounds` — round_id, time_start, time_end, session_key, session_id, user_query, last_llm_message, action_json, ir_json, judge_result, is_abnormal, overall_score
+- `rounds` — round_id, time_start, time_end, session_key, session_id, user_query, last_llm_message, action_json, ir_json, judge_result, is_abnormal, overall_score, attack_config, **pid_info**
 - `config` — key (TEXT PRIMARY KEY), value (TEXT)
 - `translation_log` — 翻译日志
 
+> `pid_info` 是 `TEXT`，存 watcher 在 ROUND_START 时采集的 OpenClaw 主进程 + 子孙工具进程的 JSON 快照（PID/cmdline/exe/SELinux 标签/capabilities/namespaces/cgroup/ancestors 等）。详见 [`auditor/monitor/proc_info.py`](#proc_infopy--进程--安全上下文采集) 一节。`init_db()` 自带 `ALTER TABLE rounds ADD COLUMN pid_info TEXT DEFAULT ''` 迁移，存量库无需手动改。
+
 **关键函数:**
-- `insert_round_start(round_id, time_start, session_key, session_id)` — ROUND_START 时插入占位记录(score=-1)
+- `insert_round_start(round_id, time_start, session_key, session_id, attack_config="", pid_info="")` — ROUND_START 时插入占位记录(score=-1)，attack_config / pid_info 一并固化
 - `update_round_end(round_id, data)` — ROUND_END 时更新完整数据
 - `insert_round(data)` — 兼容旧 orchestrator 的直接上报
 - `get_rounds(limit, offset, query, round_id, time_from, time_to)` — 返回 {total, data}
@@ -99,13 +101,15 @@
 
 #### auditor/monitor/ — 内置监控模块
 
-三个文件分工:
-1. **watcher.py** — 核心协调器 (~1100行)
+四个文件分工:
+1. **watcher.py** — 核心协调器 (~1370行)
    - `RoundStateMachine` — 从 OpenClaw 日志检测 round 开始/结束
+   - `RoundLedger.source_file` — 记录本轮第一条事件来自哪个 JSONL 文件，供 `_on_round_start` 用作 `proc_info.collect_for_round` 的 `jsonl_path` 入参
    - `FileTailer` — 尾随读取 .jsonl 日志文件
    - `MonitorOrchestrator` — 主循环, 协调 watcher + gateway + IR + judge
+     - 持有 `_main_pid_cache: Optional[Tuple[int, int]]` —— `(pid, starttime_ticks)` 二元组，跨 round 复用 OpenClaw 主进程定位结果
    - Gateway 日志解析: 适配 Portkey 的 requestOptions 嵌套结构
-   - ROUND_START → 后台线程轮询 query → 请求 IR
+   - ROUND_START → 调 `proc_info.collect_for_round` 抓 pid_info → 后台线程轮询 query → 请求 IR
    - ROUND_END → 等 IR → 解析 actions → judge → 上报
 
 2. **ir_client.py** — HTTP 客户端
@@ -117,11 +121,26 @@
    - 三维检测: 工具调用一致性 + 参数一致性 + 资源访问一致性
    - LayeredCheckResult → layered_result_to_text()
 
+4. **proc_info.py** — 进程 & 安全上下文采集（纯 stdlib，读 `/proc`）
+   - `collect_for_round(openclaw_root, jsonl_path, hint_keywords, exclude_keywords, cached_main, ...)` — 顶层入口
+   - `find_openclaw_main_pid(...)` — cmdline + cwd 启发式定位 OpenClaw 主进程（**不依赖 jsonl fd**）
+   - `find_descendants(root_pid, max_depth, max_count)` — 反向遍历进程树枚举工具调用子孙进程，每个带 SELinux current label
+   - `collect_pid_info(pid)` / `collect_pid_slim(pid)` — 完整 / 精简版单 PID 采集
+   - `collect_ancestors(pid, max_depth)` — 父链
+   - `collect_system_context()` — SELinux 模式 / AppArmor / kernel / hostname
+   - `find_pids_writing(file_path)` — fd-writer 兜底（多数 logger close-and-reopen 时不可用）
+
 **Monitor 工作流:**
 ```
-OpenClaw 日志变化 → FileTailer 读取 → parse_line → RoundStateMachine
+OpenClaw 日志变化 → FileTailer 读取 → parse_line(line, source_file) → RoundStateMachine
   ├─ user_inbound/turn_started → _on_round_start
-  │   ├─ report_to_clawavc(event=start) → DB 插入 + WebSocket 推送
+  │   ├─ proc_info.collect_for_round(openclaw_root, jsonl_path=r.source_file,
+  │   │                              cached_main=self._main_pid_cache)
+  │   │   → {discovery, main, ancestors, descendants, main_selinux_label,
+  │   │      tool_subprocess_labels[], system, collect_duration_ms}
+  │   │   → 更新 self._main_pid_cache = (main_pid, starttime_ticks)
+  │   ├─ report_to_clawavc(event=start, attack_config=..., pid_info=<json>)
+  │   │                                  → DB 插入 + WebSocket 推送
   │   └─ 启动 _query_and_ir_worker 线程
   │       ├─ 轮询网关日志找 user_query (max 30s)
   │       ├─ 找到 → report(ir_json="__loading__") → 前端显示转圈
@@ -334,6 +353,135 @@ socketio.emit("push", {"push_type": "round_start", "round_id": "...", ...}, name
 round_id = user message 的 `id` 字段
 session_key = 从路径推断 `agent:main:main`
 
+## proc_info.py — 进程 & 安全上下文采集
+
+ROUND_START 时由 watcher 调用，**主动定位 OpenClaw 主进程**并枚举它所有活着的工具调用子孙进程，每个带 SELinux/AppArmor 标签 + capabilities + namespaces 等。结果作为 `pid_info` 字段（JSON 字符串）随 start 事件落到 `rounds.pid_info`。
+
+### 设计动机
+- OpenClaw 多数 logger 写一行就 flush + close fd，**不能**靠扫 `/proc/*/fd/*` 找写入者
+- 真正想要的是**被监控对象**（OpenClaw 主进程）和它启动的工具子进程的安全上下文，**不是** ClawAVC 后端自己的 label
+
+### 主进程定位策略（按优先级）
+| Step | 方法 | 说明 |
+|------|------|------|
+| 0 | `cached` | 上一轮的 `(pid, starttime_ticks)` 仍存活且 starttime 未变 → 直接复用，跳过整次 `/proc` 扫 |
+| 1 | `cmdline_match` | 扫 `/proc/*/cmdline` + `/proc/*/comm`，按评分制选最佳候选 |
+| 2 | `cwd_boost` | 候选的 cwd 在 `openclaw_root` 之下时 +20 加权 |
+| 3 | `fd_writer_fallback` | 兜底：扫 fd 表找 jsonl 写入者（多数 logger 行不通） |
+
+**评分规则**（`_cmdline_match_score`）：
+- 100 — `argv[0]` basename **完全等于** hint（如 `openclaw`）
+- 95 — `argv[0]` basename 以 `<hint>-` / `<hint>_` 开头（如 `openclaw-gateway`）
+- 80 — hint 是 `argv[0]` basename 子串
+- 70 — hint 是 `comm` 子串
+- 60 — `argv[1:]` 中存在含斜杠的路径，且某个**路径组件**含 hint（如 `/opt/openclaw/main.js`）
+- 0  — 不命中
+
+**可配置**：
+- `hint_keywords`（默认 `("openclaw",)`）
+- `exclude_keywords`（默认 `("clawavc","claw-avc","claw_avc")`）—— 阻止 ClawAVC 自身被误命中
+- `comm_blacklist`（默认含 `bash/sh/zsh/fish/dash/ksh/tmux/tmux: server/screen/sudo/su/systemd/init/login/sshd/...`）—— 这些进程**永远不算** OpenClaw，即使它们的 cwd 或 argv 含 'openclaw'
+
+### 单 PID 采集字段（`collect_pid_info`）
+| 类别 | 字段 |
+|------|------|
+| identity | pid, ppid, tgid, comm, cmdline, argv, exe, cwd, root |
+| credentials | uid 四元组 (real/eff/saved/fs) + 用户名, gid 四元组 + 组名, groups, **loginuid**, **audit_session_id** |
+| resources | state, threads, vm_rss/size/peak/swap_kb, num_fds, `/proc/<pid>/io` |
+| capabilities | CapInh / CapPrm / CapEff / CapBnd / CapAmb 全部按位**解码成 41 个 cap 名**（CAP_SYS_ADMIN…）+ 原始 hex |
+| sandbox | seccomp 模式 (disabled/strict/filter), no_new_privs |
+| **MAC 标签** | `/proc/<pid>/attr/{current,exec,prev,fscreate,keycreate,sockcreate}` —— 同时覆盖 SELinux 与 AppArmor |
+| isolation | namespaces (mnt/pid/net/uts/ipc/cgroup/user/time + `_for_children`，每个 ns inode), cgroups 全文, container 自动检测 (docker/k8s/cri-o/podman/containerd/lxc) |
+| env | 白名单（PATH/USER/HOME/LANG/CONTAINER 等），避免泄漏密钥 |
+| start_time | clock_ticks → epoch → ISO |
+| fds | num_fds + 前 20 个 fd 的目标路径采样 |
+
+精简版 `collect_pid_slim(pid)` 只保留 identity + uid + `security_labels` + state，用于 descendants 列表（避免每个工具子进程都拉完整版）。
+
+### 顶层数据结构（`collect_for_round` 返回）
+```jsonc
+{
+  "openclaw_root": "...",
+  "jsonl_path": "...",
+  "captured_at": "2026-05-31T22:30:00+08:00",
+  "discovery": {
+    "method": "cached" | "cmdline_match" | "fd_writer_fallback" | "no_match",
+    "candidates_count": 1,
+    "selected_pid": 1017536,
+    "selected_score": 95,
+    "selected_reason": "score=95"      // 或 "cwd_boost"
+  },
+  "main": { /* 完整 collect_pid_info */ },
+  "ancestors": [ /* 4 层父链 (slim) */ ],
+  "descendants": [
+    { "pid": 1660195, "depth": 1, "comm": "python3",
+      "cmdline": "python3 /home/.../safe_file_reader/server.py",
+      "exe": "/usr/bin/python3", "user": "root",
+      "security_labels": { "current": "unconfined_u:..." } }
+    /* ... */
+  ],
+  "main_selinux_label": "unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023",
+  "main_exec_label": null,                                 // 主进程下次 exec 时的目标 label
+  "tool_subprocess_labels": [
+    { "pid": 1660195, "comm": "python3",
+      "cmdline": "...", "label": "unconfined_u:..." }
+    /* … 顶层 shortcut，方便前端按工具 PID 直接列展 */
+  ],
+  "fallback_writers": [ /* 仅在 method=fd_writer_fallback 时有 */ ],
+  "system": {
+    "selinux": { "mode": "permissive|enforcing|disabled", "policyvers": "33", "mls": "1" },
+    "apparmor": { "enabled": false },
+    "kernel": "Linux version 5.14.0-...",
+    "hostname": "..."
+    // 注意：故意不包含 clawavc 后端自身的 label —— 我们只关心被监控目标
+  },
+  "collect_duration_ms": 43
+}
+```
+
+### Watcher 集成
+```python
+# auditor/monitor/watcher.py
+from .proc_info import collect_for_round
+
+class MonitorOrchestrator:
+    def __init__(self, ...):
+        self._main_pid_cache = None  # (pid, starttime_ticks)
+
+    def _on_round_start(self, r: RoundLedger):
+        ...
+        pid_info_data = collect_for_round(
+            openclaw_root=str(self.openclaw_log_root),
+            jsonl_path=r.source_file or "",
+            cached_main=self._main_pid_cache,
+        )
+        main = pid_info_data.get("main") or {}
+        if main.get("pid") and (main.get("start_time") or {}).get("clock_ticks"):
+            self._main_pid_cache = (main["pid"], main["start_time"]["clock_ticks"])
+        report_to_clawavc({"event": "start", ..., "pid_info": json.dumps(pid_info_data, default=str)})
+```
+
+`POST /api/rounds`（event=start）的 body 接受 `pid_info` 字符串字段，`db.insert_round_start` 直接写到 `rounds.pid_info`。
+
+### 性能与可靠性
+- 单次采集典型 40–80 ms（root 权限 + 标准服务器规模 /proc）
+- 任何采集失败被 watcher 捕获并落 `[monitor] pid_info capture failed: ...` / `[monitor] pid_info note: ...`，**不阻塞** round_start 上报
+- 默认排除 watcher 自身 PID，避免临时 fd 干扰
+- `_main_pid_cache` 命中时 discovery method = `cached`，整个采集只需要扫**一棵进程树**而非整个 `/proc`
+
+### 独立调试
+```bash
+cd /home/hx/jjq/clawAVC/backend
+uv run python3 auditor/monitor/proc_info.py --openclaw-root /root/.openclaw \
+  --hint openclaw --ancestors 4 --descendants-depth 6 --descendants-max 64
+```
+直接打印 JSON 结果，可用于排查"为什么这台机器上 OpenClaw 没被定位到"。
+
+### 安全约束
+- **不**采集任意进程的环境变量原文（只白名单），避免 token / API key 通过 `pid_info` 落到 DB
+- **不**采集 ClawAVC 后端自身的 SELinux label（即旧 `clawavc_self_label` 已删除）
+- 所有读取均 best-effort：FileNotFoundError / PermissionError 都被静默吞掉，不影响整体快照
+
 ## 评分机制
 
 - `overall_score > 0.5` → 合规 (绿色)
@@ -359,5 +507,6 @@ session_key = 从路径推断 `agent:main:main`
 
 ```bash
 cd /home/hx/jjq/clawAVC/backend && uv run python3 -c 'import app; print("OK")'
+cd /home/hx/jjq/clawAVC/backend && uv run python3 -c 'from auditor.monitor.proc_info import collect_for_round; import json; print(json.dumps(collect_for_round(openclaw_root="/root/.openclaw"), default=str)[:300])'
 cd /home/hx/jjq/clawAVC/frontend && npx vite build
 ```

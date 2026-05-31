@@ -36,6 +36,9 @@ Real-time Monitoring · Multi-dimensional Detection · Intent Comparison · Anom
 - [Core Capabilities](#core-capabilities)
 - [Detection Engine](#detection-engine)
 - [Quick Deployment](#quick-deployment)
+- [Built-in Monitoring](#built-in-monitoring)
+- [Process & Security Context Capture](#process--security-context-capture)
+- [Attack Simulation](#attack-simulation)
 - [Page Modules](#page-modules)
 - [Permission System](#permission-system)
 - [API Documentation](#api-documentation)
@@ -124,6 +127,10 @@ A two-stage IR translation pipeline powered by LLM transforms user natural langu
 ### Visual Auditing
 
 Card-based design with grouped display of Access (behavior traces), View (intent policies), and Compliance (verdicts), supporting collapse/expand for clear overview.
+
+### Process & Security Context Replay
+
+Every ROUND_START actively locates the OpenClaw main process and snapshots its security context — together with every live tool-calling subprocess it spawned — capturing SELinux/AppArmor labels, capabilities, namespaces, cgroup membership, audit `loginuid`, container runtime, and more. The full snapshot is persisted as `pid_info` JSON on the round record, so audits can fully replay *who was running, under what label, with what privileges*. See [Process & Security Context Capture](#process--security-context-capture).
 
 ---
 
@@ -253,6 +260,136 @@ ClawAVC includes a lightweight monitoring engine that can perform audits indepen
 > The entire process is fully asynchronous and does not block Agent operation.
 >
 > 📦 Default mode parses directly from OpenClaw logs (zero extra dependencies). Also supports Portkey gateway for richer trajectory data.
+>
+> 🛡 Each ROUND_START **actively locates the OpenClaw main process** and enumerates the tool-calling subprocesses it spawned, capturing SELinux/AppArmor labels, capabilities, namespaces, cgroup, `loginuid`, etc. for each one. The result is stored as a `pid_info` JSON snapshot on `rounds.pid_info`. See the next section, [Process & Security Context Capture](#process--security-context-capture).
+
+---
+
+## Process & Security Context Capture
+
+ClawAVC ships with a dedicated module [`backend/auditor/monitor/proc_info.py`](./backend/auditor/monitor/proc_info.py) (sibling to `watcher.py`) that, on every ROUND_START, **actively locates the OpenClaw main process** and snapshots the full security context of both that process and every live tool-calling subprocess underneath it. The result is serialised to a JSON string and written to `rounds.pid_info`, so the frontend audit card can replay exactly *who was running this round, under what label, with what privileges*.
+
+### Why not rely on log-file FDs
+
+The intuitive approach is "whoever has `session.jsonl` open is OpenClaw" — but **most loggers flush + close the FD between writes**, so by the time the watcher reacts to a new line, no FD is open. Scanning `/proc/*/fd/` returns nothing. ClawAVC therefore uses **active heuristic discovery**: identify the main process by `cmdline`, `comm`, and `cwd` signals, then walk the process tree downward to enumerate every running tool subprocess.
+
+### Main-process discovery strategy
+
+| Pri | Method | Description |
+|:--:|--------|-------------|
+| 0 | `cached` | Last round's `(pid, starttime_ticks)` is still alive with the same starttime → reuse, skip the full `/proc` scan |
+| 1 | `cmdline_match` | Scan all processes' `argv` and `comm`, score candidates (exact match 100, prefix match 95, path-component match 60, …) |
+| 2 | `cwd_boost` | Candidates whose `cwd` is under `openclaw_root` get a +20 score boost (helps disambiguate when multiple OpenClaw instances coexist) |
+| 3 | `fd_writer_fallback` | Last resort: scan FD tables for the JSONL writer (rarely works for line-buffered loggers) |
+
+**Default `comm_blacklist`** — these processes are *never* OpenClaw, even if their `cwd` or argv happens to contain `openclaw`:
+`bash / sh / zsh / fish / dash / ksh / csh / tmux / tmux: server / screen / sudo / su / systemd / init / login / sshd / agetty / ...`
+
+**Default `exclude_keywords`**: `clawavc / claw-avc / claw_avc` — prevents ClawAVC itself from being misidentified as the watched target.
+
+### Per-process fields collected
+
+| Category | Fields |
+|----------|--------|
+| **Identity** | pid, ppid, tgid, comm, cmdline, argv, exe, cwd, root (chroot detection) |
+| **Credentials** | uid quartet (real / effective / saved / fs, with auto-resolved usernames), gid quartet, supplementary groups, **loginuid** (audit login uid), **audit_session_id** |
+| **Resources** | state, threads, vm_rss/size/peak/swap_kb, num_fds, all `/proc/<pid>/io` counters |
+| **Capabilities** | CapInh / CapPrm / CapEff / CapBnd / CapAmb fully bit-decoded into 41 capability names (`CAP_SYS_ADMIN`, …), with raw hex retained |
+| **Sandbox** | seccomp mode (disabled / strict / filter), no_new_privs, **all 9–10 namespaces with their inodes** (mnt/pid/net/uts/ipc/cgroup/user/time/`pid_for_children`/`time_for_children`) |
+| **MAC labels** | `/proc/<pid>/attr/{current,exec,prev,fscreate,keycreate,sockcreate}` — covers both SELinux and AppArmor |
+| **Container/cgroup** | full cgroup file + auto-detect docker / kubernetes / cri-o / podman / containerd / lxc |
+| **Environment** | whitelisted env vars only (PATH / USER / HOME / LANG / CONTAINER, …) to avoid leaking secrets |
+| **Start time** | clock_ticks → epoch → ISO (per-second precision) |
+| **FD sample** | num_fds + the targets of the first 20 file descriptors |
+
+### Sample output for one ROUND_START
+
+```jsonc
+{
+  "openclaw_root": "/root/.openclaw",
+  "jsonl_path": "/root/.openclaw/agents/main/sessions/<uuid>.jsonl",
+  "captured_at": "2026-05-31T22:30:00+08:00",
+  "discovery": {
+    "method": "cmdline_match",       // or "cached" / "fd_writer_fallback"
+    "candidates_count": 1,
+    "selected_pid": 1017536,
+    "selected_score": 95,
+    "selected_reason": "score=95"
+  },
+  "main": {                          // full collect_pid_info
+    "pid": 1017536,
+    "comm": "openclaw-gatewa",
+    "cmdline": "openclaw-gateway",
+    "exe": "/usr/bin/node",
+    "uid": { "real": 0, "effective": 0, "real_name": "root", "effective_name": "root" },
+    "capabilities": { "effective": ["CAP_CHOWN", "CAP_SYS_ADMIN", ... 41 entries], ... },
+    "seccomp": "disabled",
+    "no_new_privs": false,
+    "security_labels": {
+      "current": "unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023",
+      "prev":    "unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023"
+    },
+    "namespaces": { "mnt": "mnt:[4026531841]", "pid": "pid:[4026531836]", ... },
+    "cgroups": [...], "container": null,
+    "loginuid": 0, "audit_session_id": 23,
+    "start_time": { "clock_ticks": 558931836, "iso": "2026-05-25T12:30:11+08:00" }
+  },
+  "ancestors": [ /* 4 levels up (pid/comm/cmdline/exe/user/label) */ ],
+  "descendants": [
+    {
+      "pid": 1660195, "depth": 1, "comm": "python3",
+      "cmdline": "python3 /home/hx/.../tools/safe_file_reader/server.py",
+      "user": "root",
+      "security_labels": { "current": "unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023" }
+    }
+    /* ... 10 more tool subprocesses */
+  ],
+
+  // Top-level shortcuts — the frontend can render per-tool labels directly
+  "main_selinux_label":   "unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023",
+  "main_exec_label":      null,
+  "tool_subprocess_labels": [
+    { "pid": 1660195, "comm": "python3",
+      "cmdline": "...safe_file_reader/server.py",
+      "label": "unconfined_u:..." }
+    /* ... */
+  ],
+
+  "system": {
+    "selinux":  { "mode": "permissive", "policyvers": "33", "mls": "1" },
+    "apparmor": { "enabled": false },
+    "kernel":   "Linux version 5.14.0-...",
+    "hostname": "..."
+    // Deliberately does NOT include the ClawAVC backend's own label —
+    // we only characterise the watched target.
+  },
+
+  "collect_duration_ms": 43
+}
+```
+
+### Performance
+
+- Typical capture latency: **40–80 ms** (root + standard server-scale `/proc`)
+- When `_main_pid_cache` hits (`method=cached`), only one process tree is walked — full `/proc` scan is skipped
+- Any failure is silently caught by the watcher and **never blocks** the round report; logs surface `[monitor] pid_info note: ...`
+
+### Standalone debugging
+
+```bash
+cd backend
+uv run python3 auditor/monitor/proc_info.py \
+    --openclaw-root /root/.openclaw \
+    --hint openclaw \
+    --ancestors 4 --descendants-depth 6 --descendants-max 64
+```
+Prints the full JSON output — useful when troubleshooting "why wasn't OpenClaw located on this host?".
+
+### Security constraints
+
+- Process environment variables are captured **only via a whitelist** — tokens / API keys never reach `pid_info`
+- The ClawAVC backend's *own* SELinux label is deliberately **not** captured — we only characterise the watched target
+- All reads are best-effort: `FileNotFoundError` / `PermissionError` are swallowed, never breaking the snapshot
 
 ---
 
@@ -579,7 +716,8 @@ clawAVC/
 │   │   └── monitor/           # Built-in monitoring module
 │   │       ├── watcher.py     # OpenClaw log watcher + gateway parser + scheduler
 │   │       ├── ir_client.py   # Calls translation API for IR
-│   │       └── judge.py       # User-space behavioral compliance judge engine
+│   │       ├── judge.py       # User-space behavioral compliance judge engine
+│   │       └── proc_info.py   # Locate OpenClaw main + capture tool subprocess SELinux/caps/ns
 │   ├── pyproject.toml         # uv dependency declarations
 │   ├── requirements.txt       # pip-compatible dependencies
 │   └── .venv/                 # Python virtual environment (git ignored)
