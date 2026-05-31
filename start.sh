@@ -79,7 +79,7 @@ fuser -k 15101/tcp 2>/dev/null
 sleep 1
 
 DAEMON=false
-DEV_MODE=false
+DEV_MODE=true
 for arg in "$@"; do
   case "$arg" in
     -d|--daemon) DAEMON=true ;;

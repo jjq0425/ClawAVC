@@ -1,6 +1,12 @@
 <template>
   <div class="db-page">
-    <h2>数据运维</h2>
+    <div class="page-header">
+      <h2>数据运维</h2>
+      <t-button variant="outline" @click="goExport()">
+        <template #icon><t-icon name="download" /></template>
+        数据导出
+      </t-button>
+    </div>
 
     <!-- Admin Session Bar -->
     <div style="margin-bottom: 16px;">
@@ -51,6 +57,7 @@
           <t-button size="small" variant="outline" @click="openDetail" :disabled="!selectedRows.length">
             <t-icon name="browse" /> 查看详情
           </t-button>
+
           <t-button size="small" theme="danger" variant="outline" @click="markDeleteSelected" :disabled="!canWrite || !hasSelectableForDelete">
             <t-icon name="delete" /> 删除选中
           </t-button>
@@ -132,10 +139,13 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue"
+import { useRouter } from "vue-router"
 import RowDetailDrawer from "../components/RowDetailDrawer.vue"
 import PrivilegeDialog from "../components/PrivilegeDialog.vue"
 import PrivilegeStatus from "../components/PrivilegeStatus.vue"
 import { MessagePlugin } from "tdesign-vue-next"
+
+const router = useRouter()
 
 const adminSession = ref("")
 const adminExpiry = ref(0)
@@ -404,11 +414,16 @@ function openDetail() {
 }
 
 function truncate(s) { return s.length > 60 ? s.slice(0, 60) + "..." : s }
+
+function goExport() {
+  router.push({ path: '/export', query: { table: selectedTable.value } })
+}
 </script>
 
 <style scoped>
 .db-page { max-width: 1100px; margin: 0 auto; }
-.db-page h2 { font-size: 20px; font-weight: 600; margin-bottom: 20px; color: #333; }
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.page-header h2 { font-size: 20px; font-weight: 600; color: #333; margin: 0; }
 
 
 
