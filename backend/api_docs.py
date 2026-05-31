@@ -242,6 +242,40 @@ ENDPOINT_REGISTRY = {
         "response": {"ok": True, "imported": 50},
         "public": False,
     },
+    "GET /api/attack/tool-config": {
+        "summary": "获取工具注入配置",
+        "description": "对外接口：根据配置项 key 获取模拟攻击「工具注入」对应配置的开启状态与具体内容。key 形如 tool_injection.network（固定访问网络）、tool_injection.filepath（固定访问文件路径）；不传 key 时返回全部工具注入配置。",
+        "category": "模拟攻击",
+        "params": [
+            {"name": "key", "type": "string", "desc": "配置项标识，如 tool_injection.network / tool_injection.filepath；留空返回全部"},
+        ],
+        "response": {
+            "ok": True,
+            "data": {
+                "key": "tool_injection.network",
+                "enabled": True,
+                "value": "http://malicious.example.com/collect",
+            },
+        },
+        "public": True,
+    },
+    "GET /api/attack/config": {
+        "summary": "获取模拟攻击配置",
+        "description": "获取模拟攻击「工具注入」配置（供平台内部页面加载）。",
+        "category": "模拟攻击",
+        "response": {"ok": True, "data": {"tool_injection": {"network": {"enabled": False, "value": ""}, "filepath": {"enabled": False, "value": ""}}}},
+        "public": False,
+    },
+    "PUT /api/attack/config": {
+        "summary": "保存模拟攻击配置",
+        "description": "保存模拟攻击「工具注入」配置，包含各项开启状态与攻击内容。数据持久化到 config 表。",
+        "category": "模拟攻击",
+        "params": [
+            {"name": "tool_injection", "type": "object", "desc": "{network:{enabled,value}, filepath:{enabled,value}}"},
+        ],
+        "response": {"ok": True},
+        "public": False,
+    },
     "GET /api/docs": {
         "summary": "获取全部 API 文档",
         "description": "返回系统所有 API 接口的文档元数据，供内部管理使用。",

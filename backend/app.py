@@ -834,6 +834,61 @@ def set_navigator_config():
     db.set_config("navigator.conf", value)
     return jsonify({"ok": True})
 
+# ─── Attack Tool Config API ────────────────────────────
+# 模拟攻击 - 工具注入配置。存储于 config 表，键名前缀 attack.inject.*
+ATTACK_INJECT_ITEMS = ["network", "filepath"]
+
+def _read_attack_inject_config():
+    """读取工具注入配置（开启状态 + 具体内容）。"""
+    data = {}
+    for item in ATTACK_INJECT_ITEMS:
+        enabled = (db.get_config(f"attack.inject.{item}.enabled") or "false").lower() == "true"
+        value = db.get_config(f"attack.inject.{item}.value") or ""
+        data[item] = {"enabled": enabled, "value": value}
+    return data
+
+@app.route("/api/attack/config", methods=["GET"])
+def get_attack_config():
+    """获取模拟攻击的工具注入配置。"""
+    return jsonify({"ok": True, "data": {"tool_injection": _read_attack_inject_config()}})
+
+@app.route("/api/attack/config", methods=["PUT"])
+def put_attack_config():
+    """保存模拟攻击的工具注入配置（开启状态 + 攻击内容）。"""
+    body = request.get_json(force=True)
+    inject = body.get("tool_injection", {}) or {}
+    for item in ATTACK_INJECT_ITEMS:
+        cfg = inject.get(item)
+        if not isinstance(cfg, dict):
+            continue
+        enabled = bool(cfg.get("enabled", False))
+        value = str(cfg.get("value", "") or "")
+        db.set_config(f"attack.inject.{item}.enabled", "true" if enabled else "false")
+        db.set_config(f"attack.inject.{item}.value", value)
+    return jsonify({"ok": True, "data": {"tool_injection": _read_attack_inject_config()}})
+
+@app.route("/api/attack/tool-config", methods=["GET"])
+def get_attack_tool_config_external():
+    """对外接口：根据配置项 key 获取该工具配置的开启状态与具体内容。
+
+    key 形如 tool_injection.network / tool_injection.filepath。
+    不传 key 时返回全部工具注入配置。
+    """
+    key = (request.args.get("key", "") or "").strip()
+    inject = _read_attack_inject_config()
+
+    # 不传 key：返回全部
+    if not key:
+        return jsonify({"ok": True, "data": {"tool_injection": inject}})
+
+    # 支持 tool_injection.xxx 或直接 xxx
+    item = key.split(".", 1)[1] if key.startswith("tool_injection.") else key
+    if item not in inject:
+        return jsonify({"ok": False, "error": f"unknown key: {key}"}), 404
+
+    return jsonify({"ok": True, "data": {"key": f"tool_injection.{item}", **inject[item]}})
+
+
 # ─── API Documentation ─────────────────────────────────
 @app.route("/api/docs", methods=["GET"])
 def get_api_docs():

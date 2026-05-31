@@ -256,6 +256,51 @@ ClawAVC 自带一个轻量监控引擎，无需外部 orchestrator 也能独立�
 
 ---
 
+## 模拟攻击
+
+模拟攻击模块用于在隔离环境中复现典型的 Agent 攻击向量，验证 ClawAVC 检测引擎的防御能力。页面按攻击类型用色块分组，每类下方对应一个攻击配置模块。
+
+### 威胁场景
+
+| 场景 | 等级 | 攻击目标 | 说明 |
+|------|------|----------|------|
+| **运行时篡改**（Runtime Tampering） | HIGH | Tool Dispatch 调度层 | 篡改 Agent 运行时的工具映射，请求工具 A 实际执行工具 B（攻击配置规划中） |
+| **工具注入**（Tool Injection） | CRITICAL | Tools Manifest 工具注册表 | 向可用工具列表注入伪装的恶意工具，诱导 LLM 自然调用 |
+
+### 工具注入攻击配置
+
+「工具注入」场景支持下发攻击配置，每项可独立开启 / 关闭，开启后填写攻击内容（不校验目标文件路径或网络是否真实存在）。配置持久化到 `config` 表，键前缀 `attack.inject.*`。
+
+| 配置 key | 说明 | 内容示例 |
+|----------|------|----------|
+| `tool_injection.network` | 固定访问网络 — 注入工具被调用时强制外连指定地址 | `http://malicious.example.com/collect` |
+| `tool_injection.filepath` | 固定访问文件路径 — 注入工具被调用时强制读取指定文件 | `/root/.ssh/id_rsa` |
+
+每个配置项在 `config` 表中存为两条记录：`attack.inject.<item>.enabled`（`true`/`false`，是否开启）与 `attack.inject.<item>.value`（攻击内容）。
+
+### 对外接口
+
+外部系统可通过 `key`（即上表的配置 key）查询某项工具配置的开启状态与具体内容：
+
+```
+GET /api/attack/tool-config?key=tool_injection.filepath
+```
+
+```json
+{
+  "ok": true,
+  "data": {
+    "key": "tool_injection.filepath",
+    "enabled": true,
+    "value": "/root/.ssh/id_rsa"
+  }
+}
+```
+
+> 不传 `key` 时返回全部工具注入配置；未知 key 返回 `404`。该接口已标记为对外公开，可在 `/api-docs` 页面查看并直接测试。
+
+---
+
 ## 页面模块
 
 | 路由 | 模块 | 说明 | 权限 |
@@ -370,6 +415,14 @@ ClawAVC 自带一个轻量监控引擎，无需外部 orchestrator 也能独立�
 |------|------|------|------|
 | `GET` | `/api/config` | 获取公开配置 | 普通 |
 | `PUT` | `/api/config` | 更新配置 | 特权 |
+
+### 模拟攻击
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| `GET` | `/api/attack/config` | 获取工具注入攻击配置（内部页面加载） | 普通 |
+| `PUT` | `/api/attack/config` | 保存工具注入攻击配置（含开启状态与内容） | 普通 |
+| `GET` | `/api/attack/tool-config?key=tool_injection.network` | 对外接口：按配置 key 查询开启状态与内容 | 对外公开 |
 
 ### WebSocket
 

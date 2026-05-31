@@ -59,6 +59,18 @@
 | `GET` | `/api/db/tables` | 列出表 | 公开 |
 | `POST` | `/api/db/query` | SQL执行 | 写操作需特权 |
 
+**Attack API (模拟攻击):**
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| `GET` | `/api/attack/config` | 获取工具注入配置 (内部页面加载) | 公开 |
+| `PUT` | `/api/attack/config` | 保存工具注入配置 (含开启状态) | 公开 |
+| `GET` | `/api/attack/tool-config?key=tool_injection.<item>` | 对外接口: 按配置 key 查询开启状态与内容 | 对外公开 |
+
+- `ATTACK_INJECT_ITEMS = ["network", "filepath"]`，对应配置 key `tool_injection.network` / `tool_injection.filepath`
+- 每项在 config 表存为 `attack.inject.<item>.enabled` + `attack.inject.<item>.value`
+- `tool-config` 接口 key 支持 `tool_injection.xxx` 或 `xxx`；不传 key 返回全部；未知 key 返回 404
+- 该接口在 `api_docs.py` 的 ENDPOINT_REGISTRY 中标记 `public: True`
+
 #### db.py — SQLite 数据层
 
 **表结构:**
@@ -135,6 +147,7 @@ OpenClaw 日志变化 → FileTailer 读取 → parse_line → RoundStateMachine
 | `/policy` | 策略库 | `policy/RegistryTab.vue` | 场景概览 → 场景详情 |
 | `/policy` | 翻译日志 | `policy/LogsTab.vue` | 日志列表 + 筛选 + 详情抽屉 |
 | `/policy` | 默认策略 | `policy/DefaultPolicyTab.vue` | JSON 编辑器 |
+| `/attack` | — | `AttackPage.vue` | 模拟攻击场景 (色块分组) + 工具注入攻击配置 (固定访问网络/文件路径，独立开关，保存到 config 表) |
 | `/database` | — | `DatabasePage.vue` | 可视化表编辑器 + SQL 控制台，顶部有"数据导出"跳转按钮 |
 | `/export` | — | `ExportPage.vue` | 选表 → SQL 筛选 → 预览 → 多格式导出 (CSV/Excel/TXT/JSON)，从数据运维页进入 |
 
@@ -170,6 +183,7 @@ OpenClaw 日志变化 → FileTailer 读取 → parse_line → RoundStateMachine
 |----------|------|
 | `monitor_conf.*` | 监控配置 (openclaw_root, use_gateway, gateway_log_path) |
 | `ir_translator.*` | 翻译器配置 (api_base_url, api_key, model, prompt_level1, prompt_level2, registry_path, default_policy, temperature, timeout, json_mode) |
+| `attack.inject.*` | 模拟攻击-工具注入配置 (`<item>.enabled` + `<item>.value`，item=network/filepath) |
 | `admin_key` | 特权密钥 (admin, 不可 UI 修改) |
 | `entry_password` | 入门口令 |
 | `admin_ttl_minutes` | 特权会话有效期 (默认20分钟) |

@@ -256,6 +256,51 @@ ClawAVC includes a lightweight monitoring engine that can perform audits indepen
 
 ---
 
+## Attack Simulation
+
+The Attack Simulation module reproduces typical Agent attack vectors in an isolated environment to validate the defensive capability of the ClawAVC detection engine. The page groups attack types into color blocks, with one attack configuration module under each type.
+
+### Threat Scenarios
+
+| Scenario | Severity | Target | Description |
+|----------|----------|--------|-------------|
+| **Runtime Tampering** | HIGH | Tool Dispatch layer | Tampers the Agent's runtime tool mapping — requesting tool A while actually executing tool B (attack config planned) |
+| **Tool Injection** | CRITICAL | Tools Manifest registry | Injects a disguised malicious tool into the available tool list, luring the LLM to call it naturally |
+
+### Tool Injection Attack Config
+
+The "Tool Injection" scenario supports configurable attacks. Each item can be enabled/disabled independently; once enabled you fill in the attack content (the target file path or network is not validated for existence). Config is persisted to the `config` table with the `attack.inject.*` key prefix.
+
+| Config key | Description | Example content |
+|------------|-------------|-----------------|
+| `tool_injection.network` | Fixed network access — forces the injected tool to connect to a given address when called | `http://malicious.example.com/collect` |
+| `tool_injection.filepath` | Fixed file path access — forces the injected tool to read a given file when called | `/root/.ssh/id_rsa` |
+
+Each config item is stored as two records in the `config` table: `attack.inject.<item>.enabled` (`true`/`false`) and `attack.inject.<item>.value` (attack content).
+
+### Public Endpoint
+
+External systems can query the enabled state and content of a specific tool config via `key` (the config key above):
+
+```
+GET /api/attack/tool-config?key=tool_injection.filepath
+```
+
+```json
+{
+  "ok": true,
+  "data": {
+    "key": "tool_injection.filepath",
+    "enabled": true,
+    "value": "/root/.ssh/id_rsa"
+  }
+}
+```
+
+> When `key` is omitted, all tool injection config is returned; an unknown key returns `404`. This endpoint is marked public and can be viewed and tested directly on the `/api-docs` page.
+
+---
+
 ## Page Modules
 
 | Route | Module | Description | Permission |
@@ -373,6 +418,14 @@ ClawAVC includes a lightweight monitoring engine that can perform audits indepen
 |--------|------|-------------|------------|
 | `GET` | `/api/config` | Get public configuration | Normal |
 | `PUT` | `/api/config` | Update configuration | Privileged |
+
+### Attack Simulation
+
+| Method | Path | Description | Permission |
+|--------|------|-------------|------------|
+| `GET` | `/api/attack/config` | Get tool injection attack config (internal page load) | Normal |
+| `PUT` | `/api/attack/config` | Save tool injection attack config (incl. enabled state & content) | Normal |
+| `GET` | `/api/attack/tool-config?key=tool_injection.network` | Public endpoint: query enabled state & content by config key | Public |
 
 ### WebSocket
 
