@@ -264,8 +264,8 @@ ClawAVC includes a lightweight monitoring engine that can perform audits indepen
 | `/` | Home | System intro, detection dimensions, anomaly threshold visualization | Entry passphrase |
 | `/monitor` | Runtime Monitor | Monitor config + real-time audit card stream (filter/pagination/WebSocket push) | Entry passphrase |
 | `/attack` | Attack Simulation | Preset malicious scenarios to validate detection capabilities (in beta) | Entry passphrase |
-| `/database` | Database Operations | Visual table editor + SQL console | Read: passphrase / Write: privileged |
-| `/export` | Data Export | Batch export training data (in beta) | Entry passphrase |
+| `/database` | Database Operations | Visual table editor + SQL console + data export entry | Read: passphrase / Write: privileged |
+| `/export` | Data Export | SQL filtering + multi-format export (CSV/Excel/TXT/JSON), accessed from Database Operations | Entry passphrase |
 | `/settings` | Platform Settings | Session management, passphrase configuration | Privileged items require privilege key |
 
 ### Runtime Monitor Detail Structure

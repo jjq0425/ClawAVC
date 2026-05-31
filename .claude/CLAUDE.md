@@ -135,6 +135,8 @@ OpenClaw 日志变化 → FileTailer 读取 → parse_line → RoundStateMachine
 | `/policy` | 策略库 | `policy/RegistryTab.vue` | 场景概览 → 场景详情 |
 | `/policy` | 翻译日志 | `policy/LogsTab.vue` | 日志列表 + 筛选 + 详情抽屉 |
 | `/policy` | 默认策略 | `policy/DefaultPolicyTab.vue` | JSON 编辑器 |
+| `/database` | — | `DatabasePage.vue` | 可视化表编辑器 + SQL 控制台，顶部有"数据导出"跳转按钮 |
+| `/export` | — | `ExportPage.vue` | 选表 → SQL 筛选 → 预览 → 多格式导出 (CSV/Excel/TXT/JSON)，从数据运维页进入 |
 
 #### 运行日志卡片结构
 ```
