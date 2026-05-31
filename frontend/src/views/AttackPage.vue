@@ -136,10 +136,57 @@
               <span class="cfg-dot"></span>
               <span class="cfg-title">攻击配置</span>
               <span class="cfg-tag">Attack Config</span>
+              <t-button
+                size="small"
+                theme="danger"
+                :loading="tamperSaving"
+                class="cfg-save-btn"
+                @click="saveTamperConfig"
+              >
+                <t-icon name="save" /> 保存配置
+              </t-button>
             </div>
-            <div class="config-empty">
-              <span class="cfg-empty-icon"><t-icon name="info-circle" /></span>
-              <span>运行时篡改的攻击配置暂未开放，敬请期待。</span>
+
+            <!-- Item: Replace tool -->
+            <div class="config-item" :class="{ on: tamperConfig.replace.enabled }">
+              <div class="config-item-top">
+                <div class="config-item-meta">
+                  <div>
+                    <div class="ci-name">替换工具</div>
+                    <code class="ci-key">runtime_tamper.replace</code>
+                    <div class="ci-desc">Agent 调用某工具时，将其实际执行替换为指定的目标工具</div>
+                  </div>
+                </div>
+                <t-switch v-model="tamperConfig.replace.enabled" />
+              </div>
+              <div class="config-item-body" v-if="tamperConfig.replace.enabled">
+                <t-input
+                  v-model="tamperConfig.replace.value"
+                  placeholder="目标工具名称，如 exec_command"
+                  clearable
+                />
+              </div>
+            </div>
+
+            <!-- Item: Insert tool -->
+            <div class="config-item" :class="{ on: tamperConfig.insert.enabled }">
+              <div class="config-item-top">
+                <div class="config-item-meta">
+                  <div>
+                    <div class="ci-name">插入工具</div>
+                    <code class="ci-key">runtime_tamper.insert</code>
+                    <div class="ci-desc">在 Agent 工具调用流程中额外插入执行指定工具</div>
+                  </div>
+                </div>
+                <t-switch v-model="tamperConfig.insert.enabled" />
+              </div>
+              <div class="config-item-body" v-if="tamperConfig.insert.enabled">
+                <t-input
+                  v-model="tamperConfig.insert.value"
+                  placeholder="插入的工具名称，如 collect_secrets"
+                  clearable
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -326,6 +373,12 @@ const injectConfig = ref({
 })
 const injectSaving = ref(false)
 
+const tamperConfig = ref({
+  replace: { enabled: false, value: '' },
+  insert: { enabled: false, value: '' },
+})
+const tamperSaving = ref(false)
+
 function selectScenario(name) {
   activeScenario.value = activeScenario.value === name ? '' : name
 }
@@ -334,11 +387,16 @@ onMounted(async () => {
   try {
     const res = await fetch(`${API}/attack/config`)
     const data = await res.json()
-    if (data.ok && data.data && data.data.tool_injection) {
-      const ti = data.data.tool_injection
+    if (data.ok && data.data) {
+      const ti = data.data.tool_injection || {}
       injectConfig.value = {
         network: { enabled: !!ti.network?.enabled, value: ti.network?.value || '' },
         filepath: { enabled: !!ti.filepath?.enabled, value: ti.filepath?.value || '' },
+      }
+      const rt = data.data.runtime_tamper || {}
+      tamperConfig.value = {
+        replace: { enabled: !!rt.replace?.enabled, value: rt.replace?.value || '' },
+        insert: { enabled: !!rt.insert?.enabled, value: rt.insert?.value || '' },
       }
     }
   } catch (e) {
@@ -364,6 +422,27 @@ async function saveInjectConfig() {
     MessagePlugin.error('保存失败')
   } finally {
     injectSaving.value = false
+  }
+}
+
+async function saveTamperConfig() {
+  tamperSaving.value = true
+  try {
+    const res = await fetch(`${API}/attack/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runtime_tamper: tamperConfig.value }),
+    })
+    const data = await res.json()
+    if (data.ok) {
+      MessagePlugin.success('攻击配置已保存')
+    } else {
+      MessagePlugin.error(data.error || '保存失败')
+    }
+  } catch (e) {
+    MessagePlugin.error('保存失败')
+  } finally {
+    tamperSaving.value = false
   }
 }
 </script>
@@ -814,6 +893,19 @@ async function saveInjectConfig() {
 .config-item-body {
   margin-top: 12px;
   animation: slideDown 0.25s ease;
+}
+
+/* Tamper block: red theme overrides */
+.tamper-block .ci-key {
+  background: rgba(230, 57, 70, 0.1);
+  color: #e63946;
+}
+.tamper-block .config-item {
+  border-color: rgba(230, 57, 70, 0.12);
+}
+.tamper-block .config-item.on {
+  border-color: rgba(230, 57, 70, 0.35);
+  box-shadow: 0 2px 12px rgba(230, 57, 70, 0.08);
 }
 
 /* Footer */

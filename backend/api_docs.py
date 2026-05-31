@@ -243,11 +243,11 @@ ENDPOINT_REGISTRY = {
         "public": False,
     },
     "GET /api/attack/tool-config": {
-        "summary": "获取工具注入配置",
-        "description": "对外接口：根据配置项 key 获取模拟攻击「工具注入」对应配置的开启状态与具体内容。key 形如 tool_injection.network（固定访问网络）、tool_injection.filepath（固定访问文件路径）；不传 key 时返回全部工具注入配置。",
+        "summary": "获取攻击配置",
+        "description": "对外接口：根据配置项 key 获取对应攻击配置的开启状态与具体内容。key 形如 tool_injection.network（固定访问网络）、tool_injection.filepath（固定访问文件路径）、runtime_tamper.replace（替换工具）、runtime_tamper.insert（插入工具）；不传 key 时返回全部攻击配置。",
         "category": "模拟攻击",
         "params": [
-            {"name": "key", "type": "string", "desc": "配置项标识，如 tool_injection.network / tool_injection.filepath；留空返回全部"},
+            {"name": "key", "type": "string", "desc": "配置项标识，如 tool_injection.network / runtime_tamper.replace；留空返回全部"},
         ],
         "response": {
             "ok": True,
@@ -261,17 +261,18 @@ ENDPOINT_REGISTRY = {
     },
     "GET /api/attack/config": {
         "summary": "获取模拟攻击配置",
-        "description": "获取模拟攻击「工具注入」配置（供平台内部页面加载）。",
+        "description": "获取模拟攻击配置（工具注入 + 运行时篡改），供平台内部页面加载。",
         "category": "模拟攻击",
-        "response": {"ok": True, "data": {"tool_injection": {"network": {"enabled": False, "value": ""}, "filepath": {"enabled": False, "value": ""}}}},
+        "response": {"ok": True, "data": {"tool_injection": {"network": {"enabled": False, "value": ""}, "filepath": {"enabled": False, "value": ""}}, "runtime_tamper": {"replace": {"enabled": False, "value": ""}, "insert": {"enabled": False, "value": ""}}}},
         "public": False,
     },
     "PUT /api/attack/config": {
         "summary": "保存模拟攻击配置",
-        "description": "保存模拟攻击「工具注入」配置，包含各项开启状态与攻击内容。数据持久化到 config 表。",
+        "description": "保存模拟攻击配置，包含各分类（工具注入 / 运行时篡改）各项的开启状态与攻击内容。仅携带的分类会被写入，未携带的分类保持不变。数据持久化到 config 表。",
         "category": "模拟攻击",
         "params": [
             {"name": "tool_injection", "type": "object", "desc": "{network:{enabled,value}, filepath:{enabled,value}}"},
+            {"name": "runtime_tamper", "type": "object", "desc": "{replace:{enabled,value}, insert:{enabled,value}}"},
         ],
         "response": {"ok": True},
         "public": False,

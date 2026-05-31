@@ -82,9 +82,7 @@ def report_round():
         # 若未携带则本地直读兜底，结构统一为 {"tool_injection": {...}}。
         attack_config = data.get("attack_config")
         if attack_config is None:
-            attack_config = json.dumps(
-                {"tool_injection": _read_attack_inject_config()}, ensure_ascii=False
-            )
+            attack_config = json.dumps(_read_all_attack_config(), ensure_ascii=False)
         row_id = db.insert_round_start(
             round_id=round_id,
             time_start=data.get("time_start", ""),
@@ -842,17 +840,21 @@ def set_navigator_config():
     db.set_config("navigator.conf", value)
     return jsonify({"ok": True})
 
-# ─── Attack Tool Config API ────────────────────────────
-# 模拟攻击 - 工具注入配置。存储于 config 表，键名前缀 attack.inject.*
-# 不再硬编码可用项，直接从 config 表里按 attack.inject.<item>.<field> 动态解析。
-ATTACK_INJECT_PREFIX = "attack.inject."
+# ─── Attack Config API ─────────────────────────────────
+# 模拟攻击配置，统一存储于 config 表，键名形如 attack.<group>.<item>.<field>。
+# 对外 JSON 分类名 → config 表内部 group 前缀的映射：
+ATTACK_GROUPS = {
+    "tool_injection": "inject",   # 工具注入：固定访问网络 / 文件路径
+    "runtime_tamper": "tamper",   # 运行时篡改：替换工具 / 插入工具
+}
 
-def _read_attack_inject_config():
-    """读取工具注入配置（开启状态 + 具体内容），动态来自 config 表。"""
+def _read_attack_group(group: str) -> dict:
+    """读取某攻击分类下的全部配置项（开启状态 + 内容），动态来自 config 表。"""
+    prefix = f"attack.{group}."
     data = {}
-    for key, val in db.get_configs_by_prefix(ATTACK_INJECT_PREFIX).items():
-        # key 形如 attack.inject.<item>.<field>
-        rest = key[len(ATTACK_INJECT_PREFIX):]
+    for key, val in db.get_configs_by_prefix(prefix).items():
+        # key 形如 attack.<group>.<item>.<field>
+        rest = key[len(prefix):]
         parts = rest.rsplit(".", 1)
         if len(parts) != 2:
             continue
@@ -864,45 +866,63 @@ def _read_attack_inject_config():
             cfg["value"] = val or ""
     return data
 
+def _read_all_attack_config() -> dict:
+    """读取全部攻击配置，按对外分类名组织。"""
+    return {pub: _read_attack_group(grp) for pub, grp in ATTACK_GROUPS.items()}
+
+# 兼容旧调用：仅工具注入配置
+def _read_attack_inject_config():
+    return _read_attack_group("inject")
+
 @app.route("/api/attack/config", methods=["GET"])
 def get_attack_config():
-    """获取模拟攻击的工具注入配置。"""
-    return jsonify({"ok": True, "data": {"tool_injection": _read_attack_inject_config()}})
+    """获取模拟攻击配置（工具注入 + 运行时篡改）。"""
+    return jsonify({"ok": True, "data": _read_all_attack_config()})
 
 @app.route("/api/attack/config", methods=["PUT"])
 def put_attack_config():
-    """保存模拟攻击的工具注入配置（开启状态 + 攻击内容）。"""
+    """保存模拟攻击配置（各分类的开启状态 + 攻击内容）。
+
+    body 形如 {"tool_injection": {...}, "runtime_tamper": {...}}，
+    仅携带的分类会被写入，未携带的分类保持不变。
+    """
     body = request.get_json(force=True)
-    inject = body.get("tool_injection", {}) or {}
-    for item, cfg in inject.items():
-        if not isinstance(cfg, dict):
+    for pub, grp in ATTACK_GROUPS.items():
+        section = body.get(pub)
+        if not isinstance(section, dict):
             continue
-        enabled = bool(cfg.get("enabled", False))
-        value = str(cfg.get("value", "") or "")
-        db.set_config(f"attack.inject.{item}.enabled", "true" if enabled else "false")
-        db.set_config(f"attack.inject.{item}.value", value)
-    return jsonify({"ok": True, "data": {"tool_injection": _read_attack_inject_config()}})
+        for item, cfg in section.items():
+            if not isinstance(cfg, dict):
+                continue
+            enabled = bool(cfg.get("enabled", False))
+            value = str(cfg.get("value", "") or "")
+            db.set_config(f"attack.{grp}.{item}.enabled", "true" if enabled else "false")
+            db.set_config(f"attack.{grp}.{item}.value", value)
+    return jsonify({"ok": True, "data": _read_all_attack_config()})
 
 @app.route("/api/attack/tool-config", methods=["GET"])
 def get_attack_tool_config_external():
-    """对外接口：根据配置项 key 获取该工具配置的开启状态与具体内容。
+    """对外接口：根据配置项 key 获取对应攻击配置的开启状态与具体内容。
 
-    key 形如 tool_injection.network / tool_injection.filepath。
-    不传 key 时返回全部工具注入配置。
+    key 形如 tool_injection.network / tool_injection.filepath /
+    runtime_tamper.replace / runtime_tamper.insert。
+    不传 key 时返回全部攻击配置。
     """
     key = (request.args.get("key", "") or "").strip()
-    inject = _read_attack_inject_config()
+    all_cfg = _read_all_attack_config()
 
     # 不传 key：返回全部
     if not key:
-        return jsonify({"ok": True, "data": {"tool_injection": inject}})
+        return jsonify({"ok": True, "data": all_cfg})
 
-    # 支持 tool_injection.xxx 或直接 xxx
-    item = key.split(".", 1)[1] if key.startswith("tool_injection.") else key
-    if item not in inject:
+    if "." not in key:
+        return jsonify({"ok": False, "error": f"unknown key: {key}"}), 404
+    group, item = key.split(".", 1)
+    section = all_cfg.get(group)
+    if section is None or item not in section:
         return jsonify({"ok": False, "error": f"unknown key: {key}"}), 404
 
-    return jsonify({"ok": True, "data": {"key": f"tool_injection.{item}", **inject[item]}})
+    return jsonify({"ok": True, "data": {"key": key, **section[item]}})
 
 
 # ─── API Documentation ─────────────────────────────────
