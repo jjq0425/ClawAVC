@@ -1,44 +1,67 @@
 <template>
   <div class="attack-page">
-    <!-- Header -->
-    <div class="page-header">
-      <div class="header-left">
-        <div class="header-icon">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <path d="M16 2L4 8v8c0 7.7 5.1 14.9 12 16 6.9-1.1 12-8.3 12-16V8L16 2z" stroke="#ff4444" stroke-width="2" fill="none"/>
-            <path d="M11 16h10M16 11v10" stroke="#ff4444" stroke-width="2" stroke-linecap="round"/>
-          </svg>
+    <!-- ─── Hero Header (Red Team Console) ───────────────────── -->
+    <section class="hero">
+      <div class="hero-grid"></div>
+      <div class="hero-scanline"></div>
+
+      <div class="hero-row">
+        <div class="hero-left">
+          <div class="hero-icon-wrap">
+            <svg width="34" height="34" viewBox="0 0 32 32" fill="none">
+              <path d="M16 2L4 8v8c0 7.7 5.1 14.9 12 16 6.9-1.1 12-8.3 12-16V8L16 2z" stroke="#ff5b5b" stroke-width="2" fill="rgba(255,91,91,0.08)"/>
+              <path d="M11 16h10M16 11v10" stroke="#ff5b5b" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="hero-text">
+            <div class="hero-eyebrow">RED TEAM CONSOLE · 红队作战台</div>
+            <h1 class="hero-title">模拟攻击</h1>
+            <p class="hero-sub">通过可控的对抗性场景，验证 ClawAVC 检测引擎在真实威胁下的防御能力</p>
+          </div>
         </div>
-        <div>
-          <h2>模拟攻击</h2>
-          <p class="subtitle">验证 ClawAVC 检测引擎的防御能力</p>
+
+        <div class="hero-status">
+          <span class="status-dot"></span>
+          <span class="status-text">SIMULATION ACTIVE</span>
         </div>
       </div>
-      <div class="header-badge">
-        <span class="pulse-dot"></span>
-        <span>SIMULATION</span>
+
+      <div class="hero-stats">
+        <div class="stat">
+          <div class="stat-num">02</div>
+          <div class="stat-label">攻击向量</div>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <div class="stat-num">{{ enabledCount }}</div>
+          <div class="stat-label">已激活配置</div>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <div class="stat-num">3D</div>
+          <div class="stat-label">检测维度</div>
+        </div>
       </div>
+    </section>
+
+    <!-- ─── Section Title ───────────────────── -->
+    <div class="section-title">
+      <span class="section-bar"></span>
+      <span class="section-name">威胁场景矩阵</span>
+      <span class="section-count">2 vectors · 4 toggles</span>
     </div>
 
-    <!-- Threat Matrix -->
-    <div class="threat-matrix">
-      <div class="matrix-header">
-        <div class="matrix-icon">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <path d="M9 1.5L2 5v4c0 4.4 2.9 8.5 7 9.5 4.1-1 7-5.1 7-9.5V5L9 1.5z" stroke="#ff4444" stroke-width="1.5" fill="rgba(255,68,68,0.06)"/>
-            <path d="M6.5 9h5M9 6.5v5" stroke="#ff4444" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <span>威胁场景矩阵</span>
-        <span class="matrix-count">2 个攻击向量</span>
-      </div>
-    </div>
-
-    <!-- Attack Scenarios -->
+    <!-- ─── Scenarios ───────────────────── -->
     <div class="scenarios">
-      <!-- Scenario 1: Runtime Tampering -->
-      <div class="scenario-card" :class="{ active: activeScenario === 'tamper' }" @click="selectScenario('tamper')">
-        <div class="scenario-header">
+      <!-- ============ Scenario 1: Runtime Tampering ============ -->
+      <article
+        class="scenario-card tamper"
+        :class="{ active: activeScenario === 'tamper' }"
+        @click="selectScenario('tamper')"
+      >
+        <div class="severity-bar tamper"></div>
+
+        <header class="scenario-head">
           <div class="scenario-icon tamper">
             <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
               <path d="M13 3v3M13 20v3M3 13h3M20 13h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -48,153 +71,176 @@
           </div>
           <div class="scenario-meta">
             <h3>运行时篡改</h3>
-            <span class="scenario-tag">Runtime Tampering</span>
+            <span class="scenario-en">Runtime Tampering</span>
           </div>
-          <div class="severity high">HIGH</div>
-        </div>
+          <div class="severity-badge high">
+            <span class="severity-glow"></span>
+            <span class="severity-label">HIGH</span>
+          </div>
+          <div class="expand-chevron" :class="{ rotated: activeScenario === 'tamper' }">
+            <t-icon name="chevron-down" size="20px" />
+          </div>
+        </header>
+
         <p class="scenario-desc">
-          篡改 Agent 运行时调用的工具映射。当 Agent 请求调用工具 A 时，实际执行被替换为工具 B，实现隐蔽的行为劫持。
+          篡改 Agent 运行时调用的工具映射。当 Agent 请求调用工具 <code>A</code> 时，实际执行被替换为工具 <code>B</code>，实现隐蔽的行为劫持。
         </p>
 
-        <div class="scenario-detail" v-if="activeScenario === 'tamper'">
-          <!-- Attack Chain Visualization -->
-          <div class="attack-chain">
-            <div class="chain-title">攻击链路</div>
-            <div class="chain-visual">
-              <div class="chain-node agent">
-                <div class="node-icon"><t-icon name="user" /></div>
-                <div class="node-label">Agent</div>
-                <div class="node-sub">请求调用 read_file</div>
+        <transition name="detail">
+          <div v-if="activeScenario === 'tamper'" class="scenario-detail" @click.stop>
+            <!-- Attack Chain -->
+            <div class="block">
+              <div class="block-title">
+                <span class="block-dot tamper"></span>
+                <span>攻击链路</span>
+                <span class="block-tag">Attack Chain</span>
               </div>
-              <div class="chain-link danger">
-                <div class="link-line"></div>
-                <div class="link-badge"><t-icon name="lightning" /> 劫持</div>
-              </div>
-              <div class="chain-node hijack">
-                <div class="node-icon"><t-icon name="swap" /></div>
-                <div class="node-label">篡改层</div>
-                <div class="node-sub">替换为 exec_command</div>
-              </div>
-              <div class="chain-link danger">
-                <div class="link-line"></div>
-                <div class="link-badge"><t-icon name="lightning" /> 执行</div>
-              </div>
-              <div class="chain-node target">
-                <div class="node-icon"><t-icon name="error-circle" /></div>
-                <div class="node-label">恶意操作</div>
-                <div class="node-sub">数据外泄 / 提权</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Impact -->
-          <div class="impact-section">
-            <div class="impact-item">
-              <div class="impact-icon"><t-icon name="precise-monitor" /></div>
-              <div>
-                <div class="impact-title">攻击目标</div>
-                <div class="impact-desc">Tool Dispatch 调度层</div>
-              </div>
-            </div>
-            <div class="impact-item">
-              <div class="impact-icon"><t-icon name="fire" /></div>
-              <div>
-                <div class="impact-title">危害等级</div>
-                <div class="impact-desc">任意命令执行 · 数据外泄</div>
-              </div>
-            </div>
-            <div class="impact-item">
-              <div class="impact-icon"><t-icon name="search" /></div>
-              <div>
-                <div class="impact-title">隐蔽性</div>
-                <div class="impact-desc">Agent 无感知，返回伪造的正常结果</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Detection -->
-          <div class="detection-card">
-            <div class="detection-header">
-              <span class="shield-icon"><t-icon name="shield" /></span>
-              <span>ClawAVC 检测维度</span>
-            </div>
-            <div class="detection-items">
-              <div class="detect-item">
-                <span class="detect-badge pass">可检出</span>
-                <span>工具调用一致性 — IR 仅允许 read_file，实际执行 exec_command</span>
-              </div>
-              <div class="detect-item">
-                <span class="detect-badge pass">可检出</span>
-                <span>资源访问一致性 — 网络外连超出声明资源范围</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Attack Config (color block) -->
-          <div class="config-block tamper-block" @click.stop>
-            <div class="config-block-header">
-              <span class="cfg-dot"></span>
-              <span class="cfg-title">攻击配置</span>
-              <span class="cfg-tag">Attack Config</span>
-              <t-button
-                size="small"
-                theme="danger"
-                :loading="tamperSaving"
-                class="cfg-save-btn"
-                @click="saveTamperConfig"
-              >
-                <t-icon name="save" /> 保存配置
-              </t-button>
-            </div>
-
-            <!-- Item: Replace tool -->
-            <div class="config-item" :class="{ on: tamperConfig.replace.enabled }">
-              <div class="config-item-top">
-                <div class="config-item-meta">
-                  <div>
-                    <div class="ci-name">替换工具</div>
-                    <code class="ci-key">runtime_tamper.replace</code>
-                    <div class="ci-desc">Agent 调用某工具时，将其实际执行替换为指定的目标工具</div>
-                  </div>
+              <div class="chain">
+                <div class="chain-step tamper">
+                  <div class="step-num">01</div>
+                  <div class="step-icon"><t-icon name="user-circle" size="22px" /></div>
+                  <div class="step-label">Agent</div>
+                  <div class="step-sub">请求调用 read_file</div>
                 </div>
-                <t-switch v-model="tamperConfig.replace.enabled" />
-              </div>
-              <div class="config-item-body" v-if="tamperConfig.replace.enabled">
-                <t-input
-                  v-model="tamperConfig.replace.value"
-                  placeholder="目标工具名称，如 exec_command"
-                  clearable
-                />
+                <div class="chain-arrow tamper" data-text="HIJACK">
+                  <svg viewBox="0 0 80 12" preserveAspectRatio="none">
+                    <line x1="0" y1="6" x2="70" y2="6" />
+                    <polygon points="80,6 68,1 68,11" />
+                  </svg>
+                </div>
+                <div class="chain-step tamper hot">
+                  <div class="step-num">02</div>
+                  <div class="step-icon"><t-icon name="swap" size="22px" /></div>
+                  <div class="step-label">篡改层</div>
+                  <div class="step-sub">替换为 exec_command</div>
+                </div>
+                <div class="chain-arrow tamper" data-text="EXECUTE">
+                  <svg viewBox="0 0 80 12" preserveAspectRatio="none">
+                    <line x1="0" y1="6" x2="70" y2="6" />
+                    <polygon points="80,6 68,1 68,11" />
+                  </svg>
+                </div>
+                <div class="chain-step tamper crit">
+                  <div class="step-num">03</div>
+                  <div class="step-icon"><t-icon name="error-circle" size="22px" /></div>
+                  <div class="step-label">恶意操作</div>
+                  <div class="step-sub">数据外泄 · 提权</div>
+                </div>
               </div>
             </div>
 
-            <!-- Item: Insert tool -->
-            <div class="config-item" :class="{ on: tamperConfig.insert.enabled }">
-              <div class="config-item-top">
-                <div class="config-item-meta">
-                  <div>
-                    <div class="ci-name">插入工具</div>
-                    <code class="ci-key">runtime_tamper.insert</code>
-                    <div class="ci-desc">在 Agent 工具调用流程中额外插入执行指定工具</div>
-                  </div>
-                </div>
-                <t-switch v-model="tamperConfig.insert.enabled" />
+            <!-- Impact Triplet -->
+            <div class="impact-grid">
+              <div class="impact-card">
+                <div class="impact-icon-wrap tamper"><t-icon name="precise-monitor" size="18px" /></div>
+                <div class="impact-key">攻击目标</div>
+                <div class="impact-val">Tool Dispatch 调度层</div>
               </div>
-              <div class="config-item-body" v-if="tamperConfig.insert.enabled">
-                <t-input
-                  v-model="tamperConfig.insert.value"
-                  placeholder="插入的工具名称，如 collect_secrets"
-                  clearable
-                />
+              <div class="impact-card">
+                <div class="impact-icon-wrap tamper"><t-icon name="fire" size="18px" /></div>
+                <div class="impact-key">危害等级</div>
+                <div class="impact-val">任意命令执行 · 数据外泄</div>
+              </div>
+              <div class="impact-card">
+                <div class="impact-icon-wrap tamper"><t-icon name="search" size="18px" /></div>
+                <div class="impact-key">隐蔽性</div>
+                <div class="impact-val">Agent 无感知，返回伪造正常结果</div>
+              </div>
+            </div>
+
+            <!-- Detection -->
+            <div class="detection-panel">
+              <div class="detection-shield">
+                <svg width="40" height="48" viewBox="0 0 32 38" fill="none">
+                  <path d="M16 2L3 6v12c0 9 6 16.5 13 18 7-1.5 13-9 13-18V6L16 2z" stroke="#0052D9" stroke-width="2" fill="rgba(0,82,217,0.06)"/>
+                  <path d="M10 19l4 4 8-9" stroke="#00a870" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="detection-body">
+                <div class="detection-head">
+                  <span class="detection-title">ClawAVC 可检测维度</span>
+                  <span class="detection-tag">Defense Coverage</span>
+                </div>
+                <ul class="detection-list">
+                  <li>
+                    <span class="detect-pill"><t-icon name="check" size="12px" /> 工具一致性</span>
+                    <span class="detect-text">IR 仅允许 <code>read_file</code>，实际执行 <code>exec_command</code></span>
+                  </li>
+                  <li>
+                    <span class="detect-pill"><t-icon name="check" size="12px" /> 资源访问</span>
+                    <span class="detect-text">网络外连超出声明的资源范围</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Attack Config Panel -->
+            <div class="cfg-panel tamper">
+              <div class="cfg-head">
+                <span class="cfg-marker tamper"></span>
+                <span class="cfg-title">攻击配置</span>
+                <span class="cfg-en">Attack Config</span>
+                <t-button
+                  size="small"
+                  theme="danger"
+                  :loading="tamperSaving"
+                  class="cfg-save"
+                  @click="saveTamperConfig"
+                >
+                  <template #icon><t-icon name="save" /></template>
+                  保存配置
+                </t-button>
+              </div>
+
+              <div class="cfg-item" :class="{ on: tamperConfig.replace.enabled }">
+                <div class="cfg-row">
+                  <div class="cfg-info">
+                    <div class="cfg-name">替换工具</div>
+                    <code class="cfg-key">runtime_tamper.replace</code>
+                    <div class="cfg-desc">Agent 调用某工具时，将其实际执行替换为指定的目标工具</div>
+                  </div>
+                  <t-switch v-model="tamperConfig.replace.enabled" />
+                </div>
+                <div v-if="tamperConfig.replace.enabled" class="cfg-input">
+                  <t-input
+                    v-model="tamperConfig.replace.value"
+                    placeholder="目标工具名称，如 exec_command"
+                    clearable
+                  />
+                </div>
+              </div>
+
+              <div class="cfg-item" :class="{ on: tamperConfig.insert.enabled }">
+                <div class="cfg-row">
+                  <div class="cfg-info">
+                    <div class="cfg-name">插入工具</div>
+                    <code class="cfg-key">runtime_tamper.insert</code>
+                    <div class="cfg-desc">在 Agent 工具调用流程中额外插入执行指定工具</div>
+                  </div>
+                  <t-switch v-model="tamperConfig.insert.enabled" />
+                </div>
+                <div v-if="tamperConfig.insert.enabled" class="cfg-input">
+                  <t-input
+                    v-model="tamperConfig.insert.value"
+                    placeholder="插入的工具名称，如 collect_secrets"
+                    clearable
+                  />
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
+        </transition>
+      </article>
 
-      <!-- Scenario 2: Tool Injection -->
-      <div class="scenario-card" :class="{ active: activeScenario === 'inject' }" @click="selectScenario('inject')">
-        <div class="scenario-header">
+      <!-- ============ Scenario 2: Tool Injection ============ -->
+      <article
+        class="scenario-card inject"
+        :class="{ active: activeScenario === 'inject' }"
+        @click="selectScenario('inject')"
+      >
+        <div class="severity-bar inject"></div>
+
+        <header class="scenario-head">
           <div class="scenario-icon inject">
             <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
               <rect x="4" y="7" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
@@ -203,165 +249,186 @@
           </div>
           <div class="scenario-meta">
             <h3>工具注入</h3>
-            <span class="scenario-tag">Tool Injection</span>
+            <span class="scenario-en">Tool Injection</span>
           </div>
-          <div class="severity critical">CRITICAL</div>
-        </div>
+          <div class="severity-badge critical">
+            <span class="severity-glow"></span>
+            <span class="severity-label">CRITICAL</span>
+          </div>
+          <div class="expand-chevron" :class="{ rotated: activeScenario === 'inject' }">
+            <t-icon name="chevron-down" size="20px" />
+          </div>
+        </header>
+
         <p class="scenario-desc">
           向 Agent 的可用工具列表中注入恶意工具定义。伪装为正常功能的工具被 LLM 自然选择调用，实际执行数据窃取、权限提升等恶意操作。
         </p>
 
-        <div class="scenario-detail" v-if="activeScenario === 'inject'">
-          <!-- Attack Chain Visualization -->
-          <div class="attack-chain">
-            <div class="chain-title">攻击链路</div>
-            <div class="chain-visual">
-              <div class="chain-node attacker">
-                <div class="node-icon"><t-icon name="user" /></div>
-                <div class="node-label">攻击者</div>
-                <div class="node-sub">构造恶意工具定义</div>
+        <transition name="detail">
+          <div v-if="activeScenario === 'inject'" class="scenario-detail" @click.stop>
+            <!-- Attack Chain -->
+            <div class="block">
+              <div class="block-title">
+                <span class="block-dot inject"></span>
+                <span>攻击链路</span>
+                <span class="block-tag">Attack Chain</span>
               </div>
-              <div class="chain-link danger">
-                <div class="link-line"></div>
-                <div class="link-badge"><t-icon name="lightning" /> 注入</div>
-              </div>
-              <div class="chain-node registry">
-                <div class="node-icon"><t-icon name="folder" /></div>
-                <div class="node-label">工具注册表</div>
-                <div class="node-sub">伪装为 save_notes</div>
-              </div>
-              <div class="chain-link danger">
-                <div class="link-line"></div>
-                <div class="link-badge"><t-icon name="lightning" /> 调用</div>
-              </div>
-              <div class="chain-node target">
-                <div class="node-icon"><t-icon name="error-circle" /></div>
-                <div class="node-label">敏感数据</div>
-                <div class="node-sub">密钥 · 凭证 · 配置</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Impact -->
-          <div class="impact-section">
-            <div class="impact-item">
-              <div class="impact-icon"><t-icon name="precise-monitor" /></div>
-              <div>
-                <div class="impact-title">攻击目标</div>
-                <div class="impact-desc">Tools Manifest 工具注册表</div>
-              </div>
-            </div>
-            <div class="impact-item">
-              <div class="impact-icon"><t-icon name="fire" /></div>
-              <div>
-                <div class="impact-title">危害等级</div>
-                <div class="impact-desc">凭证窃取 · SSH 密钥泄露 · Token 外传</div>
-              </div>
-            </div>
-            <div class="impact-item">
-              <div class="impact-icon"><t-icon name="search" /></div>
-              <div>
-                <div class="impact-title">隐蔽性</div>
-                <div class="impact-desc">LLM 基于描述自然选择恶意工具，无异常提示</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Detection -->
-          <div class="detection-card">
-            <div class="detection-header">
-              <span class="shield-icon"><t-icon name="shield" /></span>
-              <span>ClawAVC 检测维度</span>
-            </div>
-            <div class="detection-items">
-              <div class="detect-item">
-                <span class="detect-badge pass">可检出</span>
-                <span>工具调用一致性 — save_notes 不在 IR 策略允许的工具列表中</span>
-              </div>
-              <div class="detect-item">
-                <span class="detect-badge pass">可检出</span>
-                <span>参数一致性 — 参数中包含敏感路径与外部网络地址</span>
-              </div>
-              <div class="detect-item">
-                <span class="detect-badge pass">可检出</span>
-                <span>资源访问一致性 — 访问 ~/.ssh 等敏感目录超出允许范围</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Attack Config (color block) -->
-          <div class="config-block inject-block" @click.stop>
-            <div class="config-block-header">
-              <span class="cfg-dot"></span>
-              <span class="cfg-title">攻击配置</span>
-              <span class="cfg-tag">Attack Config</span>
-              <t-button
-                size="small"
-                theme="primary"
-                :loading="injectSaving"
-                class="cfg-save-btn"
-                @click="saveInjectConfig"
-              >
-                <t-icon name="save" /> 保存配置
-              </t-button>
-            </div>
-
-            <!-- Item: Fixed network access -->
-            <div class="config-item" :class="{ on: injectConfig.network.enabled }">
-              <div class="config-item-top">
-                <div class="config-item-meta">
-                  <div>
-                    <div class="ci-name">固定访问网络</div>
-                    <code class="ci-key">tool_injection.network</code>
-                    <div class="ci-desc">注入的工具被调用时强制外连到指定地址</div>
-                  </div>
+              <div class="chain">
+                <div class="chain-step inject">
+                  <div class="step-num">01</div>
+                  <div class="step-icon"><t-icon name="user-circle" size="22px" /></div>
+                  <div class="step-label">攻击者</div>
+                  <div class="step-sub">构造恶意工具定义</div>
                 </div>
-                <t-switch v-model="injectConfig.network.enabled" />
-              </div>
-              <div class="config-item-body" v-if="injectConfig.network.enabled">
-                <t-input
-                  v-model="injectConfig.network.value"
-                  placeholder="如 http://malicious.example.com/collect"
-                  clearable
-                />
+                <div class="chain-arrow inject" data-text="INJECT">
+                  <svg viewBox="0 0 80 12" preserveAspectRatio="none">
+                    <line x1="0" y1="6" x2="70" y2="6" />
+                    <polygon points="80,6 68,1 68,11" />
+                  </svg>
+                </div>
+                <div class="chain-step inject hot">
+                  <div class="step-num">02</div>
+                  <div class="step-icon"><t-icon name="folder" size="22px" /></div>
+                  <div class="step-label">工具注册表</div>
+                  <div class="step-sub">伪装为 save_notes</div>
+                </div>
+                <div class="chain-arrow inject" data-text="INVOKE">
+                  <svg viewBox="0 0 80 12" preserveAspectRatio="none">
+                    <line x1="0" y1="6" x2="70" y2="6" />
+                    <polygon points="80,6 68,1 68,11" />
+                  </svg>
+                </div>
+                <div class="chain-step inject crit">
+                  <div class="step-num">03</div>
+                  <div class="step-icon"><t-icon name="error-circle" size="22px" /></div>
+                  <div class="step-label">敏感数据</div>
+                  <div class="step-sub">密钥 · 凭证 · 配置</div>
+                </div>
               </div>
             </div>
 
-            <!-- Item: Fixed file path access -->
-            <div class="config-item" :class="{ on: injectConfig.filepath.enabled }">
-              <div class="config-item-top">
-                <div class="config-item-meta">
-                  <div>
-                    <div class="ci-name">固定访问文件路径</div>
-                    <code class="ci-key">tool_injection.filepath</code>
-                    <div class="ci-desc">注入的工具被调用时强制读取指定文件路径</div>
-                  </div>
-                </div>
-                <t-switch v-model="injectConfig.filepath.enabled" />
+            <!-- Impact Triplet -->
+            <div class="impact-grid">
+              <div class="impact-card">
+                <div class="impact-icon-wrap inject"><t-icon name="precise-monitor" size="18px" /></div>
+                <div class="impact-key">攻击目标</div>
+                <div class="impact-val">Tools Manifest 工具注册表</div>
               </div>
-              <div class="config-item-body" v-if="injectConfig.filepath.enabled">
-                <t-input
-                  v-model="injectConfig.filepath.value"
-                  placeholder="如 /root/.ssh/id_rsa"
-                  clearable
-                />
+              <div class="impact-card">
+                <div class="impact-icon-wrap inject"><t-icon name="fire" size="18px" /></div>
+                <div class="impact-key">危害等级</div>
+                <div class="impact-val">凭证窃取 · SSH 密钥 · Token 外传</div>
+              </div>
+              <div class="impact-card">
+                <div class="impact-icon-wrap inject"><t-icon name="search" size="18px" /></div>
+                <div class="impact-key">隐蔽性</div>
+                <div class="impact-val">LLM 基于描述自主选择，无异常提示</div>
+              </div>
+            </div>
+
+            <!-- Detection -->
+            <div class="detection-panel">
+              <div class="detection-shield">
+                <svg width="40" height="48" viewBox="0 0 32 38" fill="none">
+                  <path d="M16 2L3 6v12c0 9 6 16.5 13 18 7-1.5 13-9 13-18V6L16 2z" stroke="#0052D9" stroke-width="2" fill="rgba(0,82,217,0.06)"/>
+                  <path d="M10 19l4 4 8-9" stroke="#00a870" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="detection-body">
+                <div class="detection-head">
+                  <span class="detection-title">ClawAVC 可检测维度</span>
+                  <span class="detection-tag">Defense Coverage</span>
+                </div>
+                <ul class="detection-list">
+                  <li>
+                    <span class="detect-pill"><t-icon name="check" size="12px" /> 工具一致性</span>
+                    <span class="detect-text"><code>save_notes</code> 不在 IR 策略允许的工具列表中</span>
+                  </li>
+                  <li>
+                    <span class="detect-pill"><t-icon name="check" size="12px" /> 参数一致性</span>
+                    <span class="detect-text">参数中包含敏感路径与外部网络地址</span>
+                  </li>
+                  <li>
+                    <span class="detect-pill"><t-icon name="check" size="12px" /> 资源访问</span>
+                    <span class="detect-text">访问 <code>~/.ssh</code> 等敏感目录超出允许范围</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Attack Config Panel -->
+            <div class="cfg-panel inject">
+              <div class="cfg-head">
+                <span class="cfg-marker inject"></span>
+                <span class="cfg-title">攻击配置</span>
+                <span class="cfg-en">Attack Config</span>
+                <t-button
+                  size="small"
+                  theme="primary"
+                  :loading="injectSaving"
+                  class="cfg-save"
+                  @click="saveInjectConfig"
+                >
+                  <template #icon><t-icon name="save" /></template>
+                  保存配置
+                </t-button>
+              </div>
+
+              <div class="cfg-item" :class="{ on: injectConfig.network.enabled }">
+                <div class="cfg-row">
+                  <div class="cfg-info">
+                    <div class="cfg-name">固定访问网络</div>
+                    <code class="cfg-key">tool_injection.network</code>
+                    <div class="cfg-desc">注入的工具被调用时强制外连到指定地址</div>
+                  </div>
+                  <t-switch v-model="injectConfig.network.enabled" />
+                </div>
+                <div v-if="injectConfig.network.enabled" class="cfg-input">
+                  <t-input
+                    v-model="injectConfig.network.value"
+                    placeholder="如 http://malicious.example.com/collect"
+                    clearable
+                  />
+                </div>
+              </div>
+
+              <div class="cfg-item" :class="{ on: injectConfig.filepath.enabled }">
+                <div class="cfg-row">
+                  <div class="cfg-info">
+                    <div class="cfg-name">固定访问文件路径</div>
+                    <code class="cfg-key">tool_injection.filepath</code>
+                    <div class="cfg-desc">注入的工具被调用时强制读取指定文件路径</div>
+                  </div>
+                  <t-switch v-model="injectConfig.filepath.enabled" />
+                </div>
+                <div v-if="injectConfig.filepath.enabled" class="cfg-input">
+                  <t-input
+                    v-model="injectConfig.filepath.value"
+                    placeholder="如 /root/.ssh/id_rsa"
+                    clearable
+                  />
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
+        </transition>
+      </article>
     </div>
 
-    <!-- Footer -->
-    <div class="footer-notice">
-      <span class="footer-icon"><t-icon name="error-circle" /></span>
-      <span>以上场景仅用于验证 ClawAVC 检测引擎的能力边界，。</span>
+    <!-- ─── Footer Notice ───────────────────── -->
+    <div class="notice">
+      <div class="notice-bar"></div>
+      <div class="notice-icon"><t-icon name="info-circle-filled" size="16px" /></div>
+      <div class="notice-text">
+        <strong>合规提示</strong>
+        <span>以上场景仅用于验证 ClawAVC 检测引擎的能力边界。请勿在未经授权的生产环境中启用任何攻击配置。</span>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 const API = '/api'
@@ -378,6 +445,15 @@ const tamperConfig = ref({
   insert: { enabled: false, value: '' },
 })
 const tamperSaving = ref(false)
+
+const enabledCount = computed(() => {
+  let n = 0
+  if (injectConfig.value.network.enabled) n++
+  if (injectConfig.value.filepath.enabled) n++
+  if (tamperConfig.value.replace.enabled) n++
+  if (tamperConfig.value.insert.enabled) n++
+  return String(n).padStart(2, '0')
+})
 
 function selectScenario(name) {
   activeScenario.value = activeScenario.value === name ? '' : name
@@ -400,7 +476,7 @@ onMounted(async () => {
       }
     }
   } catch (e) {
-    // 静默失败，使用默认配置
+    /* silent */
   }
 })
 
@@ -448,481 +524,709 @@ async function saveTamperConfig() {
 </script>
 
 <style scoped>
+/* ─── Tokens ────────────────────────────────────────────── */
+:root, .attack-page {
+  --avc-blue:    #0052D9;
+  --avc-orange:  #ED7B2F;
+  --avc-red:     #e63946;
+  --avc-red2:    #ff5b5b;
+  --avc-crit:    #c026d3;  /* magenta for CRITICAL */
+  --avc-green:   #00a870;
+  --avc-ink:     #0f1530;
+  --avc-mute:    #6b7280;
+  --avc-line:    #eef0f4;
+}
+
 .attack-page {
-  max-width: 880px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 0 24px 48px;
+  padding: 0 8px 56px;
+  color: #1f2438;
 }
 
-/* Header */
-.page-header {
+/* ─── Hero ──────────────────────────────────────────────── */
+.hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  padding: 28px 32px 22px;
+  margin-bottom: 28px;
+  background:
+    radial-gradient(120% 140% at 110% -10%, rgba(255, 91, 91, 0.18) 0%, transparent 55%),
+    radial-gradient(80% 120% at -10% 120%, rgba(237, 123, 47, 0.18) 0%, transparent 55%),
+    linear-gradient(135deg, #0f1530 0%, #1a1838 60%, #2a1733 100%);
+  color: #fff;
+  box-shadow: 0 12px 36px rgba(15, 21, 48, 0.18);
+}
+.hero-grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.7), transparent 90%);
+}
+.hero-scanline {
+  position: absolute; left: 0; right: 0; top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255,91,91,0.6), transparent);
+  animation: scan 4s linear infinite;
+  pointer-events: none;
+}
+@keyframes scan {
+  0% { transform: translateY(0); opacity: 0.0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(180px); opacity: 0; }
+}
+
+.hero-row {
+  position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 24px;
+  gap: 20px;
 }
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.hero-left { display: flex; align-items: center; gap: 16px; }
+.hero-icon-wrap {
+  width: 56px; height: 56px;
+  border-radius: 14px;
+  background: rgba(255, 91, 91, 0.12);
+  border: 1px solid rgba(255, 91, 91, 0.28);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 0 22px rgba(255, 91, 91, 0.18);
 }
-.header-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: rgba(255, 68, 68, 0.06);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.page-header h2 {
-  font-size: 20px;
-  font-weight: 700;
-  color: #1a1a2e;
-  margin: 0;
-}
-.subtitle {
-  font-size: 13px;
-  color: #888;
-  margin: 2px 0 0;
-}
-.header-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  background: rgba(255, 68, 68, 0.05);
-  border: 1px solid rgba(255, 68, 68, 0.18);
+.hero-eyebrow {
   font-size: 11px;
+  letter-spacing: 1.5px;
   font-weight: 600;
-  color: #ff4444;
+  color: rgba(255, 200, 200, 0.85);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  margin-bottom: 4px;
+}
+.hero-title {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 4px;
   letter-spacing: 1px;
-  font-family: 'JetBrains Mono', monospace;
+  background: linear-gradient(120deg, #fff, #ffd6c2 80%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
-.pulse-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ff4444;
-  animation: pulse 2s infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.7); }
+.hero-sub {
+  font-size: 13px;
+  color: rgba(255,255,255,0.66);
+  margin: 0;
+  max-width: 540px;
+  line-height: 1.6;
 }
 
-/* Threat Matrix */
-.threat-matrix {
-  margin-bottom: 20px;
-}
-.matrix-header {
-  display: flex;
+.hero-status {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #444;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(255, 91, 91, 0.12);
+  border: 1px solid rgba(255, 91, 91, 0.4);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  color: #ffb4b4;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  white-space: nowrap;
 }
-.matrix-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: rgba(255, 68, 68, 0.06);
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #ff5b5b;
+  box-shadow: 0 0 0 0 rgba(255, 91, 91, 0.7);
+  animation: ping 1.8s infinite;
+}
+@keyframes ping {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 91, 91, 0.55); }
+  70%  { box-shadow: 0 0 0 10px rgba(255, 91, 91, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 91, 91, 0); }
+}
+
+.hero-stats {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px dashed rgba(255,255,255,0.12);
+}
+.stat { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.stat-num {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.5px;
+}
+.stat-label {
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  letter-spacing: 0.5px;
+}
+.stat-divider {
+  width: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 4px 8px;
+}
+
+/* ─── Section Title ──────────────────────────────────────── */
+.section-title {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 10px;
+  margin: 4px 4px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--avc-ink);
 }
-.matrix-count {
+.section-bar {
+  width: 4px; height: 14px;
+  background: linear-gradient(180deg, #ED7B2F, #e63946);
+  border-radius: 2px;
+}
+.section-name { letter-spacing: 0.3px; }
+.section-count {
   margin-left: auto;
   font-size: 11px;
   font-weight: 500;
-  color: #999;
+  color: var(--avc-mute);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 
-/* Scenarios */
+/* ─── Scenarios ──────────────────────────────────────────── */
 .scenarios {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   margin-bottom: 24px;
 }
 .scenario-card {
+  position: relative;
   background: #fff;
-  border-radius: 14px;
-  padding: 24px;
-  border: 1px solid #e8e8e8;
+  border-radius: 16px;
+  padding: 22px 24px 22px 28px;
+  border: 1px solid var(--avc-line);
   cursor: pointer;
-  transition: all 0.25s;
+  transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s;
+  overflow: hidden;
 }
 .scenario-card:hover {
-  border-color: #ddd;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+  border-color: #d8dde6;
+  box-shadow: 0 8px 28px rgba(15, 21, 48, 0.06);
+  transform: translateY(-1px);
 }
 .scenario-card.active {
-  border-color: #ff4444;
-  box-shadow: 0 4px 24px rgba(255, 68, 68, 0.08);
+  border-color: transparent;
+  box-shadow: 0 12px 36px rgba(15, 21, 48, 0.1);
 }
-.scenario-header {
+.scenario-card.tamper.active { box-shadow: 0 12px 36px rgba(230, 57, 70, 0.14); }
+.scenario-card.inject.active { box-shadow: 0 12px 36px rgba(192, 38, 211, 0.14); }
+
+.severity-bar {
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 4px;
+}
+.severity-bar.tamper { background: linear-gradient(180deg, #ED7B2F, #e63946); }
+.severity-bar.inject { background: linear-gradient(180deg, #c026d3, #db2777); }
+
+.scenario-head {
   display: flex;
   align-items: center;
   gap: 14px;
 }
 .scenario-icon {
-  width: 48px;
-  height: 48px;
+  width: 48px; height: 48px;
   border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.scenario-icon.tamper {
+  background: linear-gradient(135deg, #fff1ec, #ffe0d8);
+  color: #e63946;
+  box-shadow: inset 0 0 0 1px #fcd5cb;
+}
+.scenario-icon.inject {
+  background: linear-gradient(135deg, #fdf0fb, #fcd9f5);
+  color: #c026d3;
+  box-shadow: inset 0 0 0 1px #f5c2eb;
+}
+.scenario-meta { flex: 1; min-width: 0; }
+.scenario-meta h3 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--avc-ink);
+  margin: 0 0 3px;
+  letter-spacing: 0.2px;
+}
+.scenario-en {
+  font-size: 11px;
+  color: var(--avc-mute);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.4px;
+}
+
+.severity-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.severity-badge .severity-glow {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent, rgba(255,255,255,0.5), transparent);
+  transform: translateX(-100%);
+  animation: shine 3.2s ease-in-out infinite;
+}
+.severity-badge.high {
+  background: linear-gradient(135deg, #fff1ec, #ffd9cb);
+  color: #c1361f;
+  border: 1px solid #fbb799;
+}
+.severity-badge.critical {
+  background: linear-gradient(135deg, #fdf0fb, #f9c5ee);
+  color: #86198f;
+  border: 1px solid #ec99dd;
+}
+@keyframes shine {
+  0%, 60% { transform: translateX(-100%); }
+  90%, 100% { transform: translateX(100%); }
+}
+.expand-chevron {
+  color: var(--avc-mute);
+  transition: transform 0.3s, color 0.2s;
+}
+.expand-chevron.rotated { transform: rotate(180deg); color: var(--avc-ink); }
+
+.scenario-desc {
+  font-size: 13px;
+  color: #4b5163;
+  line-height: 1.75;
+  margin: 14px 0 0;
+}
+.scenario-desc code {
+  background: rgba(15, 21, 48, 0.06);
+  color: var(--avc-ink);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* ─── Detail Block ───────────────────────────────────────── */
+.scenario-detail {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px dashed #e5e7ed;
+}
+.detail-enter-active, .detail-leave-active {
+  transition: opacity 0.25s, transform 0.25s;
+  overflow: hidden;
+}
+.detail-enter-from, .detail-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.block { margin-bottom: 22px; }
+.block-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--avc-ink);
+  letter-spacing: 0.6px;
+  margin-bottom: 14px;
+  text-transform: uppercase;
+}
+.block-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+}
+.block-dot.tamper { background: #e63946; }
+.block-dot.inject { background: #c026d3; }
+.block-tag {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--avc-mute);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  text-transform: none;
+  letter-spacing: 0.3px;
+}
+
+/* ─── Attack Chain (Timeline) ───────────────────────────── */
+.chain {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 8px 4px;
+  overflow-x: auto;
+}
+.chain-step {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 130px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 16px 10px 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fafbff, #f3f5fb);
+  border: 1px solid #e5e8f1;
+}
+.chain-step.tamper { background: linear-gradient(180deg, #fff7f3, #ffece2); border-color: #fad4c2; }
+.chain-step.tamper.hot { background: linear-gradient(180deg, #ffe9dd, #ffd5c0); border-color: #f5b69a; }
+.chain-step.tamper.crit { background: linear-gradient(180deg, #ffd9cc, #ffbfa9); border-color: #f08566; color: #6b1e0f; }
+
+.chain-step.inject { background: linear-gradient(180deg, #fdf3fb, #fae3f4); border-color: #f4c8e6; }
+.chain-step.inject.hot { background: linear-gradient(180deg, #fadcef, #f3c0e2); border-color: #ec9dd2; }
+.chain-step.inject.crit { background: linear-gradient(180deg, #f3c0e2, #e69ed1); border-color: #d97ac1; color: #6b125c; }
+
+.step-num {
+  position: absolute;
+  top: 8px; right: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: rgba(15, 21, 48, 0.32);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.step-icon { margin-bottom: 6px; opacity: 0.95; }
+.step-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--avc-ink);
+}
+.step-sub {
+  font-size: 11px;
+  color: #6b7180;
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.chain-step.crit .step-sub { color: rgba(0,0,0,0.55); }
+
+.chain-arrow {
+  position: relative;
+  flex: 0 0 64px;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0 4px;
 }
-.scenario-icon.tamper {
-  background: linear-gradient(135deg, #fff5f5, #ffe0e0);
-  color: #e63946;
+.chain-arrow svg {
+  width: 100%;
+  height: 12px;
 }
-.scenario-icon.inject {
-  background: linear-gradient(135deg, #f5f0ff, #e8daff);
-  color: #7c3aed;
+.chain-arrow.tamper svg line { stroke: #ED7B2F; stroke-width: 2; stroke-dasharray: 4 4; animation: dash 1.4s linear infinite; }
+.chain-arrow.tamper svg polygon { fill: #e63946; }
+.chain-arrow.inject svg line { stroke: #c026d3; stroke-width: 2; stroke-dasharray: 4 4; animation: dash 1.4s linear infinite; }
+.chain-arrow.inject svg polygon { fill: #db2777; }
+@keyframes dash {
+  to { stroke-dashoffset: -16; }
 }
-.scenario-meta {
-  flex: 1;
-}
-.scenario-meta h3 {
-  font-size: 16px;
-  font-weight: 700;
-  color: #1a1a2e;
-  margin: 0 0 3px;
-}
-.scenario-tag {
-  font-size: 11px;
-  color: #999;
-  font-family: 'JetBrains Mono', monospace;
-  letter-spacing: 0.3px;
-}
-.severity {
-  padding: 4px 10px;
-  border-radius: 6px;
+.chain-arrow::after {
+  content: attr(data-text);
+  position: absolute;
+  top: -22px; left: 50%;
+  transform: translateX(-50%);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 1px;
-  font-family: 'JetBrains Mono', monospace;
-}
-.severity.high {
-  background: #fff5f5;
+  letter-spacing: 1.5px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   color: #e63946;
-  border: 1px solid #fecdd3;
 }
-.severity.critical {
-  background: #fdf2f8;
-  color: #be185d;
-  border: 1px solid #f9a8d4;
-}
-.scenario-desc {
-  font-size: 13px;
-  color: #666;
-  line-height: 1.7;
-  margin: 14px 0 0;
-}
+.chain-arrow.inject::after { color: #c026d3; }
 
-/* Detail */
-.scenario-detail {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px dashed #eee;
-  animation: slideDown 0.3s ease;
-}
-@keyframes slideDown {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Attack Chain */
-.attack-chain {
-  margin-bottom: 20px;
-}
-.chain-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #999;
-  margin-bottom: 14px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-.chain-visual {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  overflow-x: auto;
-  padding: 8px 0;
-}
-.chain-node {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 100px;
-  padding: 14px 12px;
-  border-radius: 12px;
-  background: #f9fafb;
-  border: 1px solid #eee;
-  text-align: center;
-}
-.chain-node.hijack, .chain-node.attacker {
-  background: #fff5f5;
-  border-color: #fecdd3;
-}
-.chain-node.target {
-  background: #fef2f2;
-  border-color: #fca5a5;
-}
-.node-icon {
-  font-size: 24px;
-  margin-bottom: 6px;
-}
-.node-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #333;
-}
-.node-sub {
-  font-size: 10px;
-  color: #888;
-  margin-top: 3px;
-}
-.chain-link {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 60px;
-}
-.link-line {
-  width: 40px;
-  height: 2px;
-  background: linear-gradient(90deg, #fca5a5, #ff4444);
-  border-radius: 1px;
-}
-.link-badge {
-  font-size: 10px;
-  color: #e63946;
-  font-weight: 600;
-  margin-top: 4px;
-  white-space: nowrap;
-}
-.link-badge .t-icon {
-  vertical-align: -1px;
-}
-
-/* Impact */
-.impact-section {
+/* ─── Impact Triplet ─────────────────────────────────────── */
+.impact-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin-bottom: 22px;
 }
-.impact-item {
+.impact-card {
+  position: relative;
+  padding: 16px 14px;
+  border-radius: 12px;
+  background: #fafbfd;
+  border: 1px solid #ecedf3;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.impact-card:hover {
+  border-color: #d8dde6;
+  transform: translateY(-1px);
+}
+.impact-icon-wrap {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.impact-icon-wrap.tamper {
+  background: linear-gradient(135deg, #fff1ec, #ffd9cb);
+  color: #e63946;
+}
+.impact-icon-wrap.inject {
+  background: linear-gradient(135deg, #fdf0fb, #f9c5ee);
+  color: #c026d3;
+}
+.impact-key {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--avc-mute);
+  letter-spacing: 0.4px;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+.impact-val {
+  font-size: 13px;
+  color: var(--avc-ink);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* ─── Detection Panel ───────────────────────────────────── */
+.detection-panel {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  padding: 18px 18px 18px 14px;
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(0, 168, 112, 0.06), rgba(0, 82, 217, 0.06));
+  border: 1px solid rgba(0, 82, 217, 0.18);
+  margin-bottom: 22px;
+}
+.detection-shield {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+}
+.detection-body { flex: 1; min-width: 0; }
+.detection-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.detection-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0052D9;
+  letter-spacing: 0.3px;
+}
+.detection-tag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: #00a870;
+  background: rgba(0, 168, 112, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.detection-list {
+  list-style: none;
+  padding: 0; margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.detection-list li {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 12px;
-  border-radius: 10px;
-  background: #fafafa;
-  border: 1px solid #f0f0f0;
+  font-size: 12.5px;
+  color: #2c3344;
+  line-height: 1.6;
 }
-.impact-icon {
-  font-size: 18px;
+.detect-pill {
   flex-shrink: 0;
-}
-.impact-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
   font-size: 11px;
-  font-weight: 600;
-  color: #666;
-  margin-bottom: 2px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #e6fbf3, #c8f5e2);
+  color: #04754f;
+  border: 1px solid #9bedc6;
 }
-.impact-desc {
-  font-size: 12px;
-  color: #333;
-  line-height: 1.4;
+.detect-text { flex: 1; }
+.detect-text code {
+  background: rgba(15, 21, 48, 0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 
-/* Detection */
-.detection-card {
-  background: rgba(0, 168, 112, 0.03);
-  border: 1px solid rgba(0, 168, 112, 0.18);
-  border-radius: 12px;
-  padding: 16px;
+/* ─── Attack Config Panel ────────────────────────────────── */
+.cfg-panel {
+  border-radius: 14px;
+  padding: 18px 18px 16px;
+  border: 1px solid;
+  position: relative;
+  overflow: hidden;
 }
-.detection-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #00a870;
-  margin-bottom: 12px;
+.cfg-panel.tamper {
+  background: linear-gradient(135deg, #fff7f3, #ffe9dd 70%, #ffe0d3);
+  border-color: #f5c2aa;
 }
-.shield-icon {
-  font-size: 16px;
+.cfg-panel.inject {
+  background: linear-gradient(135deg, #fdf3fb, #f9dcef 70%, #f4cbe6);
+  border-color: #ecaad6;
 }
-.detection-items {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.cfg-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; width: 120px; height: 120px;
+  background: radial-gradient(circle at top right, rgba(255,255,255,0.5), transparent 70%);
+  pointer-events: none;
 }
-.detect-item {
+
+.cfg-head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 12px;
-  color: #555;
-  line-height: 1.5;
-}
-.detect-badge {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 600;
-}
-.detect-badge.pass {
-  background: #ecfdf5;
-  color: #059669;
-  border: 1px solid #a7f3d0;
-}
-
-/* Attack Config Block (color block) */
-.config-block {
-  margin-top: 16px;
-  border-radius: 12px;
-  padding: 16px;
-  cursor: default;
-}
-.inject-block {
-  background: linear-gradient(135deg, #faf5ff, #f3e8ff);
-  border: 1px solid #e9d5ff;
-}
-.tamper-block {
-  background: linear-gradient(135deg, #fff5f5, #ffe4e4);
-  border: 1px solid #fecdd3;
-}
-.config-block-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed rgba(15, 21, 48, 0.08);
 }
-.cfg-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #7c3aed;
+.cfg-marker {
+  width: 8px; height: 8px;
+  border-radius: 2px;
+  transform: rotate(45deg);
 }
-.tamper-block .cfg-dot {
-  background: #e63946;
-}
+.cfg-marker.tamper { background: #e63946; box-shadow: 0 0 0 3px rgba(230,57,70,0.18); }
+.cfg-marker.inject { background: #c026d3; box-shadow: 0 0 0 3px rgba(192,38,211,0.18); }
 .cfg-title {
   font-size: 13px;
   font-weight: 700;
-  color: #1a1a2e;
+  color: var(--avc-ink);
+  letter-spacing: 0.3px;
 }
-.cfg-tag {
+.cfg-en {
   font-size: 11px;
-  color: #999;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  color: var(--avc-mute);
 }
-.cfg-save-btn {
-  margin-left: auto;
-}
-.config-empty {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.55);
-  font-size: 12px;
-  color: #999;
-}
-.cfg-empty-icon {
-  font-size: 16px;
-}
-.config-item {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(124, 58, 237, 0.12);
-  border-radius: 10px;
-  padding: 12px 14px;
+.cfg-save { margin-left: auto; }
+
+.cfg-item {
+  position: relative;
+  background: rgba(255,255,255,0.78);
+  border: 1px solid rgba(15, 21, 48, 0.06);
+  border-radius: 12px;
+  padding: 14px 16px;
   margin-bottom: 10px;
-  transition: all 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
 }
-.config-item:last-child {
-  margin-bottom: 0;
+.cfg-item:last-child { margin-bottom: 0; }
+.cfg-panel.tamper .cfg-item.on {
+  border-color: rgba(230, 57, 70, 0.4);
+  box-shadow: 0 4px 16px rgba(230, 57, 70, 0.1);
 }
-.config-item.on {
-  border-color: rgba(124, 58, 237, 0.35);
-  box-shadow: 0 2px 12px rgba(124, 58, 237, 0.08);
+.cfg-panel.inject .cfg-item.on {
+  border-color: rgba(192, 38, 211, 0.4);
+  box-shadow: 0 4px 16px rgba(192, 38, 211, 0.1);
 }
-.config-item-top {
+.cfg-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
 }
-.config-item-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.cfg-info { flex: 1; min-width: 0; }
+.cfg-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--avc-ink);
 }
-.ci-key {
+.cfg-key {
   display: inline-block;
-  margin: 4px 0 2px;
-  padding: 1px 8px;
+  margin-top: 4px;
+  padding: 2px 8px;
   border-radius: 5px;
-  background: rgba(124, 58, 237, 0.1);
-  color: #7c3aed;
   font-size: 11px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
-.ci-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1a1a2e;
-}
-.ci-desc {
-  font-size: 11px;
-  color: #888;
-  margin-top: 2px;
-}
-.config-item-body {
-  margin-top: 12px;
-  animation: slideDown 0.25s ease;
-}
-
-/* Tamper block: red theme overrides */
-.tamper-block .ci-key {
+.cfg-panel.tamper .cfg-key {
   background: rgba(230, 57, 70, 0.1);
-  color: #e63946;
+  color: #c1361f;
 }
-.tamper-block .config-item {
-  border-color: rgba(230, 57, 70, 0.12);
+.cfg-panel.inject .cfg-key {
+  background: rgba(192, 38, 211, 0.1);
+  color: #86198f;
 }
-.tamper-block .config-item.on {
-  border-color: rgba(230, 57, 70, 0.35);
-  box-shadow: 0 2px 12px rgba(230, 57, 70, 0.08);
-}
-
-/* Footer */
-.footer-notice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 18px;
-  background: #fffbf5;
-  border-radius: 10px;
-  border: 1px solid #fde8c8;
-  font-size: 12px;
-  color: #8a6d3b;
+.cfg-desc {
+  font-size: 11.5px;
+  color: var(--avc-mute);
+  margin-top: 5px;
   line-height: 1.5;
 }
-.footer-icon {
-  font-size: 14px;
-  flex-shrink: 0;
+.cfg-input {
+  margin-top: 12px;
+  animation: fadeDown 0.25s ease;
+}
+@keyframes fadeDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Footer Notice ─────────────────────────────────────── */
+.notice {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px 14px 18px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fff8ed, #ffefd6);
+  border: 1px solid #fcdba0;
+  font-size: 12.5px;
+  color: #7a571c;
+  line-height: 1.6;
+  overflow: hidden;
+}
+.notice-bar {
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #ED7B2F, #e63946);
+}
+.notice-icon { color: #ED7B2F; padding-top: 1px; }
+.notice-text strong {
+  display: block;
+  color: #5a3f10;
+  font-size: 13px;
+  margin-bottom: 2px;
 }
 </style>
