@@ -3,11 +3,339 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0052D9" />
   <link rel="icon" type="image/png" href="/favicon.png" />
   <title>ClawAVC</title>
+  <style>
+    /* ─── Inlined boot/splash styles — render with zero deps ──────────── */
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #f5f7fa;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+                   "Microsoft YaHei", sans-serif;
+      color: #1f2438;
+      -webkit-font-smoothing: antialiased;
+    }
+    #clawavc-splash {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background:
+        radial-gradient(80% 60% at 30% 20%, rgba(0,82,217,0.07), transparent 60%),
+        radial-gradient(70% 60% at 80% 90%, rgba(237,123,47,0.08), transparent 60%),
+        linear-gradient(135deg, #fafcff 0%, #fffaf3 100%);
+      transition: opacity 0.2s ease;
+    }
+    #clawavc-splash.is-hiding { opacity: 0; pointer-events: none; }
+    .cs-card {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 36px 48px 30px;
+    }
+    .cs-logo {
+      width: 72px; height: 72px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #0052D9 0%, #2a6cd8 50%, #ED7B2F 100%);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow:
+        0 12px 36px rgba(0, 82, 217, 0.18),
+        inset 0 0 0 1px rgba(255,255,255,0.18);
+      animation: cs-breathe 1.8s ease-in-out infinite;
+      position: relative;
+    }
+    .cs-logo::after {
+      content: ''; position: absolute; inset: -8px;
+      border-radius: 22px;
+      background: radial-gradient(circle, rgba(0,82,217,0.18), transparent 70%);
+      filter: blur(12px); z-index: -1;
+      animation: cs-glow 1.8s ease-in-out infinite;
+    }
+    .cs-logo svg { width: 38px; height: 38px; }
+    @keyframes cs-breathe {
+      0%, 100% { transform: scale(1); }
+      50%      { transform: scale(1.04); }
+    }
+    @keyframes cs-glow {
+      0%, 100% { opacity: 0.5; }
+      50%      { opacity: 1; }
+    }
+    .cs-title {
+      margin-top: 22px;
+      font-size: 22px; font-weight: 700; letter-spacing: 1.2px;
+      background: linear-gradient(120deg, #0052D9 0%, #ED7B2F 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .cs-subtitle {
+      margin-top: 5px;
+      font-size: 12px; color: #888; letter-spacing: 0.6px;
+      font-family: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+    }
+    .cs-progress {
+      margin-top: 32px;
+      width: 260px; height: 4px;
+      background: rgba(15, 21, 48, 0.06);
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+    }
+    .cs-progress-fill {
+      position: absolute; top: 0; left: 0;
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, #0052D9 0%, #ED7B2F 100%);
+      border-radius: 999px;
+      transition: width 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    }
+    .cs-progress-fill::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
+      animation: cs-shimmer 1.4s linear infinite;
+    }
+    @keyframes cs-shimmer {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    .cs-status {
+      margin-top: 14px;
+      font-size: 11px; color: #6b7280; letter-spacing: 0.6px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      min-height: 14px;
+    }
+    .cs-pct {
+      margin-left: 8px; color: #0052D9; font-weight: 600;
+    }
+    /* ETA / dwell-time hint — only appears when load takes > 5s */
+    .cs-eta {
+      margin-top: 8px;
+      font-size: 11px; color: #b6bccc; letter-spacing: 0.4px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      min-height: 14px;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .cs-eta.is-shown { opacity: 1; }
+    .cs-eta.is-warn  { color: #ED7B2F; }
+    .cs-eta-icon {
+      display: inline-block; vertical-align: -1px; margin-right: 4px;
+    }
+    .cs-foot {
+      position: absolute; bottom: 24px; left: 0; right: 0;
+      text-align: center;
+      font-size: 11px; color: #b0b6c4; letter-spacing: 1px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .cs-logo, .cs-logo::after, .cs-progress-fill::after { animation: none; }
+    }
+  </style>
 </head>
 <body>
+  <!-- App root — Vue mounts here -->
   <div id="app"></div>
+
+  <!-- Boot splash — visible until window.__clawavcReady() fires from main.js. -->
+  <div id="clawavc-splash" aria-busy="true" aria-live="polite">
+    <div class="cs-card">
+      <div class="cs-logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" fill="none">
+          <path d="M16 2L4 8v8c0 7.7 5.1 14.9 12 16 6.9-1.1 12-8.3 12-16V8L16 2z"
+                stroke="#fff" stroke-width="2" fill="none" opacity="0.92"/>
+          <path d="M10 16l4 4 8-9" stroke="#fff" stroke-width="2.6"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="cs-title">ClawAVC</div>
+      <div class="cs-subtitle">Claw · Access · View · Compliance</div>
+      <div class="cs-progress" role="progressbar"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="cs-progress-fill" id="cs-bar"></div>
+      </div>
+      <div class="cs-status">
+        <span id="cs-msg">正在加载资源</span>
+        <span class="cs-pct" id="cs-pct">0%</span>
+      </div>
+      <div class="cs-eta" id="cs-eta" aria-live="polite"></div>
+    </div>
+    <div class="cs-foot">透视访问行为意图 · 校验合规性</div>
+  </div>
+
+  <script>
+    /* Boot progress driver — runs synchronously, before the module bundle.
+       Two-phase model:
+         Phase A (resource download): drives an asymptotic ramp toward 89%.
+                                      ETA computed from real PerformanceObserver
+                                      resource timings.
+         Phase B (init/parse/mount):  reached when ≥95% of expected resources
+                                      have arrived but Vue hasn't called
+                                      __clawavcReady yet. ETA shown as a
+                                      bracketed estimate based on time spent
+                                      in this phase, with progressively
+                                      escalating wording.
+
+       main.js can also emit progress events via window.__clawavcStage(name)
+       to make the splash advance in lockstep with real init steps. */
+    (function () {
+      var bar    = document.getElementById('cs-bar');
+      var msg    = document.getElementById('cs-msg');
+      var pct    = document.getElementById('cs-pct');
+      var eta    = document.getElementById('cs-eta');
+      var splash = document.getElementById('clawavc-splash');
+      var bar_v = 0, done = false, raf = 0;
+      var t0 = (window.performance && performance.now()) || Date.now();
+      var stages = [
+        [10, '加载核心库'],
+        [32, '加载 UI 组件'],
+        [55, '初始化路由'],
+        [75, '建立 WebSocket'],
+        [88, '准备审计面板'],
+      ];
+      var stage_i = 0;
+
+      // ─── Resource progress tracking via PerformanceObserver ─────────
+      var expected = 0;
+      try {
+        expected =
+          document.querySelectorAll('link[rel="modulepreload"]').length +
+          document.querySelectorAll('link[rel="stylesheet"][crossorigin]').length +
+          document.querySelectorAll('script[type="module"][src]').length;
+      } catch (e) {}
+      if (expected < 4) expected = 32;  // dev mode floor
+
+      var done_count = 0;
+      var done_bytes = 0;
+      function noteEntry(e) {
+        if (!e || !e.name) return;
+        if (
+          e.name.indexOf('/assets/') === -1 &&
+          e.name.indexOf('/src/')    === -1 &&
+          e.name.indexOf('/node_modules/') === -1
+        ) return;
+        done_count++;
+        done_bytes += (e.transferSize || e.encodedBodySize || 0);
+      }
+      if (window.PerformanceObserver) {
+        try {
+          var po = new PerformanceObserver(function (list) {
+            list.getEntries().forEach(noteEntry);
+          });
+          po.observe({ type: 'resource', buffered: true });
+        } catch (e) {}
+      }
+
+      // ─── Optional fine-grained stage events from main.js ────────────
+      // main.js calls window.__clawavcStage('parse'|'mounting'|'mounted')
+      // so the splash can advance in step with the real boot.
+      var stage_event = null;          // last stage name announced
+      var stage_event_at = null;       // performance.now() when it fired
+      window.__clawavcStage = function (name) {
+        stage_event = name;
+        stage_event_at = (window.performance && performance.now()) || Date.now();
+      };
+
+      // ─── ETA renderer ────────────────────────────────────────────────
+      var DWELL_MS = 5000;
+      var WARN_MS  = 12000;
+      var init_phase_at = null;
+      function fmtSec(ms) {
+        var s = Math.ceil(ms / 1000);
+        if (s < 1)  return '不到 1 秒';
+        if (s < 60) return '约 ' + s + ' 秒';
+        var m = Math.floor(s / 60), r = s % 60;
+        return '约 ' + m + ' 分 ' + r + ' 秒';
+      }
+      function updateEta(elapsed) {
+        if (done) return;
+        if (elapsed < DWELL_MS) { eta.classList.remove('is-shown'); return; }
+        eta.classList.add('is-shown');
+        eta.classList.toggle('is-warn', elapsed >= WARN_MS);
+
+        var ratio = expected > 0 ? Math.min(done_count / expected, 0.97) : 0;
+
+        // ── Phase B: init / mount (resources mostly in, Vue hasn't signalled ready)
+        var inInitPhase = ratio >= 0.95 || stage_event !== null;
+        if (inInitPhase) {
+          if (init_phase_at === null) init_phase_at = elapsed;
+          var phase_elapsed = elapsed - init_phase_at;
+
+          var hint;
+          if (stage_event === 'parse') {
+            hint = '正在解析 JS（vue · tdesign），预计还需 1-2 秒';
+          } else if (stage_event === 'mounting') {
+            hint = '正在挂载界面，预计 1 秒内完成';
+          } else if (stage_event === 'mounted') {
+            hint = '即将就绪…';
+          } else if (phase_elapsed < 800) {
+            hint = '资源已就绪，正在初始化界面，预计 1 秒内完成';
+          } else if (phase_elapsed < 2500) {
+            hint = '正在初始化 Vue 与 UI 组件，预计还需 1-2 秒';
+          } else if (phase_elapsed < 6000) {
+            hint = '正在初始化（CPU 解析 JS 较慢），预计还需 2-3 秒';
+          } else {
+            hint = '首次加载较慢是正常现象，耐心等待，好事花生～';
+          }
+          eta.innerHTML = '<span class="cs-eta-icon">⏳</span>' + hint;
+          return;
+        }
+
+        // ── Phase A: still downloading resources
+        if (done_count < 2) {
+          eta.innerHTML = '<span class="cs-eta-icon">⏳</span>正在拉取首批资源…';
+          return;
+        }
+        var eta_ms = elapsed * (1 - ratio) / ratio;
+        if (eta_ms > 180000) eta_ms = 180000;
+        eta.innerHTML =
+          '<span class="cs-eta-icon">⏳</span>预计还需 ' + fmtSec(eta_ms) +
+          ' · 已拉取 ' + done_count + '/' + expected + ' 个文件' +
+          (done_bytes > 0 ? ' · ' + (done_bytes / 1024 / 1024).toFixed(1) + ' MB' : '');
+      }
+
+      function tick() {
+        if (done) return;
+        var now = (window.performance && performance.now()) || Date.now();
+        var elapsed = now - t0;
+        var target = elapsed < 1200
+          ? Math.min(60, (elapsed / 1200) * 60)
+          : 60 + Math.min(29, (elapsed - 1200) / 80);
+        bar_v += (target - bar_v) * 0.18;
+        if (bar_v > 89) bar_v = 89;
+        var n = Math.floor(bar_v);
+        bar.style.width = bar_v.toFixed(1) + '%';
+        pct.textContent = n + '%';
+        bar.parentNode.setAttribute('aria-valuenow', String(n));
+        if (stage_i < stages.length && bar_v >= stages[stage_i][0]) {
+          msg.textContent = stages[stage_i][1];
+          stage_i++;
+        }
+        updateEta(elapsed);
+        raf = requestAnimationFrame(tick);
+      }
+      raf = requestAnimationFrame(tick);
+
+      window.__clawavcReady = function () {
+        if (done) return;
+        done = true;
+        if (raf) cancelAnimationFrame(raf);
+        bar.style.transition = 'width 0.18s ease';
+        bar.style.width = '100%';
+        pct.textContent = '100%';
+        msg.textContent = '已就绪';
+        eta.classList.remove('is-shown');
+        bar.parentNode.setAttribute('aria-valuenow', '100');
+        // Snappy fade — the user has been waiting; don't make them wait
+        // another half-second for ceremony.
+        setTimeout(function () {
+          splash.classList.add('is-hiding');
+          setTimeout(function () {
+            if (splash.parentNode) splash.parentNode.removeChild(splash);
+          }, 220);
+        }, 60);
+      };
+
+      setTimeout(function () {
+        if (!done) msg.textContent = '加载较慢，请耐心等待…';
+      }, WARN_MS);
+    })();
+  </script>
+
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
