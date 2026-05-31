@@ -79,12 +79,20 @@ fuser -k 15101/tcp 2>/dev/null
 sleep 1
 
 DAEMON=false
-if [ "$1" = "-d" ] || [ "$1" = "--daemon" ]; then
-  DAEMON=true
-fi
+DEV_MODE=false
+for arg in "$@"; do
+  case "$arg" in
+    -d|--daemon) DAEMON=true ;;
+    --dev)       DEV_MODE=true ;;
+  esac
+done
 
 if [ "$DAEMON" = true ]; then
-  echo -e "  ${ORG}⚡${R} ${B}Mode:${R} ${ORG}${B}DAEMON${R} ${GRY}(background)${R}"
+  if [ "$DEV_MODE" = true ]; then
+    echo -e "  ${ORG}⚡${R} ${B}Mode:${R} ${ORG}${B}DAEMON${R} ${GRY}(background, vite dev)${R}"
+  else
+    echo -e "  ${ORG}⚡${R} ${B}Mode:${R} ${ORG}${B}DAEMON${R} ${GRY}(background, vite preview / static)${R}"
+  fi
   echo ""
 
   loading_bar "Loading core engine   " "🔧"
@@ -92,8 +100,19 @@ if [ "$DAEMON" = true ]; then
   BACKEND_PID=$!
   sleep 3
 
+  if [ "$DEV_MODE" = false ]; then
+    if [ ! -d "$DIR/frontend/dist/assets" ] || [ "$DIR/frontend/src" -nt "$DIR/frontend/dist/index.html" ]; then
+      loading_bar "Building static bundle " "📦"
+      cd "$DIR/frontend" && npx vite build >> "$LOG_DIR/frontend.log" 2>&1
+    fi
+  fi
+
   loading_bar "Starting web server  " "🌐"
-  cd "$DIR/frontend" && nohup npx vite --host 0.0.0.0 --port 15101 >> "$LOG_DIR/frontend.log" 2>&1 &
+  if [ "$DEV_MODE" = true ]; then
+    cd "$DIR/frontend" && nohup npx vite --host 0.0.0.0 --port 15101 >> "$LOG_DIR/frontend.log" 2>&1 &
+  else
+    cd "$DIR/frontend" && nohup npx vite preview --host 0.0.0.0 --port 15101 >> "$LOG_DIR/frontend.log" 2>&1 &
+  fi
   FRONTEND_PID=$!
   sleep 1
 
@@ -121,8 +140,19 @@ else
   BACKEND_PID=$!
   sleep 3
 
+  if [ "$DEV_MODE" = false ]; then
+    if [ ! -d "$DIR/frontend/dist/assets" ] || [ "$DIR/frontend/src" -nt "$DIR/frontend/dist/index.html" ]; then
+      loading_bar "Building static bundle " "📦"
+      cd "$DIR/frontend" && npx vite build 2>&1 | tee -a "$LOG_DIR/frontend.log"
+    fi
+  fi
+
   loading_bar "Starting web server  " "🌐"
-  cd "$DIR/frontend" && npx vite --host 0.0.0.0 --port 15101 2>&1 | tee -a "$LOG_DIR/frontend.log" &
+  if [ "$DEV_MODE" = true ]; then
+    cd "$DIR/frontend" && npx vite --host 0.0.0.0 --port 15101 2>&1 | tee -a "$LOG_DIR/frontend.log" &
+  else
+    cd "$DIR/frontend" && npx vite preview --host 0.0.0.0 --port 15101 2>&1 | tee -a "$LOG_DIR/frontend.log" &
+  fi
   FRONTEND_PID=$!
   sleep 1
 

@@ -257,9 +257,14 @@ def db_query():
     is_admin = _check_admin_session(token)
     is_write = not sql_upper.startswith("SELECT")
     touches_config = "CONFIG" in sql_upper
+    touches_sqlite_sequence = "SQLITE_SEQUENCE" in sql_upper
 
     if touches_config and not is_admin:
         return jsonify({"ok": False, "error": "需要特权验证才能访问 config 表"}), 403
+    
+    if touches_sqlite_sequence and not is_admin:
+        return jsonify({"ok": False, "error": "需要特权验证才能访问 sqlite_sequence 表"}), 403
+
     if is_write and not is_admin:
         return jsonify({"ok": False, "error": "需要特权验证才能执行写操作"}), 403
     try:
@@ -704,18 +709,19 @@ def handle_connect():
 
 
 @socketio.on("disconnect")
+def handle_disconnect():
+    print(f"[ws] client disconnected: {request.sid}")
+
 
 # ─── /monitor namespace (运行消息组) ────────────────────────
 @socketio.on("connect", namespace="/wss/monitor")
 def handle_monitor_connect():
     print(f"[ws/monitor] client connected: {request.sid}")
 
+
 @socketio.on("disconnect", namespace="/wss/monitor")
 def handle_monitor_disconnect():
     print(f"[ws/monitor] client disconnected: {request.sid}")
-
-def handle_disconnect():
-    print(f"[ws] client disconnected: {request.sid}")
 
 
 # ─── Monitor Config API ───────────────────────────────
