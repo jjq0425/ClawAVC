@@ -4,6 +4,8 @@
 
 # ClawAVC
 
+**中文** | [English](./README_en.md)
+
 **Claw Access-View Compliance**
 
 *透视访问行为意图 · 校验合规性*
