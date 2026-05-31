@@ -34,9 +34,14 @@ def init_db():
             judge_result TEXT,
             is_abnormal INTEGER DEFAULT 0,
             overall_score REAL DEFAULT 1.0,
+            attack_config TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Migration: add attack_config column for existing databases
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(rounds)").fetchall()]
+    if "attack_config" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN attack_config TEXT DEFAULT ''")
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_rounds_time ON rounds(time_start DESC)
     """)
@@ -107,19 +112,23 @@ def insert_round(data: Dict[str, Any]) -> Optional[int]:
 
 
 
-def insert_round_start(round_id: str, time_start: str, session_key: str, session_id: str) -> Optional[int]:
-    """Insert a round record at ROUND_START (partial data, no score yet)."""
+def insert_round_start(round_id: str, time_start: str, session_key: str, session_id: str,
+                       attack_config: str = "") -> Optional[int]:
+    """Insert a round record at ROUND_START (partial data, no score yet).
+
+    attack_config: 当前攻击配置的完整 JSON 快照，在 round 开始时固化保存。
+    """
     conn = get_conn()
     try:
         cursor = conn.execute("""
             INSERT OR IGNORE INTO rounds
             (round_id, time_start, time_end, session_key, session_id,
              user_query, last_llm_message, action_json, ir_json,
-             judge_result, is_abnormal, overall_score)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             judge_result, is_abnormal, overall_score, attack_config)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             round_id, time_start, "", session_key, session_id,
-            "", "", "[]", "{}", "", 0, -1.0,
+            "", "", "[]", "{}", "", 0, -1.0, attack_config,
         ))
         conn.commit()
         return cursor.lastrowid if cursor.rowcount > 0 else None
@@ -271,6 +280,16 @@ def set_config(key: str, value: str):
     conn.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
     conn.commit()
     conn.close()
+
+
+def get_configs_by_prefix(prefix: str) -> dict:
+    """返回所有 key 以 prefix 开头的配置项，{key: value}。"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT key, value FROM config WHERE key LIKE ?", (prefix + "%",)
+    ).fetchall()
+    conn.close()
+    return {row[0]: row[1] for row in rows}
 
 
 def verify_secret(secret: str) -> bool:

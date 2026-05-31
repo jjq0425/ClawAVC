@@ -77,12 +77,20 @@ def report_round():
     round_id = data.get("round_id") or data.get("round", "")
 
     if event == "start":
-        # ROUND_STARTED: insert partial record
+        # ROUND_STARTED: insert partial record。
+        # attack_config 由上报方（monitor）通过 /api/attack/tool-config 接口读取后随 body 带入；
+        # 若未携带则本地直读兜底，结构统一为 {"tool_injection": {...}}。
+        attack_config = data.get("attack_config")
+        if attack_config is None:
+            attack_config = json.dumps(
+                {"tool_injection": _read_attack_inject_config()}, ensure_ascii=False
+            )
         row_id = db.insert_round_start(
             round_id=round_id,
             time_start=data.get("time_start", ""),
             session_key=data.get("session_key") or data.get("sessionKey", ""),
             session_id=data.get("session_id") or data.get("sessionID", ""),
+            attack_config=attack_config,
         )
         if row_id:
             record = db.get_round_by_id(round_id)
@@ -836,15 +844,24 @@ def set_navigator_config():
 
 # ─── Attack Tool Config API ────────────────────────────
 # 模拟攻击 - 工具注入配置。存储于 config 表，键名前缀 attack.inject.*
-ATTACK_INJECT_ITEMS = ["network", "filepath"]
+# 不再硬编码可用项，直接从 config 表里按 attack.inject.<item>.<field> 动态解析。
+ATTACK_INJECT_PREFIX = "attack.inject."
 
 def _read_attack_inject_config():
-    """读取工具注入配置（开启状态 + 具体内容）。"""
+    """读取工具注入配置（开启状态 + 具体内容），动态来自 config 表。"""
     data = {}
-    for item in ATTACK_INJECT_ITEMS:
-        enabled = (db.get_config(f"attack.inject.{item}.enabled") or "false").lower() == "true"
-        value = db.get_config(f"attack.inject.{item}.value") or ""
-        data[item] = {"enabled": enabled, "value": value}
+    for key, val in db.get_configs_by_prefix(ATTACK_INJECT_PREFIX).items():
+        # key 形如 attack.inject.<item>.<field>
+        rest = key[len(ATTACK_INJECT_PREFIX):]
+        parts = rest.rsplit(".", 1)
+        if len(parts) != 2:
+            continue
+        item, field = parts
+        cfg = data.setdefault(item, {"enabled": False, "value": ""})
+        if field == "enabled":
+            cfg["enabled"] = (val or "false").lower() == "true"
+        elif field == "value":
+            cfg["value"] = val or ""
     return data
 
 @app.route("/api/attack/config", methods=["GET"])
@@ -857,8 +874,7 @@ def put_attack_config():
     """保存模拟攻击的工具注入配置（开启状态 + 攻击内容）。"""
     body = request.get_json(force=True)
     inject = body.get("tool_injection", {}) or {}
-    for item in ATTACK_INJECT_ITEMS:
-        cfg = inject.get(item)
+    for item, cfg in inject.items():
         if not isinstance(cfg, dict):
             continue
         enabled = bool(cfg.get("enabled", False))

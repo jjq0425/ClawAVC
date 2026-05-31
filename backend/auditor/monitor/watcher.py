@@ -995,6 +995,24 @@ def get_config_from_db() -> Dict[str, str]:
     return {}
 
 
+def get_attack_config_snapshot() -> str:
+    """Read full attack tool-injection config via clawAVC API (key empty = all).
+
+    复用对外接口 /api/attack/tool-config，返回其 data 字段的 JSON 字符串，
+    作为本轮开始时刻的攻击配置快照。
+    """
+    try:
+        req = urllib.request.Request("http://127.0.0.1:15100/api/attack/tool-config")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            body = resp.read().decode("utf-8")
+        parsed = json.loads(body)
+        if parsed.get("ok"):
+            return json.dumps(parsed.get("data", {}), ensure_ascii=False)
+    except Exception:
+        pass
+    return ""
+
+
 
 def extract_from_openclaw_session(openclaw_root: Path, round_id: str, start_time: float) -> Dict[str, Any]:
     """Extract user_query, actions (with results), last_llm_message from OpenClaw session logs.
@@ -1157,7 +1175,9 @@ class MonitorOrchestrator:
 
         session_key = r.session_key if r.session_key != "unknown" else ""
         session_id = r.ids.get("session_id") or r.ids.get("sessionId") or ""
-        report_to_clawavc({"event": "start", "round_id": r.round_id, "time_start": format_bj_time(), "session_key": session_key, "session_id": session_id})
+        # 从 API 读取当前攻击配置（key 空=全部），作为本轮快照随上报固化
+        attack_config = get_attack_config_snapshot()
+        report_to_clawavc({"event": "start", "round_id": r.round_id, "time_start": format_bj_time(), "session_key": session_key, "session_id": session_id, "attack_config": attack_config})
 
         t = threading.Thread(target=self._query_and_ir_worker, args=(r.round_id, r.started_at), daemon=True)
         self._round_workers[r.round_id] = t
