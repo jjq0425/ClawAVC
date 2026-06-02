@@ -116,6 +116,7 @@
 <script setup>
 import { ref, onMounted } from "vue"
 import socket, { connected } from "../../utils/socket.js"
+import { NotifyPlugin } from "tdesign-vue-next"
 
 const rounds = ref([])
 const total = ref(0)
@@ -124,6 +125,7 @@ const expandedId = ref(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const filters = ref({ query: "", round_id: "", dateRange: [] })
+let notificationInstance = null
 
 // 通用筛选函数
 function matchesFilter(data) {
@@ -143,6 +145,17 @@ onMounted(() => {
     const idx = rounds.value.findIndex(r => r.round_id === data.round_id)
     if (idx >= 0) { rounds.value[idx] = data }
     else if (matchesFilter(data)) { rounds.value.unshift(data); total.value++ }
+    
+    // 有新消息且处于筛选状态时显示通知
+    const { query, round_id: roundIdFilter, dateRange } = filters.value
+    const hasFilter = !!(query || roundIdFilter || dateRange?.length === 2)
+    if (hasFilter) {
+      notificationInstance = NotifyPlugin.warning({
+        title: '温馨提示',
+        content: '有更新消息到达，当前处于筛选状态，建议刷新搜索条件查看最新数据',
+        duration: 3000,
+      })
+    }
   })
 })
 
