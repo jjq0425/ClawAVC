@@ -89,6 +89,12 @@ def update_round():
         return jsonify({"ok": False, "error": f"更新失败: 不支持这个字段的修改: {field}"}), 400
     if result == "error":
         return jsonify({"ok": False, "error": f"更新失败: {field}"}), 500
+    
+    # 推送更新到前端
+    record = db.get_round_by_id(round_id)
+    if record:
+        socketio.emit("new_round", record)
+    
     return jsonify({"ok": True})
 
 
