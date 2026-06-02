@@ -125,6 +125,21 @@
     @media (prefers-reduced-motion: reduce) {
       .cs-logo, .cs-logo::after, .cs-progress-fill::after { animation: none; }
     }
+    /* Countdown for slow-load hint */
+    .cs-countdown {
+      margin-top: 6px;
+      font-size: 11px; color: #b6bccc;
+      letter-spacing: 0.4px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      min-height: 14px;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .cs-countdown.is-shown { opacity: 1; }
+    .cs-countdown.is-expired { color: #e34d59; }
+    .cs-countdown-icon {
+      display: inline-block; vertical-align: -1px; margin-right: 4px;
+    }
   </style>
 </head>
 <body>
@@ -153,6 +168,7 @@
         <span class="cs-pct" id="cs-pct">0%</span>
       </div>
       <div class="cs-eta" id="cs-eta" aria-live="polite"></div>
+      <div class="cs-countdown" id="cs-countdown" aria-live="polite"></div>
     </div>
     <div class="cs-foot">透视访问行为意图 · 校验合规性</div>
   </div>
@@ -179,6 +195,8 @@
       var eta    = document.getElementById('cs-eta');
       var splash = document.getElementById('clawavc-splash');
       var bar_v = 0, done = false, raf = 0;
+      var countdownTimer = null, countdownRemaining = 0, countdownActive = false;
+      var countdownEl = document.getElementById('cs-countdown');
       var t0 = (window.performance && performance.now()) || Date.now();
       var stages = [
         [10, '加载核心库'],
@@ -269,6 +287,19 @@
           } else if (phase_elapsed < 6000) {
             hint = '正在初始化（CPU 解析 JS 较慢），预计还需 2-3 秒';
           } else {
+            // Start 60s countdown when slow-load hint appears
+            if (!countdownActive) {
+              countdownActive = true;
+              countdownRemaining = 60000;
+              countdownTimer = setInterval(function() {
+                countdownRemaining -= 1000;
+                if (countdownRemaining <= 0) {
+                  countdownRemaining = 0;
+                  clearInterval(countdownTimer);
+                  countdownTimer = null;
+                }
+              }, 1000);
+            }
             hint = '首次加载较慢是正常现象，耐心等待，好事花生～';
           }
           eta.innerHTML = '<span class="cs-eta-icon">⏳</span>' + hint;
@@ -286,6 +317,22 @@
           '<span class="cs-eta-icon">⏳</span>预计还需 ' + fmtSec(eta_ms) +
           ' · 已拉取 ' + done_count + '/' + expected + ' 个文件' +
           (done_bytes > 0 ? ' · ' + (done_bytes / 1024 / 1024).toFixed(1) + ' MB' : '');
+      }
+
+      // ─── Countdown updater ────────────────────────────────────────
+      function updateCountdown() {
+        if (done || !countdownActive) {
+          countdownEl.classList.remove('is-shown');
+          return;
+        }
+        countdownEl.classList.add('is-shown');
+        if (countdownRemaining <= 0) {
+          countdownEl.classList.add('is-expired');
+          countdownEl.innerHTML = '<span class="cs-countdown-icon">⏰</span>请继续等待';
+          return;
+        }
+        var secs = Math.ceil(countdownRemaining / 1000);
+        countdownEl.innerHTML = '<span class="cs-countdown-icon">⏳</span>根据平均时间，预估还需大约 ' + secs + ' 秒';
       }
 
       function tick() {
@@ -306,6 +353,7 @@
           stage_i++;
         }
         updateEta(elapsed);
+        updateCountdown();
         raf = requestAnimationFrame(tick);
       }
       raf = requestAnimationFrame(tick);
@@ -314,6 +362,9 @@
         if (done) return;
         done = true;
         if (raf) cancelAnimationFrame(raf);
+        if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+        countdownActive = false;
+        countdownEl.classList.remove('is-shown');
         bar.style.transition = 'width 0.18s ease';
         bar.style.width = '100%';
         pct.textContent = '100%';
