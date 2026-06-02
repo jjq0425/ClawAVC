@@ -93,7 +93,7 @@ def update_round():
     # 推送更新到前端
     record = db.get_round_by_id(round_id)
     if record:
-        socketio.emit("new_round", record)
+        socketio.emit("new_round_info", record)
     
     return jsonify({"ok": True})
 
@@ -136,7 +136,7 @@ def report_round():
         if row_id:
             record = db.get_round_by_id(round_id)
             if record:
-                socketio.emit("new_round", record)
+                socketio.emit("new_round_info", record)
                 socketio.emit("push", {"push_type": "round_start", "round_id": round_id, "time_start": data.get("time_start", ""), "session_key": data.get("session_key", ""), "push_time": data.get("time_start", "")}, namespace="/wss/monitor")
         return jsonify({"ok": True, "inserted": row_id is not None})
 
@@ -174,7 +174,7 @@ def report_round():
         # Push updated record to frontend
         record = db.get_round_by_id(round_id)
         if record:
-            socketio.emit("new_round", record)
+            socketio.emit("new_round_info", record)
             # Emit fine-grained WSS events
             ir_json = data.get("ir_json", "")
             if ir_json and ir_json != "__loading__" and data.get("overall_score", -1) < 0:

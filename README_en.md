@@ -569,7 +569,7 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 
 | Event | Direction | Payload | Description |
 |-------|-----------|---------|-------------|
-| `new_round` | Server → Client | Round object | Real-time push for new rounds |
+| `new_round_info` | Server → Client | Round object | Real-time push for new rounds |
 | `connect` | Client → Server | - | Establish connection |
 
 ---

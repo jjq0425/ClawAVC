@@ -128,7 +128,7 @@ const hasActiveFilter = ref(false)
 
 onMounted(() => {
   fetchRounds()
-  socket.on("new_round", (data) => {
+  socket.on("new_round_info", (data) => {
     const idx = rounds.value.findIndex(r => r.round_id === data.round_id)
     if (idx >= 0) { rounds.value[idx] = data }
     else if (!hasActiveFilter.value) { rounds.value.unshift(data); total.value++ }

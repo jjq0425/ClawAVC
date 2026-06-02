@@ -565,7 +565,7 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 
 | 事件 | 方向 | Payload | 说明 |
 |------|------|---------|------|
-| `new_round` | Server → Client | Round 对象 | 新 round 实时推送 |
+| `new_round_info` | Server → Client | Round 对象 | 新 round 实时推送 |
 | `connect` | Client → Server | - | 建立连接 |
 
 ---

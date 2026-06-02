@@ -194,7 +194,7 @@ OpenClaw 日志变化 → FileTailer 读取 → parse_line(line, source_file) �
 - 路径保存后自动检测有效性
 
 #### WebSocket 事件
-- `new_round` — 前端通过 round_id 做 upsert (已有则更新, 否则插入)
+- `new_round_info` — 前端通过 round_id 做 upsert (已有则更新, 否则插入)
 - 筛选激活时只更新已有记录, 不插入新记录
 
 ### 数据库配置键 (config 表)
@@ -319,7 +319,7 @@ socketio.emit("push", {"push_type": "round_start", "round_id": "...", ...}, name
 ```
 
 ### 前端内部 WebSocket（运行日志页）
-`frontend/src/utils/socket.js` 连接默认 namespace（无 namespace），监听 `new_round` 事件做实时卡片更新。与对外 WSS 接口（/wss/monitor）是不同的 namespace。
+`frontend/src/utils/socket.js` 连接默认 namespace（无 namespace），监听 `new_round_info` 事件做实时卡片更新。与对外 WSS 接口（/wss/monitor）是不同的 namespace。
 
 ## 网关日志格式 (Portkey)
 
