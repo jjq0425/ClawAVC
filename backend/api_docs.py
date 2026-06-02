@@ -19,7 +19,7 @@ ENDPOINT_REGISTRY = {
     "GET /api/rounds": {
         "summary": "分页查询 Rounds",
         "description": "支持多条件筛选的分页查询，返回审计轮次列表和总数。",
-        "category": "数据查询",
+        "category": "数据查询与更新",
         "params": [
             {"name": "limit", "type": "int", "default": "20", "desc": "每页条数"},
             {"name": "offset", "type": "int", "default": "0", "desc": "偏移量"},
@@ -32,18 +32,30 @@ ENDPOINT_REGISTRY = {
         "response": {"ok": True, "data": [{"round_id": "abc123", "user_query": "...", "overall_score": 0.85}], "total": 100},
         "public": True,
     },
-    "GET /api/rounds/<round_id>": {
+    "GET /api/rounds/query": {
         "summary": "获取单条 Round 详情",
         "description": "根据 round_id 获取完整的审计轮次数据，包括 action、IR、judge 结果。",
-        "category": "数据查询",
-        "params": [{"name": "round_id", "type": "string", "desc": "路径参数，Round ID"}],
+        "category": "数据查询与更新",
+        "params": [{"name": "round_id", "type": "query", "desc": "Round ID"}],
         "response": {"ok": True, "data": {"round_id": "abc123", "user_query": "...", "action_json": "[]", "ir_json": "{}", "judge_result": "...", "overall_score": 0.85}},
+        "public": True,
+    },
+    "PUT /api/rounds/update": {
+        "summary": "更新 Round 字段",
+        "description": "更新指定 round 的单个字段值。仅支持部分字段（创建 15 分钟内），字段名称可前往「数据运维」页面查看 rounds 表结构。超过 15 分钟的数据请前往数据运维页面修改。",
+        "category": "数据查询与更新",
+        "params": [
+            {"name": "round_id", "type": "body", "desc": "Round ID"},
+            {"name": "field", "type": "body", "desc": "要更新的字段名"},
+            {"name": "value", "type": "body", "desc": "字段值（字符串）"},
+        ],
+        "response": {"ok": True},
         "public": True,
     },
     "POST /api/rounds": {
         "summary": "上报 Round 数据",
         "description": "Monitor/Orchestrator 上报审计轮次数据。支持 event=start (创建) 和 event=end (更新)。",
-        "category": "数据查询",
+        "category": "数据查询与更新",
         "params": [
             {"name": "event", "type": "string", "default": "end", "desc": "事件类型: start 或 end"},
             {"name": "round_id", "type": "string", "desc": "Round ID"},
@@ -59,7 +71,7 @@ ENDPOINT_REGISTRY = {
     "GET /api/stats": {
         "summary": "统计概览",
         "description": "获取系统整体统计数据：总 Round 数、异常数、合规数、平均得分。",
-        "category": "数据查询",
+        "category": "数据查询与更新",
         "response": {"ok": True, "data": {"total": 50, "abnormal": 5, "normal": 45, "avg_score": 0.82}},
         "public": True,
     },
@@ -409,7 +421,7 @@ def _infer_category(path: str) -> str:
     if "/monitor/" in path:
         return "运行监控"
     if "/rounds" in path or "/stats" in path:
-        return "数据查询"
+        return "数据查询与更新"
     if "/admin/" in path or "/auth" in path:
         return "鉴权管理"
     if "/db/" in path:

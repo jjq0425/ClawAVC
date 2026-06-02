@@ -517,7 +517,8 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | Method | Path | Description | Permission |
 |--------|------|-------------|------------|
 | `GET` | `/api/rounds?limit=20&offset=0&query=&round_id=&time_from=&time_to=` | Paginated + filtered query | Normal |
-| `GET` | `/api/rounds/:id` | Single round details | Normal |
+| `GET` | `/api/rounds/query?round_id=xxx` | Query single round details | Public |
+| `PUT` | `/api/rounds/update` | Update round field (partial fields, within 15 min) | Public |
 | `POST` | `/api/rounds` | Report round (event=start/end) | Internal |
 | `GET` | `/api/stats` | Statistics overview | Normal |
 

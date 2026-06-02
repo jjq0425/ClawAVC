@@ -20,7 +20,8 @@
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/api/rounds?limit=20&offset=0&query=&round_id=&time_from=&time_to=` | 分页+筛选查询 |
-| `GET` | `/api/rounds/:id` | 单条 round |
+| `GET` | `/api/rounds/query?round_id=xxx` | 查询单条 round 详情 |
+| `PUT` | `/api/rounds/update` | 更新 round 字段（仅支持部分字段，15分钟内） |
 | `POST` | `/api/rounds` | 上报 round (支持 event=start 和 event=end) |
 | `GET` | `/api/stats` | 统计概览 |
 
@@ -66,7 +67,7 @@
 | `PUT` | `/api/attack/config` | 保存工具注入配置 (含开启状态) | 公开 |
 | `GET` | `/api/attack/tool-config?key=tool_injection.<item>` | 对外接口: 按配置 key 查询开启状态与内容 | 对外公开 |
 
-- `ATTACK_INJECT_ITEMS = ["network", "filepath"]`，对应配置 key `tool_injection.network` / `tool_injection.filepath`
+- 支持的注入项在代码中配置 (`ATTACK_INJECT_ITEMS`)，具体项及对应配置 key 可前往数据运维页面查看 config 表
 - 每项在 config 表存为 `attack.inject.<item>.enabled` + `attack.inject.<item>.value`
 - `tool-config` 接口 key 支持 `tool_injection.xxx` 或 `xxx`；不传 key 返回全部；未知 key 返回 404
 - 该接口在 `api_docs.py` 的 ENDPOINT_REGISTRY 中标记 `public: True`
@@ -233,7 +234,7 @@ ENDPOINT_REGISTRY = {
     "GET /api/xxx": {
         "summary": "简要描述",
         "description": "详细描述",
-        "category": "分类名",  # 数据查询/运行监控/策略翻译/鉴权管理/数据库/配置/文档/其他
+        "category": "分类名",  # 数据查询与更新/运行监控/策略翻译/鉴权管理/数据库/配置/文档/其他
         "params": [
             {"name": "参数名", "type": "类型", "default": "默认值", "desc": "说明"},
         ],

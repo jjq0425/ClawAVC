@@ -8,6 +8,14 @@ from typing import Any, Dict, List, Optional
 
 DB_PATH = Path(__file__).parent / "clawAVC.db"
 
+# ─── 可更新字段配置 ─────────────────────────────────────
+# rounds 表中支持通过 API 修改的字段列表
+UPDATABLE_FIELDS = [
+    "action_json",
+    "ir_json",
+    "judge_result",
+]
+
 
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
@@ -211,6 +219,49 @@ def get_round_by_id(round_id: str) -> Optional[Dict]:
     row = conn.execute("SELECT * FROM rounds WHERE round_id = ?", (round_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def update_round_field(round_id: str, field: str, value: str) -> str:
+    """更新 rounds 表中指定字段的值。field 为列名，value 为字符串。
+    
+    Returns:
+        "ok" - 更新成功
+        "not_found" - round_id 不存在
+        "too_old" - 数据超过 15 分钟，需前往数据运维页面修改
+        "unsupported" - 不支持该字段
+        "error" - 其他错误
+    """
+    if field not in UPDATABLE_FIELDS:
+        return "unsupported"
+    conn = get_conn()
+    try:
+        # 先检查 round_id 是否存在，并获取创建时间
+        existing = conn.execute(
+            "SELECT created_at FROM rounds WHERE round_id = ?", (round_id,)
+        ).fetchone()
+        if not existing:
+            return "not_found"
+        # 检查创建时间是否超过 15 分钟
+        created_at = existing[0]
+        if created_at:
+            from datetime import datetime, timedelta
+            import time as time_mod
+            created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+            now = datetime.now()
+            if now - created_dt > timedelta(minutes=15):
+                return "too_old"
+        # is_abnormal 需要转为整数
+        if field == "is_abnormal":
+            conn.execute("UPDATE rounds SET is_abnormal = ? WHERE round_id = ?", (1 if value else 0, round_id))
+        else:
+            conn.execute(f"UPDATE rounds SET {field} = ? WHERE round_id = ?", (value, round_id))
+        conn.commit()
+        return "ok"
+    except Exception as e:
+        print(f"[db] update_round_field error: {e}")
+        return "error"
+    finally:
+        conn.close()
 
 
 def get_stats() -> Dict[str, Any]:

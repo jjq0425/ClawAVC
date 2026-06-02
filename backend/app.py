@@ -35,7 +35,7 @@ JSONL_PATH = os.environ.get(
 )
 
 
-@api_doc(summary="分页查询 Rounds", category="数据查询", params=[{"name":"limit","type":"int","default":"20","desc":"每页条数"},{"name":"offset","type":"int","default":"0","desc":"偏移量"},{"name":"query","type":"str","desc":"模糊搜索 user_query"},{"name":"round_id","type":"str","desc":"模糊搜索 round_id"},{"name":"time_from","type":"str","desc":"开始时间"},{"name":"time_to","type":"str","desc":"结束时间"}], response={"ok":True,"data":[],"total":0}, public=True)
+@api_doc(summary="分页查询 Rounds", category="数据查询与更新", params=[{"name":"limit","type":"int","default":"20","desc":"每页条数"},{"name":"offset","type":"int","default":"0","desc":"偏移量"},{"name":"query","type":"str","desc":"模糊搜索 user_query"},{"name":"round_id","type":"str","desc":"模糊搜索 round_id"},{"name":"time_from","type":"str","desc":"开始时间"},{"name":"time_to","type":"str","desc":"结束时间"}], response={"ok":True,"data":[],"total":0}, public=True)
 @app.route("/api/rounds", methods=["GET"])
 def list_rounds():
     """List rounds with pagination and filters."""
@@ -50,14 +50,46 @@ def list_rounds():
                            query=query, round_id=round_id, time_from=time_from, time_to=time_to)
     return jsonify({"ok": True, "data": result["data"], "total": result["total"]})
 
-
-@app.route("/api/rounds/<round_id>", methods=["GET"])
-def get_round(round_id):
-    """Get single round detail."""
+@api_doc(summary="查询单个 Round", category="数据查询与更新", params=[{"name":"round_id","type":"query","desc":"Round ID"}], response={"ok":True,"data":{}}, public=True)
+@app.route("/api/rounds/query", methods=["GET"])
+def get_round():
+    """根据 round_id 获取单条 round 详情。"""
+    round_id = request.args.get("round_id", "").strip()
+    if not round_id:
+        return jsonify({"ok": False, "error": "round_id is required"}), 400
     record = db.get_round_by_id(round_id)
     if not record:
         return jsonify({"ok": False, "error": "not found"}), 404
     return jsonify({"ok": True, "data": record})
+
+@api_doc(summary="更新单个 Round", category="数据查询与更新", params=[{"name":"round_id","type":"body","desc":"Round ID"}, {"name":"field","type":"body","desc":"列名"}, {"name":"value","type":"body","desc":"值（字符串）"}], response={"ok":True}, public=True)
+@app.route("/api/rounds/update", methods=["PUT"])
+def update_round():
+    """更新指定 round 的字段值（对外接口）。
+    
+    Body: {"round_id": "xxx", "field": "列名", "value": "值（字符串）"}
+    支持的列名配置在 backend/db.py 的 UPDATABLE_FIELDS 数组中
+    """
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify({"ok": False, "error": "empty body"}), 400
+    round_id = (data.get("round_id") or "").strip()
+    field = (data.get("field") or "").strip()
+    value = str(data.get("value", "") or "")
+    if not round_id:
+        return jsonify({"ok": False, "error": "round_id is required"}), 400
+    if not field:
+        return jsonify({"ok": False, "error": "field is required"}), 400
+    result = db.update_round_field(round_id, field, value)
+    if result == "not_found":
+        return jsonify({"ok": False, "error": f"更新失败: 未找到对应的 round_id: {round_id}"}), 404
+    if result == "too_old":
+        return jsonify({"ok": False, "error": "更新失败: 数据创建时间超过 15 分钟，不支持API修改，请前往数据运维页面修改"}), 400
+    if result == "unsupported":
+        return jsonify({"ok": False, "error": f"更新失败: 不支持这个字段的修改: {field}"}), 400
+    if result == "error":
+        return jsonify({"ok": False, "error": f"更新失败: {field}"}), 500
+    return jsonify({"ok": True})
 
 
 @app.route("/api/rounds", methods=["POST"])
@@ -149,7 +181,7 @@ def report_round():
         return jsonify({"ok": True})
 
 
-@api_doc(summary="统计概览", category="数据查询", response={"ok":True,"data":{"total":0,"abnormal":0,"normal":0,"avg_score":0}}, public=True)
+@api_doc(summary="统计概览", category="数据查询与更新", response={"ok":True,"data":{"total":0,"abnormal":0,"normal":0,"avg_score":0}}, public=True)
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
     """Get overview statistics."""

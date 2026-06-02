@@ -513,7 +513,8 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
 | `GET` | `/api/rounds?limit=20&offset=0&query=&round_id=&time_from=&time_to=` | 分页+筛选查询 | 普通 |
-| `GET` | `/api/rounds/:id` | 单条 round 详情 | 普通 |
+| `GET` | `/api/rounds/query?round_id=xxx` | 查询单条 round 详情 | 对外公开 |
+| `PUT` | `/api/rounds/update` | 更新 round 字段（仅支持部分字段，15分钟内） | 对外公开 |
 | `POST` | `/api/rounds` | 上报 round (event=start/end) | 内部调用 |
 | `GET` | `/api/stats` | 统计概览 | 普通 |
 
