@@ -124,14 +124,25 @@ const expandedId = ref(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const filters = ref({ query: "", round_id: "", dateRange: [] })
-const hasActiveFilter = ref(false)
+
+// 通用筛选函数
+function matchesFilter(data) {
+  if (!data) return false
+  const { query, round_id: roundIdFilter, dateRange } = filters.value
+  const matchQuery = !query || (data.user_query || '').toLowerCase().includes(query.toLowerCase())
+  const matchRoundId = !roundIdFilter || data.round_id?.includes(roundIdFilter)
+  const matchDateRange = !dateRange?.length || 
+    (!dateRange[0] || data.time_start >= dateRange[0]) && 
+    (!dateRange[1] || data.time_end <= dateRange[1])
+  return matchQuery && matchRoundId && matchDateRange
+}
 
 onMounted(() => {
   fetchRounds()
   socket.on("new_round_info", (data) => {
     const idx = rounds.value.findIndex(r => r.round_id === data.round_id)
     if (idx >= 0) { rounds.value[idx] = data }
-    else if (!hasActiveFilter.value) { rounds.value.unshift(data); total.value++ }
+    else if (matchesFilter(data)) { rounds.value.unshift(data); total.value++ }
   })
 })
 
@@ -145,7 +156,6 @@ async function fetchRounds() {
     params.set("time_from", filters.value.dateRange[0])
     params.set("time_to", filters.value.dateRange[1])
   }
-  hasActiveFilter.value = !!(filters.value.query || filters.value.round_id || (filters.value.dateRange && filters.value.dateRange.length === 2))
   try {
     const r = await fetch("/api/rounds?" + params.toString())
     const j = await r.json()
@@ -154,7 +164,7 @@ async function fetchRounds() {
   loading.value = false
 }
 
-function resetFilters() { filters.value = { query: "", round_id: "", dateRange: [] }; currentPage.value = 1; hasActiveFilter.value = false; fetchRounds() }
+function resetFilters() { filters.value = { query: "", round_id: "", dateRange: [] }; currentPage.value = 1; fetchRounds() }
 function onPageSizeChange() { currentPage.value = 1; fetchRounds() }
 function toggleExpand(id) { expandedId.value = expandedId.value === id ? null : id }
 function fmtTime(t) { if (!t) return ""; return t.replace(/\+\d{4}\s*$/, "").trim() }
