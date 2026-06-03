@@ -236,13 +236,13 @@ sio.wait()</code></pre>
             </div>
           </div>
 
-          <!-- 测试发送 -->
-          <div class="test-send-section">
-            <div class="test-send-header">
+          <!-- 手动推送 -->
+          <div class="mock-push-section">
+            <div class="mock-push-header">
               <t-icon name="send" size="14px" />
-              <span>测试发送</span>
+              <span>手动推送（非 Agent 行为触发）</span>
             </div>
-            <div class="test-send-body">
+            <div class="mock-push-body">
               <div class="send-field">
                 <label>push_type</label>
                 <t-select v-model="sendType" size="small" style="width: 100%">
@@ -254,9 +254,10 @@ sio.wait()</code></pre>
               <div class="send-field">
                 <label>消息内容 (JSON)</label>
                 <t-textarea v-model="sendPayload" size="small" :autosize="{ minRows: 4, maxRows: 8 }" placeholder='输入 JSON 格式消息，is_mock 字段会自动设为 true' />
+                <div v-if="jsonError" class="json-error">{{ jsonError }}</div>
               </div>
               <div class="send-actions">
-                <t-button theme="primary" @click="sendTestMessage" :loading="sending" :disabled="!wsConnected">
+                <t-button theme="primary" @click="sendTestMessage" :loading="sending" :disabled="!wsConnected || !isJsonValid">
                   <t-icon name="send" size="14px" />
                   发送
                 </t-button>
@@ -273,7 +274,7 @@ sio.wait()</code></pre>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue"
+import { ref, onMounted, onUnmounted, computed, watch } from "vue"
 import { io } from "socket.io-client"
 
 const browserHost = typeof window !== "undefined" ? window.location.hostname : "127.0.0.1"
@@ -318,6 +319,30 @@ function disconnectWs() { if (socket) { socket.disconnect(); socket = null }; ws
 const sendType = ref('round_start')
 const sendPayload = ref('')
 const sending = ref(false)
+const jsonError = ref('')
+
+// JSON 校验
+function validateJson() {
+  if (!sendPayload.value.trim()) {
+    jsonError.value = 'JSON 内容不能为空'
+    return false
+  }
+  try {
+    JSON.parse(sendPayload.value)
+    jsonError.value = ''
+    return true
+  } catch (e) {
+    jsonError.value = 'JSON 格式错误: ' + e.message
+    return false
+  }
+}
+
+// 监听输入变化进行校验
+watch(sendPayload, () => {
+  validateJson()
+})
+
+const isJsonValid = computed(() => validateJson())
 
 function fillDefaultPayload() {
   const now = new Date().toISOString().replace('T', ' ').slice(0, 26) + '+0800'
@@ -472,10 +497,11 @@ function sendTestMessage() {
 .code-block .dec { color: #f78c6c; }
 
 /* Test Send Section */
-.test-send-section { background: #f8faff; border: 1px solid #e0e8f5; border-radius: 8px; padding: 14px; }
-.test-send-header { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 12px; }
-.test-send-body { display: flex; flex-direction: column; gap: 10px; }
+.mock-push-section { background: #f8faff; border: 1px solid #e0e8f5; border-radius: 8px; padding: 14px; }
+.mock-push-header { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 12px; }
+.mock-push-body { display: flex; flex-direction: column; gap: 10px; }
 .send-field label { display: block; font-size: 11px; font-weight: 500; color: #666; margin-bottom: 4px; }
 .send-field .t-textarea, .send-field .t-select { width: 100%; }
+.json-error { font-size: 11px; color: #e34d59; margin-top: 4px; padding: 4px 8px; background: #fff0ed; border-radius: 4px; }
 .send-actions { display: flex; gap: 8px; justify-content: flex-end; }
 </style>
