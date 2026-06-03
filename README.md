@@ -553,6 +553,7 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | `GET` | `/api/monitor/status` | 监控运行状态 | 普通 |
 | `POST` | `/api/monitor/start` | 启动监控 | 普通 |
 | `POST` | `/api/monitor/stop` | 停止监控 | 普通 |
+| `POST` | `/api/monitor/send-test` | 发送模拟/回放消息到 WSS | 普通 |
 
 ### 翻译器
 
@@ -586,6 +587,12 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | `GET` | `/api/attack/config` | 获取工具注入攻击配置（内部页面加载） | 普通 |
 | `PUT` | `/api/attack/config` | 保存工具注入攻击配置（含开启状态与内容） | 普通 |
 | `GET` | `/api/attack/tool-config?key=tool_injection.network` | 对外接口：按配置 key 查询开启状态与内容 | 对外公开 |
+
+### 流量回放
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| `POST` | `/api/monitor/send-test` | 发送模拟/回放消息到 /wss/monitor | 普通 |
 
 ### WebSocket
 
@@ -768,6 +775,7 @@ clawAVC/
 │   │   │   ├── AttackPage.vue     # 模拟攻击
 │   │   │   ├── DatabasePage.vue   # 数据运维
 │   │   │   ├── ExportPage.vue     # 数据导出
+│   │   │   ├── ReplayPage.vue     # 流量回放
 │   │   │   └── SettingsPage.vue   # 平台管理
 │   │   ├── components/
 │   │   │   ├── PrivilegeDialog.vue    # 特权验证弹窗（通用）

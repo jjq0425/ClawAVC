@@ -40,6 +40,7 @@ Real-time Monitoring · Multi-dimensional Detection · Intent Comparison · Anom
 - [Process & Security Context Capture](#process--security-context-capture)
 - [Attack Simulation](#attack-simulation)
 - [Page Modules](#page-modules)
+- [Traffic Replay](#traffic-replay)
 - [Permission System](#permission-system)
 - [API Documentation](#api-documentation)
 - [Tech Stack](#tech-stack)
@@ -449,6 +450,31 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | `/database` | Database Operations | Visual table editor + SQL console + data export entry | Read: passphrase / Write: privileged |
 | `/export` | Data Export | SQL filtering + multi-format export (CSV/Excel/TXT/JSON), accessed from Database Operations | Entry passphrase |
 | `/settings` | Platform Settings | Session management, passphrase configuration | Privileged items require privilege key |
+| `/replay` | Traffic Replay | Select historical rounds and replay via WSS push for debugging or demo | Entry passphrase |
+
+### Traffic Replay
+
+The Traffic Replay feature allows users to select historical Round data and resend it via WSS push, for debugging clients or demonstrations.
+
+**Features**:
+- Select historical rounds for replay
+- Configurable replay speed (0.1x ~ 2x)
+- Automatically pushes three stages in original time sequence: `round_start` → `round_ir_ready` → `round_end`
+- Real-time display of received WSS messages
+- Replay log records push progress
+
+**Usage**:
+1. Navigate to the "Traffic Replay" page
+2. Select a historical round from the list below
+3. Configure replay speed (default 1x)
+4. Ensure WSS is connected to `/wss/monitor`
+5. Click "Start Replay"
+
+**API Endpoint**:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/monitor/send-test` | Send mock/replay message to WSS |
 
 ### Runtime Monitor Detail Structure
 
@@ -531,6 +557,7 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | `GET` | `/api/monitor/status` | Monitor running status | Normal |
 | `POST` | `/api/monitor/start` | Start monitoring | Normal |
 | `POST` | `/api/monitor/stop` | Stop monitoring | Normal |
+| `POST` | `/api/monitor/send-test` | Send mock/replay message to WSS | Normal |
 
 ### Translator
 
@@ -564,6 +591,12 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | `GET` | `/api/attack/config` | Get tool injection attack config (internal page load) | Normal |
 | `PUT` | `/api/attack/config` | Save tool injection attack config (incl. enabled state & content) | Normal |
 | `GET` | `/api/attack/tool-config?key=tool_injection.network` | Public endpoint: query enabled state & content by config key | Public |
+
+### Traffic Replay
+
+| Method | Path | Description | Permission |
+|--------|------|-------------|------------|
+| `POST` | `/api/monitor/send-test` | Send mock/replay message to /wss/monitor | Normal |
 
 ### WebSocket
 
@@ -746,6 +779,7 @@ clawAVC/
 │   │   │   ├── AttackPage.vue     # Attack Simulation
 │   │   │   ├── DatabasePage.vue   # Database Operations
 │   │   │   ├── ExportPage.vue     # Data Export
+│   │   │   ├── ReplayPage.vue     # Traffic Replay
 │   │   │   └── SettingsPage.vue   # Platform Settings
 │   │   ├── components/
 │   │   │   ├── PrivilegeDialog.vue    # Privilege verification modal (shared)

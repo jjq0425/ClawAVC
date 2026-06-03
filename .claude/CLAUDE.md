@@ -72,6 +72,14 @@
 - `tool-config` 接口 key 支持 `tool_injection.xxx` 或 `xxx`；不传 key 返回全部；未知 key 返回 404
 - 该接口在 `api_docs.py` 的 ENDPOINT_REGISTRY 中标记 `public: True`
 
+**Traffic Replay API (流量回放):**
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| `POST` | `/api/monitor/send-test` | 发送模拟/回放消息到 /wss/monitor | 公开 |
+
+- 后端自动设置 `is_mock: true` 和当前时间作为 `push_time`
+- 前端可配置回放速度（0.1x ~ 2x）和选择推送阶段
+
 #### db.py — SQLite 数据层
 
 **表结构:**
@@ -170,6 +178,7 @@ OpenClaw 日志变化 → FileTailer 读取 → parse_line(line, source_file) �
 | `/attack` | — | `AttackPage.vue` | 模拟攻击场景 (色块分组) + 工具注入攻击配置 (固定访问网络/文件路径，独立开关，保存到 config 表) |
 | `/database` | — | `DatabasePage.vue` | 可视化表编辑器 + SQL 控制台，顶部有"数据导出"跳转按钮 |
 | `/export` | — | `ExportPage.vue` | 选表 → SQL 筛选 → 预览 → 多格式导出 (CSV/Excel/TXT/JSON)，从数据运维页进入 |
+| `/replay` | — | `ReplayPage.vue` | 流量回放：选择历史 Round 以 WSS 推送方式回放，支持配置回放速度 |
 
 #### 运行日志卡片结构
 ```
@@ -282,6 +291,8 @@ ws://<host>:15100/wss/<namespace>
 | `round_start` | Round 开始 | round_id, time_start, session_key, push_time |
 | `round_ir_ready` | IR 策略翻译完成 | round_id, ir_json, push_time |
 | `round_end` | Round 结束（含判定） | round_id, time_start, time_end, action_json, ir_json, overall_score, judge_result, push_time |
+
+> 手动推送和回放的消息会自动设置 `is_mock: true`，客户端可根据此字段区分真实数据和测试数据。
 
 ### 客户端接入
 
