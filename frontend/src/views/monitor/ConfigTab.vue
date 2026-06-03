@@ -47,6 +47,11 @@
         <span>数据源配置</span>
       </div>
       <p class="section-desc">配置监控数据来源。启动监控前需填写 OpenClaw 根文件夹路径。</p>
+      
+      <div v-if="monitorRunning" class="readonly-hint">
+        <t-icon name="info-circle" size="14px" />
+        <span>安全监控运行期间，数据源配置将被锁定，无法修改。请先终止监控后再进行配置调整。</span>
+      </div>
 
       <div class="form-group">
         <label class="form-label">OpenClaw 根文件夹 <t-tag size="small" theme="danger" variant="light">必填</t-tag></label>
@@ -57,8 +62,9 @@
             placeholder="请输入 OpenClaw 根文件夹的绝对路径"
             clearable
             size="large"
+            :disabled="monitorRunning"
           />
-          <t-button theme="primary" @click="saveSingle('openclaw_root')" :loading="saving === 'openclaw_root'">
+          <t-button theme="primary" @click="saveSingle('openclaw_root')" :loading="saving === 'openclaw_root'" :disabled="monitorRunning">
             保存
           </t-button>
         </div>
@@ -74,7 +80,7 @@
       <div class="form-group">
         <label class="form-label">交互数据来源</label>
         <p class="form-hint">选择从何处获取 Agent 的工具调用和请求/响应数据。默认从 OpenClaw 日志直接解析，也可选择从网关日志获取。</p>
-        <t-switch v-model="use_gateway" @change="saveSingle('use_gateway')"><template #label>{{ use_gateway ? '从网关获取' : '从 OpenClaw 日志获取' }}</template></t-switch>
+        <t-switch v-model="use_gateway" @change="saveSingle('use_gateway')" :disabled="monitorRunning"><template #label>{{ use_gateway ? '从网关获取' : '从 OpenClaw 日志获取' }}</template></t-switch>
       </div>
 
       <div v-if="use_gateway">
@@ -88,8 +94,9 @@
               placeholder="请输入网关日志目录的绝对路径"
               clearable
               size="large"
+              :disabled="monitorRunning"
             />
-            <t-button theme="primary" @click="saveSingle('gateway_log_path')" :loading="saving === 'gateway_log_path'">
+            <t-button theme="primary" @click="saveSingle('gateway_log_path')" :loading="saving === 'gateway_log_path'" :disabled="monitorRunning">
               保存
             </t-button>
           </div>
@@ -306,4 +313,16 @@ async function saveSingle(key) {
 .form-hint { font-size: 12px; color: #999; margin-bottom: 10px; }
 .input-row { display: flex; gap: 10px; align-items: center; }
 .path-status { margin-top: 8px; }
+.readonly-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #fff8e6;
+  border: 1px solid #ffe58f;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #d48806;
+  margin-bottom: 16px;
+}
 </style>
