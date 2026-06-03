@@ -34,6 +34,7 @@ const navItems = [
   { path: "/attack", icon: "bug", label: "模拟攻击" },
   { path: "/policy", icon: "file-setting", label: "策略翻译" },
   { path: "/database", icon: "server", label: "数据运维" },
+  { path: "/replay", icon: "play-circle", label: "Round 回放" },
   { path: "/api-docs", icon: "code", label: "对外接口" },
   { path: "/navigator", icon: "link", label: "快捷导航" },
   { path: "/settings", icon: "setting", label: "平台管理" },

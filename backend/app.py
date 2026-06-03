@@ -864,7 +864,7 @@ def monitor_status_api():
     return jsonify({"ok": True, "data": {"running": running}})
 
 
-@api_doc(summary="发送模拟 WSS 消息", category="运行监控", description="向 /wss/monitor 推送模拟消息，自动添加 is_mock=true 标记", params=[{"name":"data","type":"body","desc":"消息内容 JSON，需包含 push_type 字段"}], public=True)
+@api_doc(summary="发送模拟/回放 WSS 消息", category="运行监控", description="向 /wss/monitor 推送消息，自动添加 is_mock=true 标记", params=[{"name":"data","type":"body","desc":"消息内容 JSON，需包含 push_type 字段"}], public=True)
 @app.route("/api/monitor/send-test", methods=["POST"])
 def send_test_wss():
     """发送模拟消息到 /wss/monitor，自动设置 is_mock=True 和当前时间。"""
@@ -874,16 +874,16 @@ def send_test_wss():
     if not data:
         return jsonify({"ok": False, "error": "empty body"}), 400
     
+    push_type = data.get("push_type", "")
+    if not push_type:
+        return jsonify({"ok": False, "error": "push_type is required"}), 400
+    
     # 确保 is_mock 字段为 True
     data["is_mock"] = True
     
     # 替换 push_time 为当前时间
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "+0800"
     data["push_time"] = now
-    
-    push_type = data.get("push_type", "")
-    if not push_type:
-        return jsonify({"ok": False, "error": "push_type is required"}), 400
     
     # 通过 Socket.IO 向 /wss/monitor 推送消息
     socketio.emit("push", data, namespace="/wss/monitor")

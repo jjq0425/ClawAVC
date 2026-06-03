@@ -61,6 +61,12 @@ const routes = [
     component: () => import("../views/SettingsPage.vue"),
     meta: { requiresAuth: true },
   },
+  {
+    path: "/replay",
+    name: "Replay",
+    component: () => import("../views/ReplayPage.vue"),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({
