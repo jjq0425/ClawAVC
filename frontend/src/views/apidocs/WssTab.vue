@@ -100,7 +100,8 @@ sio.wait()</code></pre>
   "round_id": "abc12345",
   "time_start": "2026-05-30 21:20:00.123+0800",
   "session_key": "agent:main:main",
-  "push_time": "2026-05-30 21:20:00.123+0800"
+  "push_time": "2026-05-30 21:20:00.123+0800",
+  "is_mock": false
 }</pre>
                 <table class="params-table">
                   <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
@@ -110,6 +111,7 @@ sio.wait()</code></pre>
                     <tr><td><code>time_start</code></td><td>string</td><td>Round 开始时间</td></tr>
                     <tr><td><code>session_key</code></td><td>string</td><td>Agent 会话标识</td></tr>
                     <tr><td><code>push_time</code></td><td>string</td><td>消息推送时间</td></tr>
+                    <tr><td><code>is_mock</code></td><td>boolean</td><td>是否模拟发送（测试消息自动设为 true）</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -127,7 +129,8 @@ sio.wait()</code></pre>
   "push_type": "round_ir_ready",
   "round_id": "abc12345",
   "ir_json": "{\"level1\":[\"file_ops\"],\"level2\":{\"policies\":[...]}}",
-  "push_time": "2026-05-30 21:20:05.456+0800"
+  "push_time": "2026-05-30 21:20:05.456+0800",
+  "is_mock": false
 }</pre>
                 <table class="params-table">
                   <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
@@ -136,6 +139,7 @@ sio.wait()</code></pre>
                     <tr><td><code>round_id</code></td><td>string</td><td>关联 Round ID</td></tr>
                     <tr><td><code>ir_json</code></td><td>string</td><td>结构化权限策略 JSON</td></tr>
                     <tr><td><code>push_time</code></td><td>string</td><td>推送时间</td></tr>
+                    <tr><td><code>is_mock</code></td><td>boolean</td><td>是否模拟发送（测试消息自动设为 true）</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -158,7 +162,8 @@ sio.wait()</code></pre>
   "ir_json": "{...}",
   "overall_score": 0.85,
   "judge_result": "【判定结果】行为一致...",
-  "push_time": "2026-05-30 21:20:15.789+0800"
+  "push_time": "2026-05-30 21:20:15.789+0800",
+  "is_mock": false
 }</pre>
                 <table class="params-table">
                   <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
@@ -172,6 +177,7 @@ sio.wait()</code></pre>
                     <tr><td><code>overall_score</code></td><td>float</td><td>得分 (>0.5 合规)</td></tr>
                     <tr><td><code>judge_result</code></td><td>string</td><td>判定文本</td></tr>
                     <tr><td><code>push_time</code></td><td>string</td><td>推送时间</td></tr>
+                    <tr><td><code>is_mock</code></td><td>boolean</td><td>是否模拟发送（测试消息自动设为 true）</td></tr>
                   </tbody>
                 </table>
                 <div>
@@ -229,6 +235,37 @@ sio.wait()</code></pre>
               {{ wsConnected ? '等待推送...' : '请先连接 WSS' }}
             </div>
           </div>
+
+          <!-- 测试发送 -->
+          <div class="test-send-section">
+            <div class="test-send-header">
+              <t-icon name="send" size="14px" />
+              <span>测试发送</span>
+            </div>
+            <div class="test-send-body">
+              <div class="send-field">
+                <label>push_type</label>
+                <t-select v-model="sendType" size="small" style="width: 100%">
+                  <t-option value="round_start" label="round_start (Round 开始)" />
+                  <t-option value="round_ir_ready" label="round_ir_ready (IR 策略就绪)" />
+                  <t-option value="round_end" label="round_end (Round 结束)" />
+                </t-select>
+              </div>
+              <div class="send-field">
+                <label>消息内容 (JSON)</label>
+                <t-textarea v-model="sendPayload" size="small" :autosize="{ minRows: 4, maxRows: 8 }" placeholder='输入 JSON 格式消息，is_mock 字段会自动设为 true' />
+              </div>
+              <div class="send-actions">
+                <t-button theme="primary" @click="sendTestMessage" :loading="sending" :disabled="!wsConnected">
+                  <t-icon name="send" size="14px" />
+                  发送
+                </t-button>
+                <t-button variant="outline" @click="fillDefaultPayload" size="small">
+                  填入默认
+                </t-button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -276,6 +313,82 @@ function connectWs() {
 }
 
 function disconnectWs() { if (socket) { socket.disconnect(); socket = null }; wsConnected.value = false }
+
+// 测试发送相关
+const sendType = ref('round_start')
+const sendPayload = ref('')
+const sending = ref(false)
+
+function fillDefaultPayload() {
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 26) + '+0800'
+  const roundId = 'mock_' + Date.now()
+  
+  let payload = ''
+  switch (sendType.value) {
+    case 'round_start':
+      payload = JSON.stringify({
+        push_type: 'round_start',
+        round_id: roundId,
+        time_start: now,
+        session_key: 'agent:main:main',
+        push_time: now
+      }, null, 2)
+      break
+    case 'round_ir_ready':
+      payload = JSON.stringify({
+        push_type: 'round_ir_ready',
+        round_id: roundId,
+        ir_json: '{"level1":["file_ops"],"level2":{"policies":[{"scene":"file_ops","functions":["read_file"]}]}}',
+        push_time: now
+      }, null, 2)
+      break
+    case 'round_end':
+      payload = JSON.stringify({
+        push_type: 'round_end',
+        round_id: roundId,
+        time_start: now,
+        time_end: now,
+        action_json: '[{"tool":"read","arguments":{"path":"/tmp/test.txt"}}]',
+        ir_json: '{"level1":["file_ops"],"level2":{"policies":[{"scene":"file_ops","functions":["read_file"]}]}}',
+        overall_score: 0.85,
+        judge_result: '【判定结果】行为一致，符合预期',
+        push_time: now
+      }, null, 2)
+      break
+  }
+  sendPayload.value = payload
+}
+
+function sendTestMessage() {
+  if (!wsConnected.value) return
+  
+  try {
+    const payload = JSON.parse(sendPayload.value)
+    payload.push_type = sendType.value
+    
+    sending.value = true
+    
+    fetch('/api/monitor/send-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(async (res) => {
+      const data = await res.json()
+      if (!data.ok) {
+        throw new Error(data.error || '发送失败')
+      }
+      // 不记录消息，等待 WebSocket push 事件自然收到
+    }).catch((e) => {
+      console.error('发送失败:', e)
+    })
+    
+    sending.value = false
+  } catch (e) {
+    console.error('发送失败:', e)
+  } finally {
+    sending.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -357,4 +470,12 @@ function disconnectWs() { if (socket) { socket.disconnect(); socket = null }; ws
 .code-block .key { color: #89ddff; }
 .code-block .fn { color: #82aaff; }
 .code-block .dec { color: #f78c6c; }
+
+/* Test Send Section */
+.test-send-section { background: #f8faff; border: 1px solid #e0e8f5; border-radius: 8px; padding: 14px; }
+.test-send-header { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #333; margin-bottom: 12px; }
+.test-send-body { display: flex; flex-direction: column; gap: 10px; }
+.send-field label { display: block; font-size: 11px; font-weight: 500; color: #666; margin-bottom: 4px; }
+.send-field .t-textarea, .send-field .t-select { width: 100%; }
+.send-actions { display: flex; gap: 8px; justify-content: flex-end; }
 </style>
