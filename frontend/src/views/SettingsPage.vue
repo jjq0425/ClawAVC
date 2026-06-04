@@ -61,6 +61,23 @@
         </div>
       </div>
 
+      <!-- Round Update Time Limit -->
+      <div class="setting-row" :class="{ locked: !adminValid }">
+        <div class="setting-left">
+          <div v-if="!adminValid" class="lock-icon">
+            <t-icon name="lock-on" size="16px" />
+          </div>
+          <div class="setting-label">
+            <span>Round更新时间限制</span>
+            <span class="setting-desc">开启后，API修改Round数据将限制在15分钟内，超过15分钟需前往数据运维页面修改</span>
+          </div>
+        </div>
+        <div class="setting-value">
+          <t-switch v-model="roundUpdateTimeLimitEnabled" :disabled="!adminValid" @change="saveRoundUpdateTimeLimit" />
+          <span class="switch-label">{{ roundUpdateTimeLimitEnabled ? '已启用' : '已禁用' }}</span>
+        </div>
+      </div>
+
       <!-- Unlock hint -->
       <div v-if="!adminValid" style="margin-top: 12px;">
         <PrivilegeStatus hint="以上配置项需要特权密钥" @unlock="showPrivDialog = true" />
@@ -103,6 +120,7 @@ const showPrivDialog = ref(false)
 const secretKey = ref("")
 const showSecret = ref(false)
 const saving = ref(false)
+const roundUpdateTimeLimitEnabled = ref(true)
 
 const adminSession = ref("")
 const adminExpiry = ref(0)
@@ -124,6 +142,9 @@ onMounted(() => {
     adminExpiry.value = Number(savedExpiry)
   }
   _timer = setInterval(() => { tick.value++ }, 1000)
+  
+  // 加载Round更新时间限制开关状态
+  loadRoundUpdateTimeLimit()
 })
 
 onUnmounted(() => { clearInterval(_timer) })
@@ -163,6 +184,37 @@ async function saveSecretKey() {
   } catch (e) { MessagePlugin.error("连接失败") }
   saving.value = false
 }
+
+async function loadRoundUpdateTimeLimit() {
+  try {
+    const res = await fetch("/api/config/round_update_time_limit")
+    const json = await res.json()
+    if (json.ok) {
+      roundUpdateTimeLimitEnabled.value = json.data.enabled
+    }
+  } catch (e) { console.error("加载Round更新时间限制状态失败:", e) }
+}
+
+async function saveRoundUpdateTimeLimit() {
+  try {
+    const res = await fetch("/api/config/round_update_time_limit", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-Admin-Session": adminSession.value },
+      body: JSON.stringify({ enabled: roundUpdateTimeLimitEnabled.value }),
+    })
+    const json = await res.json()
+    if (json.ok) {
+      MessagePlugin.success(`Round更新时间限制已${roundUpdateTimeLimitEnabled.value ? '启用' : '禁用'}`)
+    } else {
+      MessagePlugin.error(json.error || "保存失败")
+      // 恢复原状态
+      roundUpdateTimeLimitEnabled.value = !roundUpdateTimeLimitEnabled.value
+    }
+  } catch (e) {
+    MessagePlugin.error("连接失败")
+    roundUpdateTimeLimitEnabled.value = !roundUpdateTimeLimitEnabled.value
+  }
+}
 </script>
 
 <style scoped>
@@ -193,4 +245,5 @@ async function saveSecretKey() {
 .unlock-hint:hover { background: #fff5ea; }
 .info-list { display: flex; flex-direction: column; gap: 8px; }
 .info-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #666; }
+.switch-label { font-size: 13px; color: #666; }
 </style>

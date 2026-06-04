@@ -69,6 +69,7 @@ def update_round():
     
     Body: {"round_id": "xxx", "field": "列名", "value": "值（字符串）"}
     支持的列名配置在 backend/db.py 的 UPDATABLE_FIELDS 数组中
+    15分钟限制可通过平台管理页面的开关控制
     """
     data = request.get_json(force=True)
     if not data:
@@ -80,7 +81,12 @@ def update_round():
         return jsonify({"ok": False, "error": "round_id is required"}), 400
     if not field:
         return jsonify({"ok": False, "error": "field is required"}), 400
-    result = db.update_round_field(round_id, field, value)
+    
+    # 获取15分钟限制开关状态
+    time_limit_enabled = db.get_config("round_update_time_limit_enabled", "True")
+    time_limit_enabled = time_limit_enabled.lower() == "true"
+    
+    result = db.update_round_field(round_id, field, value, time_limit_enabled)
     if result == "not_found":
         return jsonify({"ok": False, "error": f"更新失败: 未找到对应的 round_id: {round_id}"}), 404
     if result == "too_old":
@@ -1023,6 +1029,28 @@ def set_public_api_docs():
     endpoints = data.get("endpoints", [])
     db.set_config("api_docs.public_endpoints", json.dumps(endpoints, ensure_ascii=False))
     return jsonify({"ok": True})
+
+
+# ─── Round Update Time Limit Config ─────────────────────────
+@api_doc(summary="获取Round更新时间限制开关状态", category="平台配置", public=False)
+@app.route("/api/config/round_update_time_limit", methods=["GET"])
+def get_round_update_time_limit():
+    """获取Round更新15分钟时间限制的开关状态。"""
+    enabled = db.get_config("round_update_time_limit_enabled", "True")
+    return jsonify({"ok": True, "data": {"enabled": enabled.lower() == "true"}})
+
+
+@api_doc(summary="设置Round更新时间限制开关状态", category="平台配置", public=False)
+@app.route("/api/config/round_update_time_limit", methods=["PUT"])
+def set_round_update_time_limit():
+    """设置Round更新15分钟时间限制的开关状态（需特权）。"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    data = request.get_json(force=True)
+    enabled = data.get("enabled", True)
+    db.set_config("round_update_time_limit_enabled", str(enabled))
+    return jsonify({"ok": True, "data": {"enabled": enabled}})
 
 
 def main():

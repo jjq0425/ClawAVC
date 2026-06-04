@@ -72,6 +72,16 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT UNIQUE NOT NULL,
+            value TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    # 初始化默认配置
+    conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('round_update_time_limit_enabled', 'True')")
     conn.commit()
     conn.close()
 
@@ -221,8 +231,14 @@ def get_round_by_id(round_id: str) -> Optional[Dict]:
     return dict(row) if row else None
 
 
-def update_round_field(round_id: str, field: str, value: str) -> str:
+def update_round_field(round_id: str, field: str, value: str, time_limit_enabled: bool = True) -> str:
     """更新 rounds 表中指定字段的值。field 为列名，value 为字符串。
+    
+    Args:
+        round_id: Round ID
+        field: 要更新的字段名
+        value: 新值
+        time_limit_enabled: 是否启用15分钟时间限制
     
     Returns:
         "ok" - 更新成功
@@ -241,15 +257,15 @@ def update_round_field(round_id: str, field: str, value: str) -> str:
         ).fetchone()
         if not existing:
             return "not_found"
-        # 检查创建时间是否超过 15 分钟
-        created_at = existing[0]
-        if created_at:
-            from datetime import datetime, timedelta
-            import time as time_mod
-            created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
-            now = datetime.now()
-            if now - created_dt > timedelta(minutes=15):
-                return "too_old"
+        # 检查创建时间是否超过 15 分钟（仅当开关启用时）
+        if time_limit_enabled:
+            created_at = existing[0]
+            if created_at:
+                from datetime import datetime, timedelta
+                created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                now = datetime.now()
+                if now - created_dt > timedelta(minutes=15):
+                    return "too_old"
         # is_abnormal 需要转为整数
         if field == "is_abnormal":
             conn.execute("UPDATE rounds SET is_abnormal = ? WHERE round_id = ?", (1 if value else 0, round_id))
@@ -260,6 +276,55 @@ def update_round_field(round_id: str, field: str, value: str) -> str:
     except Exception as e:
         print(f"[db] update_round_field error: {e}")
         return "error"
+    finally:
+        conn.close()
+
+
+def get_config(key: str, default_value: str = None) -> str:
+    """获取配置项值
+    
+    Args:
+        key: 配置项键名
+        default_value: 默认值
+    
+    Returns:
+        配置项的值，如果不存在则返回默认值
+    """
+    conn = get_conn()
+    try:
+        result = conn.execute(
+            "SELECT value FROM config WHERE key = ?", (key,)
+        ).fetchone()
+        return result[0] if result else default_value
+    except Exception as e:
+        print(f"[db] get_config error: {e}")
+        return default_value
+    finally:
+        conn.close()
+
+
+def set_config(key: str, value: str) -> bool:
+    """设置配置项值
+    
+    Args:
+        key: 配置项键名
+        value: 配置项值
+    
+    Returns:
+        是否成功
+    """
+    conn = get_conn()
+    try:
+        conn.execute("""
+            INSERT INTO config (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP
+        """, (key, value, value))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[db] set_config error: {e}")
+        return False
     finally:
         conn.close()
 
