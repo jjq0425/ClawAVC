@@ -48,10 +48,12 @@
 
         <div class="replay-actions">
           <div class="action-buttons">
-            <t-button theme="primary" size="large" @click="startReplay" :loading="replaying" :disabled="!wsConnected">
-              <t-icon name="play-circle" />
-              开始回放
-            </t-button>
+            <t-tooltip :content="!wsConnected ? '请先点击下方「连接」按钮，建立 WebSocket 连接' : ''" :disabled="wsConnected">
+              <t-button theme="primary" size="large" @click="startReplay" :loading="replaying" :disabled="!wsConnected">
+                <t-icon name="play-circle" />
+                开始回放
+              </t-button>
+            </t-tooltip>
             <t-button v-if="replaying" theme="danger" variant="outline" size="large" @click="cancelReplay">
               <t-icon name="stop-circle" />
               停止
@@ -61,10 +63,9 @@
 
         <!-- 回放进度 -->
         <div v-if="replaying" class="replay-progress">
-          <t-progress :percentage="replayProgress" :status="replayStatus" />
+          <t-progress :percentage="replayProgress" :status="replayStatus" :stroke-width="12" />
           <div class="progress-info">
             <span>当前阶段: {{ currentStage }}</span>
-            <span class="remaining">剩余: {{ remainingTime }}s</span>
           </div>
         </div>
       </template>
@@ -151,33 +152,25 @@
           <span v-else class="normal-tag">正常</span>
         </template>
         <template #action="{ row }">
-          <t-button theme="primary" variant="text" size="small" @click="selectRound(row)">
+          <t-button 
+            theme="primary" 
+            variant="text" 
+            size="small" 
+            @click="handleSelectRound(row)"
+            :disabled="replaying && selectedRound?.round_id !== row.round_id"
+          >
             选择回放
           </t-button>
         </template>
       </t-table>
     </div>
 
-    <!-- 回放日志 -->
-    <div v-if="replaying || replayLog.length > 0" class="section-card">
-      <div class="section-header">
-        <t-icon name="file-paste" size="20px" />
-        <span>回放日志</span>
-      </div>
-      <div class="replay-log">
-        <div v-for="(log, i) in replayLog" :key="i" class="log-item">
-          <span class="log-time">{{ log.time }}</span>
-          <span class="log-type-badge">{{ log.stage }}</span>
-          <span class="log-msg">{{ log.msg }}</span>
-        </div>
-        <div v-if="replayLog.length === 0" class="log-empty">等待回放开始...</div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed, onUnmounted } from "vue"
+import { MessagePlugin } from "tdesign-vue-next"
 import { io } from "socket.io-client"
 
 const browserHost = typeof window !== "undefined" ? window.location.hostname : "127.0.0.1"
@@ -226,7 +219,6 @@ const loading = ref(false)
 const selectedRound = ref(null)
 const replaying = ref(false)
 const replaySpeed = ref(1)
-const replayLog = ref([])
 const replayProgress = ref(0)
 const currentStage = ref("")
 
@@ -248,11 +240,6 @@ const pagination = ref({
 const replayStatus = computed(() => {
   if (replayProgress.value >= 100) return "success"
   return "active"
-})
-
-const remainingTime = computed(() => {
-  if (!replaying.value) return 0
-  return Math.ceil((100 - replayProgress.value) / 10)
 })
 
 onMounted(() => {
@@ -294,7 +281,6 @@ function onPageChange(pageInfo) {
 
 async function selectRound(round) {
   selectedRound.value = round
-  replayLog.value = []
   replayProgress.value = 0
   
   const r = await fetch(`/api/rounds/query?round_id=${round.round_id}`)
@@ -304,18 +290,26 @@ async function selectRound(round) {
   }
 }
 
+function handleSelectRound(round) {
+  if (replaying.value && selectedRound.value?.round_id !== round.round_id) {
+    MessagePlugin.warning("回放过程中不允许切换 Round，请等待当前回放完成或停止回放后再操作。")
+    return
+  }
+  MessagePlugin.info("请前往上方「回放配置」区域进行参数设置，然后点击「开始回放」进行调试。")
+  selectRound(round)
+}
+
 async function startReplay() {
   if (!selectedRound.value || !wsConnected.value) return
   
   replaying.value = true
-  replayLog.value = []
   replayProgress.value = 0
   
   const round = selectedRound.value
   const now = new Date()
   const pushTime = now.toISOString().replace('T', ' ').slice(0, 26) + '+0800'
   
-  addLog("开始回放", round.round_id)
+  console.log("开始回放", round.round_id)
   
   let delay_ir = 0
   let delay_end = 0
@@ -348,7 +342,7 @@ async function startReplay() {
   
   // round_start
   currentStage.value = "round_start"
-  addLog("推送", "round_start")
+  console.log("推送", "round_start")
   
   await fetch("/api/monitor/send-test", {
     method: "POST",
@@ -366,7 +360,7 @@ async function startReplay() {
   
   // round_ir_ready
   currentStage.value = "round_ir_ready"
-  addLog("推送", "round_ir_ready")
+  console.log("推送", "round_ir_ready")
   
   await fetch("/api/monitor/send-test", {
     method: "POST",
@@ -383,7 +377,7 @@ async function startReplay() {
   
   // round_end
   currentStage.value = "round_end"
-  addLog("推送", "round_end")
+  console.log("推送", "round_end")
   
   await fetch("/api/monitor/send-test", {
     method: "POST",
@@ -403,26 +397,13 @@ async function startReplay() {
   replayProgress.value = 100
   
   currentStage.value = "完成"
-  addLog("回放完成", round.round_id)
+  console.log("回放完成", round.round_id)
   replaying.value = false
 }
 
 function cancelReplay() {
   replaying.value = false
-  addLog("回放已停止", "")
-}
-
-function addLog(type, msg) {
-  const now = new Date()
-  const time = now.toLocaleTimeString()
-  replayLog.value.push({
-    time,
-    type,
-    msg,
-  })
-  if (replayLog.value.length > 50) {
-    replayLog.value.shift()
-  }
+  console.log("回放已停止")
 }
 
 function sleep(ms) {
@@ -661,6 +642,8 @@ function sleep(ms) {
 .action-buttons {
   display: flex;
   gap: 12px;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .replay-progress {
@@ -700,51 +683,6 @@ function sleep(ms) {
   margin-left: auto;
   margin-right: auto;
   line-height: 1.6;
-}
-
-.replay-log {
-  max-height: 180px;
-  overflow-y: auto;
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 12px 16px;
-  font-size: 12px;
-}
-
-.log-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid #e8ecf0;
-}
-
-.log-item:last-child {
-  border-bottom: none;
-}
-
-.log-time {
-  color: #999;
-  font-size: 11px;
-}
-
-.log-type-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 3px;
-  background: #0052D9;
-  color: #fff;
-}
-
-.log-msg {
-  color: #333;
-}
-
-.log-empty {
-  text-align: center;
-  padding: 32px;
-  color: #999;
 }
 
 .normal-tag {

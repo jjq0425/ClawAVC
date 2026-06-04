@@ -4,7 +4,7 @@
     "read": {
       "type": "function",
       "params": {
-        "path": {
+        "file_path": {
           "required": true,
           "desc": "用户明确指定、上下文中已确认或默认范围内的文件/目录路径。",
           "constraint_spec": {
