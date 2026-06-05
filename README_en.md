@@ -630,6 +630,7 @@ All messages are pushed via the `push` event, differentiated by the `push_type` 
 | `round_start` | Round started | Agent begins a new interaction round |
 | `round_ir_ready` | IR policy ready | Intent translation completed |
 | `round_end` | Round ended | Complete verdict result |
+| `round_kernel` | Kernel info pushed | After kernel info reporting |
 
 ### Integration Examples
 

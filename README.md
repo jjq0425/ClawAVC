@@ -626,6 +626,7 @@ ws://<host>:15100/wss/<namespace>
 | `round_start` | Round 开始 | Agent 开始新一轮交互 |
 | `round_ir_ready` | IR 策略就绪 | 意图翻译完成 |
 | `round_end` | Round 结束 | 完整判定结果 |
+| `round_kernel` | 内核态信息推送 | 内核态信息上报后推送 |
 
 ### 接入示例
 
