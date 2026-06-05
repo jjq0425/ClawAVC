@@ -330,7 +330,7 @@ def update_kernel_info(round_id: str, kernel_syscall_seq_path: str, kernel_lsm_h
         try:
             src_path = Path(kernel_syscall_seq_path)
             if src_path.exists():
-                dest_path = infos_dir / f"{round_id}_syscall_seq.json"
+                dest_path = infos_dir / f"{round_id}_syscall_seq.jsonl"
                 if dest_path.exists():
                     print(f"[db] Overwriting existing kernel_syscall_seq file: {dest_path}")
                 shutil.copy2(src_path, dest_path)
@@ -347,7 +347,7 @@ def update_kernel_info(round_id: str, kernel_syscall_seq_path: str, kernel_lsm_h
         try:
             src_path = Path(kernel_lsm_hook_result_path)
             if src_path.exists():
-                dest_path = infos_dir / f"{round_id}_lsm_hook_result.json"
+                dest_path = infos_dir / f"{round_id}_lsm_hook_result.jsonl"
                 if dest_path.exists():
                     print(f"[db] Overwriting existing kernel_lsm_hook_result file: {dest_path}")
                 shutil.copy2(src_path, dest_path)

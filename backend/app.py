@@ -117,7 +117,7 @@ def report_kernel_info():
     }
     
     文件处理逻辑：
-    - kernel_syscall_seq_path 和 kernel_lsm_hook_result_path 会被复制到 infos/kernel_infos/<round_id>/ 目录
+    - kernel_syscall_seq_path 和 kernel_lsm_hook_result_path 会被复制到 infos/kernel_infos/<round_id>/ 目录（JSONL格式）
     - kernel_resource_facts_path 的内容会被读取并存入数据库
     
     15分钟限制受平台管理页面的开关控制
