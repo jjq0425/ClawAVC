@@ -104,6 +104,57 @@ def update_round():
     return jsonify({"ok": True})
 
 
+@api_doc(summary="内核态信息上报", category="数据查询与更新", params=[{"name":"round_id","type":"body","desc":"Round ID"}, {"name":"kernel_syscall_seq_path","type":"body","desc":"内核态系统调用序列文件路径"}, {"name":"kernel_lsm_hook_result_path","type":"body","desc":"内核态LSM hook检查结果文件路径"}, {"name":"kernel_resource_facts_path","type":"body","desc":"内核资源事实信息文件路径"}], response={"ok":True}, public=True)
+@app.route("/api/rounds/kernel", methods=["POST"])
+def report_kernel_info():
+    """上报内核态信息（对外接口）。
+    
+    Body: {
+        "round_id": "xxx",
+        "kernel_syscall_seq_path": "/path/to/syscall_seq.json",
+        "kernel_lsm_hook_result_path": "/path/to/lsm_hook_result.json",
+        "kernel_resource_facts_path": "/path/to/kernel_resource_facts.json"
+    }
+    
+    文件处理逻辑：
+    - kernel_syscall_seq_path 和 kernel_lsm_hook_result_path 会被复制到 infos/kernel_infos/<round_id>/ 目录
+    - kernel_resource_facts_path 的内容会被读取并存入数据库
+    
+    15分钟限制受平台管理页面的开关控制
+    """
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify({"ok": False, "error": "empty body"}), 400
+    
+    round_id = (data.get("round_id") or "").strip()
+    if not round_id:
+        return jsonify({"ok": False, "error": "round_id is required"}), 400
+    
+    kernel_syscall_seq_path = data.get("kernel_syscall_seq_path", "")
+    kernel_lsm_hook_result_path = data.get("kernel_lsm_hook_result_path", "")
+    kernel_resource_facts_path = data.get("kernel_resource_facts_path", "")
+    
+    # 获取15分钟限制开关状态
+    time_limit_enabled = db.get_config("round_update_time_limit_enabled", "True")
+    time_limit_enabled = time_limit_enabled.lower() == "true"
+    
+    # 检查round_id是否存在及时间限制
+    result = db.update_kernel_info(round_id, kernel_syscall_seq_path, kernel_lsm_hook_result_path, kernel_resource_facts_path, time_limit_enabled)
+    if result == "not_found":
+        return jsonify({"ok": False, "error": f"未找到对应的 round_id: {round_id}"}), 404
+    if result == "too_old":
+        return jsonify({"ok": False, "error": "数据创建时间超过 15 分钟，不支持API修改，请前往数据运维页面修改"}), 400
+    if result == "error":
+        return jsonify({"ok": False, "error": "文件处理或更新失败"}), 500
+    
+    # 推送更新到前端
+    record = db.get_round_by_id(round_id)
+    if record:
+        socketio.emit("new_round_info", record)
+    
+    return jsonify({"ok": True})
+
+
 @app.route("/api/rounds", methods=["POST"])
 def report_round():
     """Receive round data from monitor/orchestrator.

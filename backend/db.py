@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DB_PATH = Path(__file__).parent / "clawAVC.db"
+DB_PATH = Path(__file__).parent.parent / "infos" / "db" / "clawAVC.db"
 
 # ─── 可更新字段配置 ─────────────────────────────────────
 # rounds 表中支持通过 API 修改的字段列表
@@ -44,6 +44,9 @@ def init_db():
             overall_score REAL DEFAULT 1.0,
             attack_config TEXT DEFAULT '',
             pid_info TEXT DEFAULT '',
+            kernel_syscall_seq TEXT DEFAULT '',
+            kernel_lsm_hook_result TEXT DEFAULT '',
+            kernel_resource_facts TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -53,6 +56,23 @@ def init_db():
         conn.execute("ALTER TABLE rounds ADD COLUMN attack_config TEXT DEFAULT ''")
     if "pid_info" not in cols:
         conn.execute("ALTER TABLE rounds ADD COLUMN pid_info TEXT DEFAULT ''")
+    if "kernel_syscall_seq" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN kernel_syscall_seq TEXT DEFAULT ''")
+    if "kernel_lsm_hook_result" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN kernel_lsm_hook_result TEXT DEFAULT ''")
+    if "kernel_resource_facts" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN kernel_resource_facts TEXT DEFAULT ''")
+    # 迁移：将旧的 resource_facts 列重命名为 kernel_resource_facts（如果存在）
+    if "resource_facts" in cols and "kernel_resource_facts" not in cols:
+        try:
+            # SQLite 不支持直接重命名列，需要特殊处理
+            conn.execute("""
+                CREATE TABLE rounds_new AS SELECT *, '' as kernel_resource_facts FROM rounds
+            """)
+            conn.execute("DROP TABLE rounds")
+            conn.execute("ALTER TABLE rounds_new RENAME TO rounds")
+        except Exception as e:
+            print(f"[db] Migration resource_facts to kernel_resource_facts failed: {e}")
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_rounds_time ON rounds(time_start DESC)
     """)
@@ -280,6 +300,114 @@ def update_round_field(round_id: str, field: str, value: str, time_limit_enabled
         conn.close()
 
 
+def update_kernel_info(round_id: str, kernel_syscall_seq_path: str, kernel_lsm_hook_result_path: str, kernel_resource_facts_path: str, time_limit_enabled: bool = True) -> str:
+    """更新内核态信息。
+    
+    Args:
+        round_id: Round ID
+        kernel_syscall_seq_path: 内核态系统调用序列文件路径
+        kernel_lsm_hook_result_path: 内核态LSM hook检查结果文件路径
+        kernel_resource_facts_path: 内核资源事实信息文件路径
+        time_limit_enabled: 是否启用15分钟时间限制
+    
+    Returns:
+        "ok" - 更新成功
+        "not_found" - round_id 不存在
+        "too_old" - 数据超过 15 分钟
+        "error" - 其他错误
+    """
+    import os
+    import shutil
+    from pathlib import Path
+    
+    # 获取 infos 目录路径
+    infos_dir = Path(__file__).parent.parent / "infos" / "kernel_infos" / round_id
+    infos_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 处理 kernel_syscall_seq：复制文件并获取新路径（覆盖已存在的文件）
+    kernel_syscall_seq = ""
+    if kernel_syscall_seq_path:
+        try:
+            src_path = Path(kernel_syscall_seq_path)
+            if src_path.exists():
+                dest_path = infos_dir / f"{round_id}_syscall_seq.json"
+                if dest_path.exists():
+                    print(f"[db] Overwriting existing kernel_syscall_seq file: {dest_path}")
+                shutil.copy2(src_path, dest_path)
+                kernel_syscall_seq = str(dest_path)
+            else:
+                return "error"
+        except Exception as e:
+            print(f"[db] Copy kernel_syscall_seq failed: {e}")
+            return "error"
+    
+    # 处理 kernel_lsm_hook_result：复制文件并获取新路径（覆盖已存在的文件）
+    kernel_lsm_hook_result = ""
+    if kernel_lsm_hook_result_path:
+        try:
+            src_path = Path(kernel_lsm_hook_result_path)
+            if src_path.exists():
+                dest_path = infos_dir / f"{round_id}_lsm_hook_result.json"
+                if dest_path.exists():
+                    print(f"[db] Overwriting existing kernel_lsm_hook_result file: {dest_path}")
+                shutil.copy2(src_path, dest_path)
+                kernel_lsm_hook_result = str(dest_path)
+            else:
+                return "error"
+        except Exception as e:
+            print(f"[db] Copy kernel_lsm_hook_result failed: {e}")
+            return "error"
+    
+    # 处理 kernel_resource_facts：读取文件内容
+    kernel_resource_facts = ""
+    if kernel_resource_facts_path:
+        try:
+            src_path = Path(kernel_resource_facts_path)
+            if src_path.exists():
+                with open(src_path, 'r', encoding='utf-8') as f:
+                    kernel_resource_facts = f.read()
+            else:
+                return "error"
+        except Exception as e:
+            print(f"[db] Read resource_facts failed: {e}")
+            return "error"
+    
+    conn = get_conn()
+    try:
+        # 先检查 round_id 是否存在，并获取创建时间
+        existing = conn.execute(
+            "SELECT created_at FROM rounds WHERE round_id = ?", (round_id,)
+        ).fetchone()
+        if not existing:
+            return "not_found"
+        
+        # 检查创建时间是否超过 15 分钟（仅当开关启用时）
+        if time_limit_enabled:
+            created_at = existing[0]
+            if created_at:
+                from datetime import datetime, timedelta
+                created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                now = datetime.now()
+                if now - created_dt > timedelta(minutes=15):
+                    return "too_old"
+        
+        # 更新内核态信息
+        conn.execute("""
+            UPDATE rounds 
+            SET kernel_syscall_seq = ?, 
+                kernel_lsm_hook_result = ?,
+                kernel_resource_facts = ?
+            WHERE round_id = ?
+        """, (kernel_syscall_seq, kernel_lsm_hook_result, kernel_resource_facts, round_id))
+        conn.commit()
+        return "ok"
+    except Exception as e:
+        print(f"[db] update_kernel_info error: {e}")
+        return "error"
+    finally:
+        conn.close()
+
+
 def get_config(key: str, default_value: str = None) -> str:
     """获取配置项值
     
@@ -387,13 +515,6 @@ def init_config_table():
 
     conn.commit()
     conn.close()
-
-
-def get_config(key: str) -> Optional[str]:
-    conn = get_conn()
-    row = conn.execute("SELECT value FROM config WHERE key = ?", (key,)).fetchone()
-    conn.close()
-    return row[0] if row else None
 
 
 def set_config(key: str, value: str):

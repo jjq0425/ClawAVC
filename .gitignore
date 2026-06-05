@@ -34,3 +34,5 @@ Thumbs.db
 logs/*
 
 *.pyc
+
+infos/kernel_infos/*

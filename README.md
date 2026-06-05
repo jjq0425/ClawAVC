@@ -827,7 +827,7 @@ npm run dev
 
 ### 数据库迁移
 
-SQLite 数据库文件为 `backend/clawAVC.db`，表结构在 `db.py` 的 `init_db()` 和 `init_config_table()` 中定义。新增表只需添加 `CREATE TABLE IF NOT EXISTS` 语句，不影响已有数据。
+SQLite 数据库文件为 `infos/db/clawAVC.db`，表结构在 `backend/db.py` 的 `init_db()` 和 `init_config_table()` 中定义。新增表只需添加 `CREATE TABLE IF NOT EXISTS` 语句，不影响已有数据。
 
 ---
 

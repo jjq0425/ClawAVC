@@ -831,7 +831,7 @@ The frontend dev server automatically proxies `/api` and `/socket.io` to the bac
 
 ### Database Migration
 
-The SQLite database file is `backend/clawAVC.db`. Table schemas are defined in `init_db()` and `init_config_table()` in `db.py`. Adding new tables only requires adding `CREATE TABLE IF NOT EXISTS` statements without affecting existing data.
+The SQLite database file is `infos/db/clawAVC.db`. Table schemas are defined in `init_db()` and `init_config_table()` in `backend/db.py`. Adding new tables only requires adding `CREATE TABLE IF NOT EXISTS` statements without affecting existing data.
 
 ---
 
