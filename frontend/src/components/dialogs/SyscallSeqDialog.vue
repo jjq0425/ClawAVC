@@ -5,6 +5,7 @@
     width="800px" 
     :footer="false"
     @close="onClose"
+    top="5vh"
   >
     <div class="syscall-dialog-content">
       <div v-if="loading" class="detail-loading">

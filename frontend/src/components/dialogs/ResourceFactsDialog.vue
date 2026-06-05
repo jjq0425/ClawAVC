@@ -5,6 +5,7 @@
     width="700px" 
     :footer="false"
     @close="onClose"
+    top="5vh"
   >
     <div class="resource-dialog-content">
       <div v-if="loading" class="detail-loading">
