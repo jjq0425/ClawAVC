@@ -85,7 +85,7 @@
                   <div class="kernel-item" v-if="r.kernel_resource_facts">
                     <div class="kernel-item-header resource-facts">
                       <span class="kernel-item-label">资源事实</span>
-                      <t-button size="small" variant="text" theme="primary" @click="currentResourceFacts = r.kernel_resource_facts; resourceFactsVisible = true">
+                      <t-button size="small" variant="text" theme="primary" @click="openResourceFactsDialog(r.kernel_resource_facts)">
                         <t-icon name="browse" size="14px" />
                         查看详情
                       </t-button>
@@ -253,6 +253,14 @@ function getKernelPreview(content) {
     return content.substring(0, 100) + '...'
   }
   return content
+}
+
+// 打开资源事实弹窗
+function openResourceFactsDialog(content) {
+  console.log('openResourceFactsDialog called, content type:', typeof content)
+  console.log('openResourceFactsDialog content preview:', content?.substring(0, 300))
+  currentResourceFacts.value = content || ''
+  resourceFactsVisible.value = true
 }
 </script>
 
