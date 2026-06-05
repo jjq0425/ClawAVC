@@ -150,7 +150,26 @@ def report_kernel_info():
     # 推送更新到前端
     record = db.get_round_by_id(round_id)
     if record:
+        # 推送1: 向本平台推送
         socketio.emit("new_round_info", record)
+        
+        # 推送 round_kernel 阶段到 WebSocket
+        from datetime import datetime
+        push_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "+0800"
+        
+        kernel_syscall_seq = record.get("kernel_syscall_seq", "")
+        kernel_lsm_hook_result = record.get("kernel_lsm_hook_result", "")
+        kernel_resource_facts = record.get("kernel_resource_facts", "")
+        
+        # 推送2: 向监控平台推送
+        socketio.emit("push", {
+            "push_type": "round_kernel",
+            "round_id": round_id,
+            "kernel_syscall_seq": kernel_syscall_seq,
+            "kernel_lsm_hook_result": kernel_lsm_hook_result,
+            "kernel_resource_facts": kernel_resource_facts,
+            "push_time": push_time
+        }, namespace="/wss/monitor")
     
     return jsonify({"ok": True})
 

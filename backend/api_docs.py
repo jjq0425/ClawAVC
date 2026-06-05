@@ -15,6 +15,14 @@ from typing import Any, Dict, List, Optional
 # API Metadata Registry — edit here to update docs automatically
 # ═══════════════════════════════════════════════════════════════
 
+# ⚠️ 重要说明：Round 推送时序
+# ---------------------------------------------------------------
+# 1. round_start 必须是第一个推送的阶段，表示 Round 的开始
+# 2. round_ir_ready、round_end、round_kernel 这三个阶段的处理是异步的
+# 3. 由于异步处理，这三个阶段的实际推送顺序可能不固定，取决于各模块的处理速度
+# 4. 前端应根据 push_type 进行状态更新，而不是依赖推送的时间顺序
+# ---------------------------------------------------------------
+
 ENDPOINT_REGISTRY = {
     "GET /api/rounds": {
         "summary": "分页查询 Rounds",
@@ -64,6 +72,19 @@ ENDPOINT_REGISTRY = {
             {"name": "ir_json", "type": "string", "desc": "IR 策略 JSON"},
             {"name": "judge_result", "type": "string", "desc": "判定结果文本"},
             {"name": "overall_score", "type": "float", "desc": "综合得分 (0~1)"},
+        ],
+        "response": {"ok": True},
+        "public": True,
+    },
+    "POST /api/rounds/kernel": {
+        "summary": "内核态信息上报",
+        "description": "上报内核态信息（系统调用序列、LSM hook结果、资源事实）。支持15分钟时间限制（受平台管理开关控制）。成功后通过 WebSocket 推送 round_kernel 阶段。",
+        "category": "数据查询与更新",
+        "params": [
+            {"name": "round_id", "type": "string", "desc": "Round ID"},
+            {"name": "kernel_syscall_seq_path", "type": "string", "desc": "内核态系统调用序列文件路径 (JSONL格式)"},
+            {"name": "kernel_lsm_hook_result_path", "type": "string", "desc": "内核态LSM hook检查结果文件路径 (JSONL格式)"},
+            {"name": "kernel_resource_facts_path", "type": "string", "desc": "内核资源事实信息文件路径"},
         ],
         "response": {"ok": True},
         "public": True,
