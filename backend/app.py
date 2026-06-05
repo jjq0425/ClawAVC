@@ -940,6 +940,31 @@ def monitor_status_api():
     return jsonify({"ok": True, "data": {"running": running}})
 
 
+@api_doc(summary="读取内核态文件内容", category="运行监控", description="读取内核态信息文件内容（JSONL格式）", params=[{"name":"path","type":"query","desc":"文件路径"}], response={"ok":True,"data":"文件内容"}, public=True)
+@app.route("/api/kernel/file", methods=["GET"])
+def read_kernel_file():
+    """读取内核态信息文件内容。"""
+    file_path = request.args.get("path", "").strip()
+    if not file_path:
+        return jsonify({"ok": False, "error": "path is required"}), 400
+    
+    from pathlib import Path
+    
+    path = Path(file_path)
+    if not path.exists():
+        return jsonify({"ok": False, "error": f"文件不存在: {file_path}"}), 404
+    
+    if not path.is_file():
+        return jsonify({"ok": False, "error": f"路径不是文件: {file_path}"}), 400
+    
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return jsonify({"ok": True, "data": content})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"读取文件失败: {str(e)}"}), 500
+
+
 @api_doc(summary="发送模拟/回放 WSS 消息", category="运行监控", description="向 /wss/monitor 推送消息，自动添加 is_mock=true 标记", params=[{"name":"data","type":"body","desc":"消息内容 JSON，需包含 push_type 字段"}], public=True)
 @app.route("/api/monitor/send-test", methods=["POST"])
 def send_test_wss():

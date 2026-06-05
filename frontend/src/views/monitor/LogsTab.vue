@@ -56,7 +56,48 @@
               </div>
               <div class="sub-block">
                 <div class="sub-block-header kernel">内核态轨迹</div>
-                <div class="integrating-hint">正在集成中...</div>
+                <div class="kernel-sections">
+                  <!-- 系统调用序列 -->
+                  <div class="kernel-item" v-if="r.kernel_syscall_seq">
+                    <div class="kernel-item-header">
+                      <span class="kernel-item-label">系统调用序列</span>
+                      <span class="kernel-item-path">{{ r.kernel_syscall_seq }}</span>
+                      <t-button size="small" variant="text" theme="primary" @click="currentSyscallSeqPath = r.kernel_syscall_seq; syscallSeqVisible = true">
+                        <t-icon name="browse" size="14px" />
+                        查看详情
+                      </t-button>
+                    </div>
+                  </div>
+                  
+                  <!-- LSM Hook结果 -->
+                  <div class="kernel-item" v-if="r.kernel_lsm_hook_result">
+                    <div class="kernel-item-header">
+                      <span class="kernel-item-label">LSM Hook结果</span>
+                      <span class="kernel-item-path">{{ r.kernel_lsm_hook_result }}</span>
+                      <t-button size="small" variant="text" theme="primary" @click="currentLsmHookPath = r.kernel_lsm_hook_result; lsmHookVisible = true">
+                        <t-icon name="browse" size="14px" />
+                        查看详情
+                      </t-button>
+                    </div>
+                  </div>
+                  
+                  <!-- 资源事实 -->
+                  <div class="kernel-item" v-if="r.kernel_resource_facts">
+                    <div class="kernel-item-header resource-facts">
+                      <span class="kernel-item-label">资源事实</span>
+                      <t-button size="small" variant="text" theme="primary" @click="currentResourceFacts = r.kernel_resource_facts; resourceFactsVisible = true">
+                        <t-icon name="browse" size="14px" />
+                        查看详情
+                      </t-button>
+                    </div>
+                    <div class="kernel-item-preview" v-if="getKernelPreview(r.kernel_resource_facts)">
+                      {{ getKernelPreview(r.kernel_resource_facts) }}
+                    </div>
+                  </div>
+                  
+                  <!-- 无数据提示 -->
+                  <div v-if="!r.kernel_syscall_seq && !r.kernel_lsm_hook_result && !r.kernel_resource_facts" class="integrating-hint">（本轮无行为记录）</div>
+                </div>
               </div>
             </div>
           </details>
@@ -106,6 +147,11 @@
       </div>
     </transition-group>
 
+    <!-- 内核态详情弹窗组件 -->
+    <SyscallSeqDialog v-model="syscallSeqVisible" :file-path="currentSyscallSeqPath" />
+    <LsmHookDialog v-model="lsmHookVisible" :file-path="currentLsmHookPath" />
+    <ResourceFactsDialog v-model="resourceFactsVisible" :content="currentResourceFacts" />
+
     <!-- Pagination -->
     <div class="pagination-bar" v-if="total > 0">
       <t-pagination v-model:current="currentPage" v-model:pageSize="pageSize" :total="total" :page-size-options="[10, 20, 50]" show-page-size show-jumper @current-change="fetchRounds" @page-size-change="onPageSizeChange" />
@@ -117,6 +163,9 @@
 import { ref, onMounted } from "vue"
 import socket, { connected } from "../../utils/socket.js"
 import { NotifyPlugin } from "tdesign-vue-next"
+import SyscallSeqDialog from "../../components/dialogs/SyscallSeqDialog.vue"
+import LsmHookDialog from "../../components/dialogs/LsmHookDialog.vue"
+import ResourceFactsDialog from "../../components/dialogs/ResourceFactsDialog.vue"
 
 const rounds = ref([])
 const total = ref(0)
@@ -126,6 +175,16 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const filters = ref({ query: "", round_id: "", dateRange: [] })
 let notificationInstance = null
+
+// 内核态详情弹窗控制
+const syscallSeqVisible = ref(false)
+const currentSyscallSeqPath = ref('')
+
+const lsmHookVisible = ref(false)
+const currentLsmHookPath = ref('')
+
+const resourceFactsVisible = ref(false)
+const currentResourceFacts = ref('')
 
 // 通用筛选函数
 function matchesFilter(data) {
@@ -183,6 +242,18 @@ function toggleExpand(id) { expandedId.value = expandedId.value === id ? null : 
 function fmtTime(t) { if (!t) return ""; return t.replace(/\+\d{4}\s*$/, "").trim() }
 function parseJSON(str) { try { return JSON.parse(str || "[]") } catch { return [] } }
 function getIRPolicies(irStr) { try { const ir = JSON.parse(irStr || "{}"); const level2 = ir.level2 || ir; return level2.policies || [] } catch { return [] } }
+
+// 内核态详情查看
+function getKernelPreview(content) {
+  if (!content) return ''
+  // 如果是文件路径，不显示预览
+  if (content.includes('/')) return ''
+  // 如果内容太长，截取前100个字符
+  if (content.length > 100) {
+    return content.substring(0, 100) + '...'
+  }
+  return content
+}
 </script>
 
 <style scoped>
@@ -247,4 +318,14 @@ function getIRPolicies(irStr) { try { const ir = JSON.parse(irStr || "{}"); cons
 .pagination-bar { margin-top: 20px; display: flex; justify-content: center; padding-bottom: 20px; }
 .card-slide-enter-active { transition: all 0.4s ease-out; }
 .card-slide-enter-from { opacity: 0; transform: translateY(-16px); }
+
+/* 内核态轨迹样式 */
+.kernel-sections { display: flex; flex-direction: column; gap: 12px; }
+.kernel-item { background: #f8f9fa; border-radius: 8px; padding: 12px 14px; border: 1px solid #e8ecf0; }
+.kernel-item-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.kernel-item-label { font-size: 12px; font-weight: 600; color: #333; min-width: 100px; }
+.kernel-item-path { font-size: 11px; color: #0052D9; font-family: "SF Mono", monospace; word-break: break-all; flex: 1; }
+.kernel-item-preview { font-size: 11px; color: #666; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e8ecf0; max-height: 60px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.kernel-item.resource-facts .kernel-item-label { min-width: 80px; }
+
 </style>
