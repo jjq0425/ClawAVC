@@ -394,6 +394,31 @@ async function startReplay() {
     })
   })
   
+  replayProgress.value = 80
+  await sleep(actual_delay_end * 0.3)
+  
+  // round_kernel (如果存在内核态数据)
+  const kernel_syscall_seq = round.kernel_syscall_seq || ""
+  const kernel_lsm_hook_result = round.kernel_lsm_hook_result || ""
+  const kernel_resource_facts = round.kernel_resource_facts || ""
+  
+  if (kernel_syscall_seq || kernel_lsm_hook_result || kernel_resource_facts) {
+    currentStage.value = "round_kernel"
+    console.log("推送", "round_kernel")
+    
+    await fetch("/api/monitor/send-test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        push_type: "round_kernel",
+        round_id: round.round_id,
+        kernel_syscall_seq: kernel_syscall_seq,
+        kernel_lsm_hook_result: kernel_lsm_hook_result,
+        kernel_resource_facts: kernel_resource_facts,
+      })
+    })
+  }
+  
   replayProgress.value = 100
   
   currentStage.value = "完成"
