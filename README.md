@@ -458,7 +458,7 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 **功能特点**：
 - 选择历史 Round 进行回放
 - 可配置回放速度（0.1x ~ 2x）
-- 自动按原始时间间隔推送三个阶段：`round_start` → `round_ir_ready` → `round_end`
+- 自动按原始时间间隔推送四个阶段：`round_start` → `round_ir_ready` → `round_end` → `round_kernel`
 - 实时显示 WSS 收到的消息
 - 回放日志记录推送进度
 
@@ -678,6 +678,45 @@ GET /api/docs/public ← 对外公开接口
 - 完整参数表格（类型、默认值、说明）
 - 返回示例 JSON
 - **右侧 API 测试面板**：可直接发送请求测试接口
+
+### 内核态信息上报
+
+系统支持内核态信息的上报和推送，包括系统调用序列、LSM hook检查结果和资源事实信息。
+
+**新增字段**（rounds 表）：
+- `kernel_syscall_seq`: 内核态系统调用序列文件路径 (JSONL格式)
+- `kernel_lsm_hook_result`: 内核态LSM hook检查结果文件路径 (JSONL格式)
+- `kernel_resource_facts`: 内核资源事实内容
+
+**API 接口**：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/rounds/kernel` | 内核态信息上报（支持15分钟时间限制） |
+
+**WebSocket 推送**：
+
+新增 `push_type: "round_kernel"` 阶段，在 round_end 之后推送内核态信息：
+```json
+{
+  "push_type": "round_kernel",
+  "round_id": "xxx",
+  "kernel_syscall_seq": "/path/to/syscall_seq.jsonl",
+  "kernel_lsm_hook_result": "/path/to/lsm_hook_result.jsonl",
+  "kernel_resource_facts": "资源事实内容...",
+  "push_time": "2026-06-05 16:52:00.123+0800"
+}
+```
+
+**推送时序**：
+- `round_start` → `round_ir_ready` → `round_end` → `round_kernel`
+- round_start 必须最先推送
+- 其他阶段为异步处理，推送顺序可能不固定
+- 前端应根据 `push_type` 进行状态更新
+
+**流量回放**：
+- 回放时自动包含 `round_kernel` 阶段（如果存在内核态数据）
+- 进度条分段显示：round_start(33%) → round_ir_ready(66%) → round_end(80%) → round_kernel(100%)
 
 ### 新增接口文档
 

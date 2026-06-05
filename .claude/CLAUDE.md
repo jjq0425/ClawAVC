@@ -21,8 +21,9 @@
 |------|------|------|
 | `GET` | `/api/rounds?limit=20&offset=0&query=&round_id=&time_from=&time_to=` | 分页+筛选查询 |
 | `GET` | `/api/rounds/query?round_id=xxx` | 查询单条 round 详情 |
-| `PUT` | `/api/rounds/update` | 更新 round 字段（仅支持部分字段，15分钟内） |
+| `PUT` | `/api/rounds/update` | 更新 round 字段（仅支持部分字段，15分钟内，受开关控制） |
 | `POST` | `/api/rounds` | 上报 round (支持 event=start 和 event=end) |
+| `POST` | `/api/rounds/kernel` | 内核态信息上报（15分钟时间限制，受开关控制） |
 | `GET` | `/api/stats` | 统计概览 |
 
 **Monitor API:**
@@ -83,9 +84,14 @@
 #### db.py — SQLite 数据层
 
 **表结构:**
-- `rounds` — round_id, time_start, time_end, session_key, session_id, user_query, last_llm_message, action_json, ir_json, judge_result, is_abnormal, overall_score, attack_config, **pid_info**
+- `rounds` — round_id, time_start, time_end, session_key, session_id, user_query, last_llm_message, action_json, ir_json, judge_result, is_abnormal, overall_score, attack_config, **pid_info**, kernel_syscall_seq, kernel_lsm_hook_result, kernel_resource_facts
 - `config` — key (TEXT PRIMARY KEY), value (TEXT)
 - `translation_log` — 翻译日志
+
+**内核态字段说明:**
+- `kernel_syscall_seq`: 内核态系统调用序列文件路径 (JSONL格式)
+- `kernel_lsm_hook_result`: 内核态LSM hook检查结果文件路径 (JSONL格式)
+- `kernel_resource_facts`: 内核资源事实内容
 
 > `pid_info` 是 `TEXT`，存 watcher 在 ROUND_START 时采集的 OpenClaw 主进程 + 子孙工具进程的 JSON 快照（PID/cmdline/exe/SELinux 标签/capabilities/namespaces/cgroup/ancestors 等）。详见 [`auditor/monitor/proc_info.py`](#proc_infopy--进程--安全上下文采集) 一节。`init_db()` 自带 `ALTER TABLE rounds ADD COLUMN pid_info TEXT DEFAULT ''` 迁移，存量库无需手动改。
 
@@ -328,6 +334,19 @@ sio.wait()
 ```python
 socketio.emit("push", {"push_type": "round_start", "round_id": "...", ...}, namespace="/wss/monitor")
 ```
+
+### push_type 类型
+| push_type | 说明 |
+|-----------|------|
+| `round_start` | Round 开始 |
+| `round_ir_ready` | IR 策略就绪 |
+| `round_end` | Round 结束（含完整判定） |
+| `round_kernel` | 内核态信息推送 |
+
+**推送时序:**
+- `round_start` 必须最先推送
+- 其他阶段为异步处理，推送顺序可能不固定
+- 前端应根据 `push_type` 进行状态更新
 
 ### 前端内部 WebSocket（运行日志页）
 `frontend/src/utils/socket.js` 连接默认 namespace（无 namespace），监听 `new_round_info` 事件做实时卡片更新。与对外 WSS 接口（/wss/monitor）是不同的 namespace。

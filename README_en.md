@@ -459,7 +459,7 @@ The Traffic Replay feature allows users to select historical Round data and rese
 **Features**:
 - Select historical rounds for replay
 - Configurable replay speed (0.1x ~ 2x)
-- Automatically pushes three stages in original time sequence: `round_start` → `round_ir_ready` → `round_end`
+- Automatically pushes four stages in original time sequence: `round_start` → `round_ir_ready` → `round_end` → `round_kernel`
 - Real-time display of received WSS messages
 - Replay log records push progress
 
@@ -682,6 +682,45 @@ Visit `/api-docs` to view all public-facing API documentation, including:
 - Complete parameter tables (type, default value, description)
 - Response JSON examples
 - **Right-side API test panel**: Send requests directly to test endpoints
+
+### Kernel Information Reporting
+
+The system supports reporting and pushing kernel-level information, including syscall sequences, LSM hook results, and resource facts.
+
+**New Fields** (rounds table):
+- `kernel_syscall_seq`: Kernel syscall sequence file path (JSONL format)
+- `kernel_lsm_hook_result`: Kernel LSM hook check result file path (JSONL format)
+- `kernel_resource_facts`: Kernel resource facts content
+
+**API Endpoint**:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/rounds/kernel` | Report kernel information (with 15-minute time limit) |
+
+**WebSocket Push**:
+
+New `push_type: "round_kernel"` stage, pushed after round_end:
+```json
+{
+  "push_type": "round_kernel",
+  "round_id": "xxx",
+  "kernel_syscall_seq": "/path/to/syscall_seq.jsonl",
+  "kernel_lsm_hook_result": "/path/to/lsm_hook_result.jsonl",
+  "kernel_resource_facts": "Resource facts content...",
+  "push_time": "2026-06-05 16:52:00.123+0800"
+}
+```
+
+**Push Sequence**:
+- `round_start` → `round_ir_ready` → `round_end` → `round_kernel`
+- `round_start` must be pushed first
+- Other stages are asynchronous, push order may vary
+- Frontend should update state based on `push_type` rather than push timing
+
+**Traffic Replay**:
+- Replay automatically includes `round_kernel` stage (if kernel data exists)
+- Progress bar shows four stages: round_start(33%) → round_ir_ready(66%) → round_end(80%) → round_kernel(100%)
 
 ### Adding New API Docs
 
