@@ -4,6 +4,19 @@
       <!-- Left: WSS Docs -->
       <div class="docs-panel">
         <p class="page-desc">WebSocket 长连接接口，按消息组订阅，实时接收 Agent 行为审计推送。</p>
+        
+        <!-- 重要警告 -->
+        <div class="wss-warning">
+          <div class="warning-header">
+            <t-icon name="error-circle" size="16px" />
+            <span>⚠️ 重要说明</span>
+          </div>
+          <div class="warning-content">
+            <p><strong>推送时序：</strong>round_start 必须是第一个推送的阶段，表示 Round 的开始。其他三个阶段（round_ir_ready、round_end、round_kernel）的处理是异步的，由于各模块的处理速度不同，实际推送顺序可能不固定。</p>
+            <p><strong>前端处理建议：</strong>应根据 <code>push_type</code> 进行状态更新，而不是依赖推送的时间顺序。</p>
+            <p><strong>字段兼容性：</strong>消息的具体字段可能随平台版本更新而变化，客户端请做好字段兼容处理，对于未知字段应忽略，对于新增字段应能正常接收。</p>
+          </div>
+        </div>
 
         <div class="connect-info">
           <div class="section-label">连接方式</div>
@@ -180,9 +193,36 @@ sio.wait()</code></pre>
                     <tr><td><code>is_mock</code></td><td>boolean</td><td>是否模拟发送（测试消息自动设为 true）</td></tr>
                   </tbody>
                 </table>
-                <div>
-                  <p class="hint">注：除上述三种标准消息外，平台后续可能增加其他 push_type，或对字段进行调整，客户端请做好兼容处理。</p>
-                </div>
+              </div>
+            </div>
+
+            <!-- push_type: round_kernel -->
+            <div class="push-type-section">
+              <div class="push-type-header kernel">
+                <span class="push-type-badge">push_type: "round_kernel"</span>
+                <span class="push-type-desc">内核态信息推送</span>
+              </div>
+              <div class="push-type-body">
+                <p class="type-explain">内核态信息上报后推送，包含系统调用序列、LSM hook检查结果和资源事实信息。</p>
+                <pre class="response-block">{
+  "push_type": "round_kernel",
+  "round_id": "abc12345",
+  "kernel_syscall_seq": "/path/to/syscall_seq.jsonl",
+  "kernel_lsm_hook_result": "/path/to/lsm_hook_result.jsonl",
+  "kernel_resource_facts": "资源事实内容...",
+  "push_time": "2026-05-30 21:20:20.123+0800"
+}</pre>
+                <table class="params-table">
+                  <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+                  <tbody>
+                    <tr><td><code>push_type</code></td><td>string</td><td>固定 "round_kernel"</td></tr>
+                    <tr><td><code>round_id</code></td><td>string</td><td>关联 Round ID</td></tr>
+                    <tr><td><code>kernel_syscall_seq</code></td><td>string</td><td>内核态系统调用序列文件路径 (JSONL格式)</td></tr>
+                    <tr><td><code>kernel_lsm_hook_result</code></td><td>string</td><td>内核态LSM hook检查结果文件路径 (JSONL格式)</td></tr>
+                    <tr><td><code>kernel_resource_facts</code></td><td>string</td><td>内核资源事实内容</td></tr>
+                    <tr><td><code>push_time</code></td><td>string</td><td>推送时间</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -249,6 +289,7 @@ sio.wait()</code></pre>
                   <t-option value="round_start" label="round_start (Round 开始)" />
                   <t-option value="round_ir_ready" label="round_ir_ready (IR 策略就绪)" />
                   <t-option value="round_end" label="round_end (Round 结束)" />
+                  <t-option value="round_kernel" label="round_kernel (内核态信息)" />
                 </t-select>
               </div>
               <div class="send-field">
@@ -380,6 +421,16 @@ function fillDefaultPayload() {
         push_time: now
       }, null, 2)
       break
+    case 'round_kernel':
+      payload = JSON.stringify({
+        push_type: 'round_kernel',
+        round_id: roundId,
+        kernel_syscall_seq: '/path/to/syscall_seq.jsonl',
+        kernel_lsm_hook_result: '/path/to/lsm_hook_result.jsonl',
+        kernel_resource_facts: '资源事实内容示例',
+        push_time: now
+      }, null, 2)
+      break
   }
   sendPayload.value = payload
 }
@@ -420,7 +471,13 @@ function sendTestMessage() {
 .wss-tab { padding: 24px 8px; }
 .page-layout { display: flex; gap: 20px; }
 .docs-panel { flex: 1; min-width: 0; overflow-y: auto; max-height: calc(100vh - 160px); padding: 0 16px; }
-.page-desc { font-size: 13px; color: #999; margin-bottom: 20px; }
+.page-desc { font-size: 13px; color: #999; margin-bottom: 16px; }
+.wss-warning { background: linear-gradient(135deg, #fff8e6 0%, #fff 100%); border: 1px solid #ffe58f; border-left: 4px solid #fa8c16; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; }
+.wss-warning .warning-header { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #d46b08; margin-bottom: 8px; }
+.wss-warning .warning-content { font-size: 12px; color: #666; line-height: 1.8; }
+.wss-warning .warning-content p { margin: 0 0 6px; }
+.wss-warning .warning-content p:last-child { margin-bottom: 0; }
+.wss-warning .warning-content code { background: #fff0ed; color: #fa541c; padding: 1px 4px; border-radius: 2px; font-size: 11px; }
 .connect-info { background: #f8faff; border: 1px solid #e0e8f5; border-radius: 10px; padding: 18px 22px; margin-bottom: 24px; }
 .connect-info .section-label { font-size: 12px; font-weight: 600; color: #333; margin-bottom: 10px; }
 .info-row { display: flex; align-items: center; gap: 12px; padding: 5px 0; font-size: 12px; }
@@ -449,6 +506,7 @@ function sendTestMessage() {
 .push-type-header.start { background: linear-gradient(90deg, #f0f5ff, #fff); border-bottom: 1px solid #e0e8f5; }
 .push-type-header.ir { background: linear-gradient(90deg, #f0fff8, #fff); border-bottom: 1px solid #d0f0e0; }
 .push-type-header.end { background: linear-gradient(90deg, #fffbf5, #fff); border-bottom: 1px solid #ffe8d0; }
+.push-type-header.kernel { background: linear-gradient(90deg, #f9f0ff, #fff); border-bottom: 1px solid #e8d5f5; }
 .push-type-badge { font-size: 11px; font-family: monospace; font-weight: 600; color: #333; }
 .push-type-desc { font-size: 12px; color: #666; }
 .push-type-body { padding: 12px 14px; }
@@ -476,11 +534,13 @@ function sendTestMessage() {
 .msg-item.round_start { border-left: 3px solid #0052D9; }
 .msg-item.round_ir_ready { border-left: 3px solid #00a870; }
 .msg-item.round_end { border-left: 3px solid #ED7B2F; }
+.msg-item.round_kernel { border-left: 3px solid #722ed1; }
 .msg-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #f8f9fa; }
 .msg-type { font-size: 10px; font-weight: 700; font-family: monospace; padding: 1px 6px; border-radius: 3px; color: #fff; }
 .msg-type.round_start { background: #0052D9; }
 .msg-type.round_ir_ready { background: #00a870; }
 .msg-type.round_end { background: #ED7B2F; }
+.msg-type.round_kernel { background: #722ed1; }
 .msg-time { font-size: 10px; color: #999; }
 .msg-body { margin: 0; padding: 8px 10px; font-size: 10px; line-height: 1.4; background: #fafbfc; color: #333; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font-family: "SF Mono", monospace; max-height: 120px; overflow-y: auto; }
 .msg-empty { text-align: center; padding: 24px; font-size: 12px; color: #ccc; font-style: italic; }
