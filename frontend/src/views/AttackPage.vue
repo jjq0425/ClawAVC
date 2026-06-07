@@ -202,11 +202,39 @@
                   <t-switch v-model="tamperConfig.replace.enabled" />
                 </div>
                 <div v-if="tamperConfig.replace.enabled" class="cfg-input">
-                  <t-input
-                    v-model="tamperConfig.replace.value"
-                    placeholder="目标工具名称，如 exec_command"
-                    clearable
-                  />
+                  <!-- 原工具配置 -->
+                  <div class="tamper-row">
+                    <div class="tamper-label">原工具</div>
+                    <t-input
+                      v-model="tamperReplaceConfig.originalTool"
+                      placeholder="原工具名称，如 read_file"
+                      clearable
+                    />
+                    <t-input
+                      v-model="tamperReplaceConfig.originalParamName"
+                      placeholder="原参数名，如 path"
+                      clearable
+                    />
+                  </div>
+                  <!-- 替换工具配置 -->
+                  <div class="tamper-row">
+                    <div class="tamper-label">替换为</div>
+                    <t-input
+                      v-model="tamperReplaceConfig.replaceTool"
+                      placeholder="替换工具名称，如 exec_command"
+                      clearable
+                    />
+                    <t-input
+                      v-model="tamperReplaceConfig.replaceParamName"
+                      placeholder="替换参数名，如 cmd"
+                      clearable
+                    />
+                  </div>
+                  <!-- 提示信息 -->
+                  <div class="tamper-hint">
+                    <t-icon name="info-circle" size="14px" />
+                    <span>请注意参数匹配：我们不做参数的任何转换。仅当两个工具的参数结构兼容时才可使用（如都是文件路径参数）。目前只支持一个参数，多余参数会忽略。本配置启停和配置有延迟，需要等待90秒后再使用！</span>
+                  </div>
                 </div>
               </div>
 
@@ -428,7 +456,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 const API = '/api'
@@ -445,6 +473,62 @@ const tamperConfig = ref({
   insert: { enabled: false, value: '' },
 })
 const tamperSaving = ref(false)
+
+// 替换工具的详细配置（四个输入框）
+const tamperReplaceConfig = ref({
+  originalTool: '',
+  originalParamName: '',
+  replaceTool: '',
+  replaceParamName: '',
+})
+
+// 监听 JSON 配置变化，同步到四个输入框（只在从服务器加载时触发）
+const isInitializing = ref(true)
+
+watch(() => tamperConfig.value.replace.value, (val) => {
+  // 只在初始化时或手动加载配置时同步
+  if (isInitializing.value || !tamperConfig.value.replace.enabled) {
+    if (val) {
+      try {
+        const parsed = JSON.parse(val)
+        tamperReplaceConfig.value = {
+          originalTool: parsed.original_tool || '',
+          originalParamName: parsed.original_param_name || '',
+          replaceTool: parsed.replace_tool || '',
+          replaceParamName: parsed.replace_param_name || '',
+        }
+      } catch {
+        // 解析失败，保持当前值
+      }
+    } else {
+      tamperReplaceConfig.value = { originalTool: '', originalParamName: '', replaceTool: '', replaceParamName: '' }
+    }
+  }
+})
+
+// 监听四个输入框变化，生成 JSON 配置（防抖处理）
+let saveTimeout = null
+watch(tamperReplaceConfig, () => {
+  if (!tamperConfig.value.replace.enabled) return
+  
+  // 防抖：300ms 内不重复更新
+  if (saveTimeout) clearTimeout(saveTimeout)
+  
+  saveTimeout = setTimeout(() => {
+    const config = {
+      original_tool: tamperReplaceConfig.value.originalTool.trim(),
+      original_param_name: tamperReplaceConfig.value.originalParamName.trim(),
+      replace_tool: tamperReplaceConfig.value.replaceTool.trim(),
+      replace_param_name: tamperReplaceConfig.value.replaceParamName.trim(),
+    }
+    tamperConfig.value.replace.value = JSON.stringify(config)
+  }, 300)
+}, { deep: true })
+
+// 标记初始化结束
+const initTimeout = setTimeout(() => {
+  isInitializing.value = false
+}, 500)
 
 const enabledCount = computed(() => {
   let n = 0
@@ -521,6 +605,12 @@ async function saveTamperConfig() {
     tamperSaving.value = false
   }
 }
+
+// 清理定时器
+onUnmounted(() => {
+  if (saveTimeout) clearTimeout(saveTimeout)
+  if (initTimeout) clearTimeout(initTimeout)
+})
 </script>
 
 <style scoped>
@@ -1196,6 +1286,42 @@ async function saveTamperConfig() {
   margin-top: 12px;
   animation: fadeDown 0.25s ease;
 }
+
+/* 替换工具配置样式 */
+.tamper-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.tamper-row:last-child {
+  margin-bottom: 0;
+}
+.tamper-label {
+  min-width: 50px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7180;
+  text-align: right;
+}
+.tamper-row .t-input {
+  flex: 1;
+  max-width: 300px;
+}
+.tamper-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(230, 57, 70, 0.08);
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: #a04040;
+  line-height: 1.5;
+}
+.tamper-hint .t-icon { margin-top: 1px; }
+
 @keyframes fadeDown {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
