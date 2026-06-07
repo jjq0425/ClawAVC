@@ -148,18 +148,18 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(hook, index) in pagedHooks" :key="index" :class="{ 'deny-row': hook.hook_result === 'deny' }">
+                  <tr v-for="(hook, index) in pagedHooks" :key="index" :class="{ 'deny-row': getHookResult(hook) === 'deny' }">
                     <td class="time-cell">{{ formatTime(hook.timestamp_mono_ns) }}</td>
                     <td class="hook-type-cell">
-                      <span class="hook-type-name">{{ hook.hook_name }}</span>
+                      <span class="hook-type-name">{{ getHookName(hook) }}</span>
                     </td>
                     <td class="result-cell">
-                      <t-tag :theme="hook.hook_result === 'allow' ? 'success' : 'danger'" size="small">
-                        {{ hook.hook_result }}
+                      <t-tag :theme="getHookResult(hook) === 'allow' ? 'success' : 'danger'" size="small">
+                        {{ getHookResult(hook) }}
                       </t-tag>
                     </td>
                     <td class="pid-cell">{{ hook.pid }}/{{ hook.tid }}</td>
-                    <td class="path-cell" :title="getPathFromTarget(hook.target)">{{ getPathFromTarget(hook.target) }}</td>
+                    <td class="path-cell" :title="getHookPath(hook)">{{ getHookPath(hook) }}</td>
                     <td class="return-cell">{{ hook.return_value }}</td>
                   </tr>
                 </tbody>
@@ -276,20 +276,21 @@ function toggleSection(section) {
 }
 
 // 统计计算
-const allowCount = computed(() => hookData.value.filter(h => h.hook_result === 'allow').length)
-const denyCount = computed(() => hookData.value.filter(h => h.hook_result === 'deny').length)
+const allowCount = computed(() => hookData.value.filter(h => getHookResult(h) === 'allow').length)
+const denyCount = computed(() => hookData.value.filter(h => getHookResult(h) === 'deny').length)
 const allowPercentage = computed(() => hookData.value.length ? (allowCount.value / hookData.value.length * 100) : 0)
 const denyPercentage = computed(() => hookData.value.length ? (denyCount.value / hookData.value.length * 100) : 0)
 
 const uniqueHookTypes = computed(() => {
-  const set = new Set(hookData.value.map(h => h.hook_name))
+  const set = new Set(hookData.value.map(h => getHookName(h)))
   return Array.from(set)
 })
 
 const hookTypeDistribution = computed(() => {
   const counts = {}
   hookData.value.forEach(h => {
-    counts[h.hook_name] = (counts[h.hook_name] || 0) + 1
+    const name = getHookName(h)
+    counts[name] = (counts[name] || 0) + 1
   })
   return Object.entries(counts)
     .map(([name, count]) => ({ name, count }))
@@ -304,7 +305,7 @@ const maxHookTypeCount = computed(() => {
 const uniquePaths = computed(() => {
   const set = new Set()
   hookData.value.forEach(h => {
-    const path = getPathFromTarget(h.target)
+    const path = getHookPath(h)
     if (path) set.add(path)
   })
   return Array.from(set)
@@ -313,7 +314,7 @@ const uniquePaths = computed(() => {
 const pathDistribution = computed(() => {
   const counts = {}
   hookData.value.forEach(h => {
-    const path = getPathFromTarget(h.target)
+    const path = getHookPath(h)
     if (path) {
       counts[path] = (counts[path] || 0) + 1
     }
@@ -327,11 +328,13 @@ const pathDistribution = computed(() => {
 const processActivity = computed(() => {
   const pids = {}
   hookData.value.forEach(h => {
-    if (!pids[h.pid]) {
-      pids[h.pid] = { pid: h.pid, count: 0, hookTypes: new Set() }
+    const pid = h.pid || 0
+    const hookName = getHookName(h)
+    if (!pids[pid]) {
+      pids[pid] = { pid, count: 0, hookTypes: new Set() }
     }
-    pids[h.pid].count++
-    pids[h.pid].hookTypes.add(h.hook_name)
+    pids[pid].count++
+    pids[pid].hookTypes.add(hookName)
   })
   return Object.values(pids)
     .map(p => ({
@@ -349,10 +352,27 @@ const pagedHooks = computed(() => {
   return hookData.value.slice(start, start + PAGE_SIZE)
 })
 
-function getPathFromTarget(target) {
-  if (!target) return ''
-  if (target.path) return target.path
+// 兼容两种格式的辅助函数
+function getHookName(h) {
+  // 新格式: hook_name, 旧格式: hook_name (相同)
+  return h.hook_name || 'unknown'
+}
+
+function getHookResult(h) {
+  // 新格式: result, 旧格式: hook_result
+  return h.result || h.hook_result || 'unknown'
+}
+
+function getHookPath(h) {
+  // 新格式: path 在顶层, 旧格式: path 在 target.path
+  if (h.path) return h.path
+  if (h.target && h.target.path) return h.target.path
   return ''
+}
+
+function getRelatedEventId(h) {
+  // 新格式: related_event_id, 旧格式: related_syscall_event_id
+  return h.related_event_id || h.related_syscall_event_id || ''
 }
 
 function formatTime(timestampNs) {

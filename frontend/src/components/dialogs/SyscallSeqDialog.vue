@@ -122,17 +122,17 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(call, index) in pagedCalls" :key="index" :class="{ 'failed-row': call.return_value < 0 }">
+                  <tr v-for="(call, index) in pagedCalls" :key="index" :class="{ 'failed-row': !isSyscallSuccess(call) }">
                     <td class="time-cell">{{ formatTime(call.timestamp_mono_ns) }}</td>
                     <td class="syscall-cell">
-                      <span class="syscall-name">{{ call.syscall_name }}</span>
+                      <span class="syscall-name">{{ getSyscallName(call) }}</span>
                     </td>
                     <td class="pid-cell">{{ call.pid }}/{{ call.tid }}</td>
-                    <td class="path-cell" :title="getPathFromArgs(call.args)">{{ getPathFromArgs(call.args) }}</td>
-                    <td class="return-cell">{{ call.return_value }}</td>
+                    <td class="path-cell" :title="getSyscallPath(call)">{{ getSyscallPath(call) }}</td>
+                    <td class="return-cell">{{ call.result || call.return_value }}</td>
                     <td class="status-cell">
-                      <t-tag :theme="call.return_value >= 0 ? 'success' : 'danger'" size="small">
-                        {{ call.return_value >= 0 ? '成功' : '失败' }}
+                      <t-tag :theme="isSyscallSuccess(call) ? 'success' : 'danger'" size="small">
+                        {{ isSyscallSuccess(call) ? '成功' : '失败' }}
                       </t-tag>
                     </td>
                   </tr>
@@ -260,13 +260,14 @@ const uniquePids = computed(() => {
 })
 
 const failedCalls = computed(() => {
-  return syscallData.value.filter(d => d.return_value < 0).length
+  return syscallData.value.filter(d => !isSyscallSuccess(d)).length
 })
 
 const syscallDistribution = computed(() => {
   const counts = {}
   syscallData.value.forEach(d => {
-    counts[d.syscall_name] = (counts[d.syscall_name] || 0) + 1
+    const name = getSyscallName(d)
+    counts[name] = (counts[name] || 0) + 1
   })
   return Object.entries(counts)
     .map(([name, count]) => ({ name, count }))
@@ -282,7 +283,7 @@ const maxSyscallCount = computed(() => {
 const uniquePaths = computed(() => {
   const set = new Set()
   syscallData.value.forEach(d => {
-    const path = getPathFromArgs(d.args)
+    const path = getSyscallPath(d)
     if (path) set.add(path)
   })
   return Array.from(set)
@@ -291,7 +292,7 @@ const uniquePaths = computed(() => {
 const pathDistribution = computed(() => {
   const counts = {}
   syscallData.value.forEach(d => {
-    const path = getPathFromArgs(d.args)
+    const path = getSyscallPath(d)
     if (path) {
       counts[path] = (counts[path] || 0) + 1
     }
@@ -305,11 +306,13 @@ const pathDistribution = computed(() => {
 const processActivity = computed(() => {
   const pids = {}
   syscallData.value.forEach(d => {
-    if (!pids[d.pid]) {
-      pids[d.pid] = { pid: d.pid, count: 0, syscalls: new Set() }
+    const pid = d.pid || 0
+    const syscall = getSyscallName(d)
+    if (!pids[pid]) {
+      pids[pid] = { pid, count: 0, syscalls: new Set() }
     }
-    pids[d.pid].count++
-    pids[d.pid].syscalls.add(d.syscall_name)
+    pids[pid].count++
+    pids[pid].syscalls.add(syscall)
   })
   return Object.values(pids)
     .map(p => ({
@@ -327,10 +330,26 @@ const pagedCalls = computed(() => {
   return syscallData.value.slice(start, start + PAGE_SIZE)
 })
 
-function getPathFromArgs(args) {
-  if (!args) return ''
-  if (args.path) return args.path
+// 兼容两种格式的辅助函数
+function getSyscallName(d) {
+  // 新格式: syscall, 旧格式: syscall_name
+  return d.syscall || d.syscall_name || 'unknown'
+}
+
+function getSyscallPath(d) {
+  // 新格式: path 在顶层, 旧格式: path 在 args.path
+  if (d.path) return d.path
+  if (d.args && d.args.path) return d.args.path
   return ''
+}
+
+function isSyscallSuccess(d) {
+  // 新格式: result === 'success' 或 'error'
+  if (d.result) {
+    return d.result === 'success'
+  }
+  // 旧格式: return_value >= 0
+  return d.return_value >= 0
 }
 
 function formatTime(timestampNs) {

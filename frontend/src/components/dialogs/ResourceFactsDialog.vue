@@ -65,6 +65,10 @@
                   <div class="stat-value">{{ formatBytes(fact.read_returned_bytes || 0) }}</div>
                   <div class="stat-label">字节</div>
                 </div>
+                <div class="stat-item" v-if="fact.lsm_allow_count !== undefined">
+                  <div class="stat-value">{{ fact.lsm_allow_count }}</div>
+                  <div class="stat-label">LSM允许</div>
+                </div>
               </div>
             </div>
 
