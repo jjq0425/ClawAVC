@@ -15,18 +15,24 @@
 
     <PrivilegeDialog v-model="showPrivDialog" @success="onPrivSuccess" />
 
+    <!-- Loading State -->
+    <div v-if="loading" class="loading-overlay">
+      <t-loading size="large" />
+      <p>加载中...</p>
+    </div>
+
     <!-- Tables Overview -->
     <div class="tables-card">
       <div class="card-title">数据表</div>
       <div class="tables-grid">
-        <div v-for="t in visibleTables" :key="t.name" class="table-chip" :class="{ active: selectedTable === t.name }" @click="selectTable(t.name)">
+        <div v-for="t in visibleTables" :key="t.name" class="table-chip" :class="{ active: selectedTable === t.name }" @click="selectTable(t.name, 1)">
           <span class="table-name">{{ t.name }}</span>
           <span class="table-count">{{ t.count }}</span>
         </div>
         <t-popup trigger="click" placement="bottom">
           <template #content>
             <div class="hidden-tables-pop">
-              <div v-for="t in hiddenTables" :key="t.name" class="table-chip hidden-chip" :class="{ active: selectedTable === t.name }" @click="selectHiddenTable(t.name)">
+              <div v-for="t in hiddenTables" :key="t.name" class="table-chip hidden-chip" :class="{ active: selectedTable === t.name }" @click="selectHiddenTable(t.name, 1)">
                 <t-icon name="lock-on" size="14px" style="color: #ED7B2F;" />
                 <span class="table-name">{{ t.name }}</span>
                 <span class="table-count">{{ t.count }}</span>
@@ -47,13 +53,15 @@
     </div>
 
     <!-- Visual Table Editor -->
-    <div v-if="tableData.columns.length" class="editor-card">
+    <div v-if="tableData.columns.length && !loading" class="editor-card">
       <div class="card-title">
         <span>{{ selectedTable }}</span>
         <div class="editor-actions">
-          <t-button size="small" variant="outline" @click="addRow" :disabled="!canWrite">
-            <t-icon name="add" /> 新增行
-          </t-button>
+          <t-tooltip :content="currentPage > 1 ? '非第一页时不允许新增行' : ''" :disabled="currentPage === 1">
+            <t-button size="small" variant="outline" @click="addRow" :disabled="!canWrite || currentPage > 1">
+              <t-icon name="add" /> 新增行
+            </t-button>
+          </t-tooltip>
           <t-button size="small" variant="outline" @click="openDetail" :disabled="!selectedRows.length">
             <t-icon name="browse" /> 查看详情
           </t-button>
@@ -113,6 +121,33 @@
           </t-button>
         </div>
       </div>
+
+      <!-- Pagination -->
+      <div v-if="totalRecords > currentPageSize" class="pagination-bar">
+        <t-tooltip v-if="pendingChanges.length > 0" content="请先提交本页变更后再切换页面">
+          <div style="display: inline-block;">
+            <t-pagination
+              :current="currentPage"
+              :total="totalRecords"
+              :page-size="currentPageSize"
+              :page-size-options="[10, 20, 30, 50]"
+              :show-page-size="false"
+              :disabled="true"
+            />
+          </div>
+        </t-tooltip>
+        <t-pagination
+          v-else
+          v-model:current="currentPage"
+          :total="totalRecords"
+          v-model:page-size="currentPageSize"
+          :page-size-options="[10, 20, 30, 50]"
+          show-page-size
+          show-jumper
+          @current-change="onPageChange"
+          @page-size-change="onPageSizeChange"
+        />
+      </div>
     </div>
 
     
@@ -138,7 +173,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue"
+import { ref, computed, onMounted, onUnmounted, watch } from "vue"
 import { useRouter } from "vue-router"
 import RowDetailDrawer from "../components/RowDetailDrawer.vue"
 import PrivilegeDialog from "../components/PrivilegeDialog.vue"
@@ -157,6 +192,14 @@ const tableData = ref({ columns: [], rows: [] })
 const editableRows = ref([])
 const editingCell = ref({ row: -1, col: "" })
 const executing = ref(false)
+
+// Loading state
+const loading = ref(false)
+
+// 分页
+const currentPage = ref(1)
+const currentPageSize = ref(30) // 默认30，最大50
+const totalRecords = ref(0)
 
 const rawSql = ref("")
 const rawExecuting = ref(false)
@@ -182,14 +225,14 @@ const pendingChanges = computed(() => {
     } else if (row._new) {
       const cols = tableData.value.columns.filter(c => row[c] !== null && row[c] !== "")
       if (cols.length > 0) {
-        const vals = cols.map(c => `'${String(row[c]).replace(/'/g, "''")}'`)
+        const vals = cols.map(c => `\"${String(row[c]).replace(/\\/g, '\\\\').replace(/\"/g, '\\"')}\"`)
         changes.push({ type: "INSERT", sql: `INSERT INTO ${selectedTable.value} (${cols.join(", ")}) VALUES (${vals.join(", ")})`, _row: row })
       }
     } else if (row._modified) {
       const pk = tableData.value.columns[0]
-      const sets = Object.keys(row._originalDiff || {}).map(c => `${c} = '${String(row[c]).replace(/'/g, "''")}'`)
+      const sets = Object.keys(row._originalDiff || {}).map(c => `${c} = \"${String(row[c]).replace(/\\/g, '\\\\').replace(/\"/g, '\\"')}\"`)
       if (sets.length) {
-        changes.push({ type: "UPDATE", sql: `UPDATE ${selectedTable.value} SET ${sets.join(", ")} WHERE ${pk} = '${row[pk]}'`, _row: row })
+        changes.push({ type: "UPDATE", sql: `UPDATE ${selectedTable.value} SET ${sets.join(", ")} WHERE ${pk} = \"${String(row[pk]).replace(/\\/g, '\\\\').replace(/\"/g, '\\"')}\"`, _row: row })
       }
     }
   }
@@ -220,29 +263,45 @@ const visibleTables = computed(() => tables.value.filter(t => !HIDDEN_TABLES.inc
 const hiddenTables = computed(() => tables.value.filter(t => HIDDEN_TABLES.includes(t.name)))
 const isSensitiveTable = computed(() => HIDDEN_TABLES.includes(selectedTable.value))
 
-function selectHiddenTable(name) {
+function selectHiddenTable(name, page = 1) {
   const token = sessionStorage.getItem("clawavc_admin_session")
   if (!token) {
     MessagePlugin.warning("访问系统表需要特权验证")
     return
   }
-  selectTable(name)
+  selectTable(name, page)
 }
 
-async function selectTable(name) {
+async function selectTable(name, page = 1) {
+  loading.value = true
   selectedTable.value = name
+  currentPage.value = page
+  editableRows.value = []
+  tableData.value = { columns: [], rows: [] }
+  
   const headers = { "Content-Type": "application/json" }
   if (adminSession.value) headers["X-Admin-Session"] = adminSession.value
   try {
+    const offset = (page - 1) * currentPageSize.value
     const res = await fetch("/api/db/query", {
       method: "POST",
       headers,
-      body: JSON.stringify({ sql: `SELECT * FROM ${name} ORDER BY rowid DESC LIMIT 100` }),
+      body: JSON.stringify({ sql: `SELECT * FROM ${name} ORDER BY rowid DESC LIMIT ${currentPageSize.value} OFFSET ${offset}` }),
     })
     const json = await res.json()
     if (json.ok) {
       tableData.value = { columns: json.columns, rows: json.rows }
       editableRows.value = json.rows.map(r => ({ ...r, _selected: false, _modified: false, _new: false, _deleted: false, _originalDiff: {} }))
+      // 获取总数
+      const countRes = await fetch("/api/db/query", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ sql: `SELECT COUNT(*) as total FROM ${name}` }),
+      })
+      const countJson = await countRes.json()
+      if (countJson.ok && countJson.rows?.[0]) {
+        totalRecords.value = countJson.rows[0].total
+      }
     } else {
       MessagePlugin.error(json.error || "查询失败")
       tableData.value = { columns: [], rows: [] }
@@ -250,6 +309,8 @@ async function selectTable(name) {
     }
   } catch (e) {
     MessagePlugin.error("连接失败")
+  } finally {
+    loading.value = false
   }
 }
 
@@ -277,91 +338,74 @@ function revertChange(change) {
     row._deleted = false
     row._selected = false
   } else if (change.type === "INSERT") {
-    // Remove the new row entirely
     const idx = editableRows.value.indexOf(row)
     if (idx >= 0) editableRows.value.splice(idx, 1)
   } else if (change.type === "UPDATE") {
-    // Revert to original values
-    const origIdx = editableRows.value.indexOf(row)
-    if (origIdx >= 0 && tableData.value.rows[origIdx - countNewRows(origIdx)]) {
-      const orig = tableData.value.rows[origIdx - countNewRows(origIdx)]
-      for (const col of Object.keys(row._originalDiff)) {
-        row[col] = orig[col]
+    row._modified = false
+    for (const k of Object.keys(change.sql.match(/SET\s+([^\s]+)/)?.[1]?.split(",") || [])) {
+      if (row._originalDiff && row._originalDiff[k]) {
+        row[k] = row._originalDiff[k]
+        delete row._originalDiff[k]
       }
     }
-    row._modified = false
-    row._originalDiff = {}
-  }
-}
-
-function countNewRows(beforeIdx) {
-  let count = 0
-  for (let i = 0; i < beforeIdx; i++) {
-    if (editableRows.value[i]._new) count++
-  }
-  return count
-}
-
-function toggleAll(e) {
-  const checked = e.target.checked
-  for (const row of editableRows.value) {
-    if (!row._new) row._selected = checked
   }
 }
 
 function startEdit(ri, col) {
-  const row = editableRows.value[ri]
-  // Don't allow editing deleted rows
-  if (row._deleted) return
-  // Don't edit PK of existing rows
-  if (col === tableData.value.columns[0] && !row._new) return
-  if (!canWrite.value) return
   editingCell.value = { row: ri, col }
 }
 
 function finishEdit(ri, col) {
   const row = editableRows.value[ri]
-  if (!row._new) {
-    // Find original row (accounting for new rows inserted at top)
-    const origIdx = ri - countNewRows(ri)
-    const orig = tableData.value.rows[origIdx]
-    if (orig && String(row[col]) !== String(orig[col])) {
-      row._modified = true
-      row._originalDiff[col] = true
-    } else if (orig && String(row[col]) === String(orig[col])) {
-      // Reverted this cell, check if any other diffs remain
-      delete row._originalDiff[col]
-      if (Object.keys(row._originalDiff).length === 0) {
-        row._modified = false
-      }
-    }
+  if (!row) return
+  if (row._originalDiff === undefined) row._originalDiff = {}
+  if (row[col] !== undefined && row[col] !== null) {
+    row._originalDiff[col] = row[col]
   }
+  row._modified = true
   editingCell.value = { row: -1, col: "" }
 }
 
 function cancelEdit(ri, col) {
-  const row = editableRows.value[ri]
-  if (!row._new) {
-    const origIdx = ri - countNewRows(ri)
-    const orig = tableData.value.rows[origIdx]
-    if (orig) row[col] = orig[col]
-  }
   editingCell.value = { row: -1, col: "" }
+}
+
+function toggleAll() {
+  const selectable = editableRows.value.filter(r => !r._new)
+  const all = selectable.every(r => r._selected)
+  for (const r of selectable) r._selected = !all
+}
+
+function onPageChange(page) {
+  // 只有在没有待处理变更时才允许翻页
+  if (pendingChanges.value.length > 0) {
+    MessagePlugin.warning("请先提交本页变更后再切换页面")
+    return
+  }
+  selectTable(selectedTable.value, page)
+}
+
+function onPageSizeChange(size) {
+  // 只有在没有待处理变更时才允许改变每页条数
+  if (pendingChanges.value.length > 0) {
+    MessagePlugin.warning("请先提交本页变更后再切换页面")
+    return
+  }
+  currentPageSize.value = size
+  selectTable(selectedTable.value, 1)
 }
 
 async function executeChanges() {
   if (!pendingChanges.value.length) return
-  if (!adminValid.value) {
-    MessagePlugin.warning("请先验证特权密钥")
-    return
-  }
   executing.value = true
   let success = 0
   for (const change of pendingChanges.value) {
     try {
+      const headers = { "Content-Type": "application/json" }
+      if (adminSession.value) headers["X-Admin-Session"] = adminSession.value
       const res = await fetch("/api/db/query", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Admin-Session": adminSession.value },
+        headers,
         body: JSON.stringify({ sql: change.sql }),
       })
       const json = await res.json()
@@ -371,7 +415,7 @@ async function executeChanges() {
   }
   if (success > 0) {
     MessagePlugin.success(`执行成功: ${success}/${pendingChanges.value.length}`)
-    selectTable(selectedTable.value)
+    selectTable(selectedTable.value, currentPage.value)
     fetchTables()
   }
   executing.value = false
@@ -421,11 +465,30 @@ function goExport() {
 </script>
 
 <style scoped>
-.db-page { max-width: 1100px; margin: 0 auto; }
+.db-page { max-width: 1100px; margin: 0 auto; position: relative; }
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .page-header h2 { font-size: 20px; font-weight: 600; color: #333; margin: 0; }
 
-
+/* Loading Overlay */
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  border-radius: 12px;
+}
+.loading-overlay p {
+  margin-top: 16px;
+  color: #999;
+  font-size: 14px;
+}
 
 .tables-card, .editor-card { background: #fff; border-radius: 12px; padding: 20px; border: 1px solid #eee; margin-bottom: 16px; }
 .card-title { font-size: 14px; font-weight: 600; color: #333; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
@@ -458,17 +521,26 @@ function goExport() {
 .sql-toggle { font-size: 13px; color: #666; cursor: pointer; padding: 8px; }
 .sql-card { background: #fff; border-radius: 12px; padding: 16px; border: 1px solid #eee; margin-top: 8px; }
 .sql-textarea { width: 100%; border: 1px solid #ddd; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 12px; resize: vertical; outline: none; }
-.sql-textarea:focus { border-color: #0052D9; }
-.sql-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.sql-hint { font-size: 11px; color: #999; }
-.sql-error { margin-top: 8px; background: #fff5f5; border-radius: 6px; padding: 8px; font-size: 12px; color: #ff5252; font-family: monospace; }
-.sql-result { margin-top: 8px; }
-.sql-result pre { background: #f8f9fa; border-radius: 6px; padding: 10px; font-size: 11px; overflow-x: auto; max-height: 300px; }
 
+/* Pagination */
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+  padding: 12px 0;
+}
 
-
-.more-btn { margin-left: 4px; }
-.hidden-tables-pop { display: flex; flex-direction: column; gap: 6px; padding: 4px; }
-.hidden-chip { border-color: #ffe8d0 !important; }
-.sensitive-warn { margin-top: 12px; display: flex; align-items: center; gap: 8px; background: #fff8e6; border: 1px solid #ffe58f; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #d48806; }
+/* Sensitive warning */
+.sensitive-warn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fff5f5;
+  border: 1px solid #ffccc7;
+  border-radius: 8px;
+  color: #e34d59;
+  font-size: 12px;
+  margin-top: 12px;
+}
 </style>
