@@ -15,6 +15,7 @@ UPDATABLE_FIELDS = [
     "ir_json",
     "judge_result",
     "judge_result_kernel",
+    "syscall_judge",
 ]
 
 
@@ -49,6 +50,7 @@ def init_db():
             kernel_lsm_hook_result TEXT DEFAULT '',
             kernel_resource_facts TEXT DEFAULT '',
             judge_result_kernel TEXT DEFAULT '',
+            syscall_judge TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -66,6 +68,8 @@ def init_db():
         conn.execute("ALTER TABLE rounds ADD COLUMN kernel_resource_facts TEXT DEFAULT ''")
     if "judge_result_kernel" not in cols:
         conn.execute("ALTER TABLE rounds ADD COLUMN judge_result_kernel TEXT DEFAULT ''")
+    if "syscall_judge" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN syscall_judge TEXT DEFAULT ''")
     # 迁移：将旧的 resource_facts 列重命名为 kernel_resource_facts（如果存在）
     if "resource_facts" in cols and "kernel_resource_facts" not in cols:
         try:
@@ -478,6 +482,77 @@ def update_judge_result_kernel(round_id: str, judge_result_kernel_md_path: str, 
         return "ok"
     except Exception as e:
         print(f"[db] update_judge_result_kernel error: {e}")
+        return "error"
+    finally:
+        conn.close()
+
+
+def update_syscall_judge(round_id: str, syscall_judge_md_path: str, time_limit_enabled: bool = True) -> str:
+    """更新系统调用判断结果。
+    
+    Args:
+        round_id: Round ID
+        syscall_judge_md_path: 系统调用判断结果 Markdown 文件路径
+        time_limit_enabled: 是否启用15分钟时间限制
+    
+    Returns:
+        "ok" - 更新成功
+        "not_found" - round_id 不存在
+        "too_old" - 数据超过 15 分钟，需前往数据运维页面修改
+        "error" - 其他错误
+    """
+    import os
+    import shutil
+    from pathlib import Path
+    
+    # 获取 syscall_judge 目录路径
+    syscall_judge_dir = Path(__file__).parent.parent / "infos" / "syscall_judge"
+    syscall_judge_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 处理 syscall_judge_md：复制文件并获取新路径（覆盖已存在的文件）
+    syscall_judge = ""
+    if syscall_judge_md_path:
+        try:
+            src_path = Path(syscall_judge_md_path)
+            if src_path.exists():
+                dest_path = syscall_judge_dir / f"{round_id}_syscall_judge.md"
+                if dest_path.exists():
+                    print(f"[db] Overwriting existing syscall_judge file: {dest_path}")
+                shutil.copy2(src_path, dest_path)
+                # 存储绝对路径
+                syscall_judge = str(dest_path.absolute())
+            else:
+                return "error"
+        except Exception as e:
+            print(f"[db] Copy syscall_judge_md failed: {e}")
+            return "error"
+    
+    conn = get_conn()
+    try:
+        # 检查 round_id 是否存在，并获取创建时间
+        existing = conn.execute(
+            "SELECT created_at FROM rounds WHERE round_id = ?", (round_id,)
+        ).fetchone()
+        if not existing:
+            return "not_found"
+        # 检查创建时间是否超过 15 分钟（仅当开关启用时）
+        if time_limit_enabled:
+            created_at = existing[0]
+            if created_at:
+                from datetime import datetime, timedelta
+                created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                now = datetime.now()
+                if now - created_dt > timedelta(minutes=15):
+                    return "too_old"
+        # 更新 syscall_judge 字段
+        conn.execute(
+            "UPDATE rounds SET syscall_judge = ? WHERE round_id = ?",
+            (syscall_judge, round_id)
+        )
+        conn.commit()
+        return "ok"
+    except Exception as e:
+        print(f"[db] update_syscall_judge error: {e}")
         return "error"
     finally:
         conn.close()

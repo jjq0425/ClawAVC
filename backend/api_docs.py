@@ -100,6 +100,17 @@ ENDPOINT_REGISTRY = {
         "response": {"ok": True},
         "public": True,
     },
+    "POST /api/rounds/detection/syscall": {
+        "summary": "系统调用判断结果上报",
+        "description": "上报系统调用的判断结果 Markdown 文件路径。文件会被复制到 infos/syscall_judge 目录，然后将绝对路径存入数据库。支持15分钟时间限制（受平台管理开关控制）。",
+        "category": "数据查询与更新",
+        "params": [
+            {"name": "round_id", "type": "string", "desc": "Round ID"},
+            {"name": "syscall_judge_md_path", "type": "string", "desc": "系统调用判断结果 Markdown 文件路径"},
+        ],
+        "response": {"ok": True},
+        "public": True,
+    },
     "GET /api/stats": {
         "summary": "统计概览",
         "description": "获取系统整体统计数据：总 Round 数、异常数、合规数、平均得分。",

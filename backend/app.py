@@ -220,6 +220,45 @@ def report_kernel_judge_result():
     return jsonify({"ok": True})
 
 
+@app.route("/api/rounds/detection/syscall", methods=["POST"])
+def report_syscall_judge_result():
+    """上报系统调用判断结果（对外接口）。
+    
+    Body: {
+        "round_id": "xxx",
+        "syscall_judge_md_path": "/path/to/syscall_judge.md"
+    }
+    
+    15分钟限制受平台管理页面的开关控制
+    """
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify({"ok": False, "error": "empty body"}), 400
+    
+    round_id = (data.get("round_id") or "").strip()
+    if not round_id:
+        return jsonify({"ok": False, "error": "round_id is required"}), 400
+    
+    syscall_judge_md_path = data.get("syscall_judge_md_path", "")
+    if not syscall_judge_md_path:
+        return jsonify({"ok": False, "error": "syscall_judge_md_path is required"}), 400
+    
+    # 获取15分钟限制开关状态
+    time_limit_enabled = db.get_config("round_update_time_limit_enabled", "True")
+    time_limit_enabled = time_limit_enabled.lower() == "true"
+    
+    # 检查round_id是否存在及时间限制
+    result = db.update_syscall_judge(round_id, syscall_judge_md_path, time_limit_enabled)
+    if result == "not_found":
+        return jsonify({"ok": False, "error": f"未找到对应的 round_id: {round_id}"}), 404
+    if result == "too_old":
+        return jsonify({"ok": False, "error": "数据创建时间超过 15 分钟，不支持API修改，请前往数据运维页面修改"}), 400
+    if result == "error":
+        return jsonify({"ok": False, "error": "文件处理或更新失败"}), 500
+    
+    return jsonify({"ok": True})
+
+
 @app.route("/api/rounds", methods=["POST"])
 def report_round():
     """Receive round data from monitor/orchestrator.
