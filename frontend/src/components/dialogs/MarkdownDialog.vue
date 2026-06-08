@@ -1,7 +1,7 @@
 <template>
   <t-dialog 
     :visible="dialogVisible" 
-    header="内核态判断结果"
+    header="内核态LSM Hook判断结果"
     width="700px" 
     :footer="false"
     @close="onClose"

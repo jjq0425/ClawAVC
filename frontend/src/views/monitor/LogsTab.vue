@@ -149,7 +149,7 @@
                 <div class="sub-block-header kernel">内核态行为意图一致性检测</div>
                 <div v-if="r.judge_result_kernel" class="kernel-item">
                   <div class="kernel-item-header kernel-judge">
-                    <span class="kernel-item-label">判断结果文档</span>
+                    <span class="kernel-item-label">LMS Hook判断结果文档</span>
                     <span class="kernel-item-path">{{ r.judge_result_kernel }}</span>
                     <t-button size="small" variant="text" theme="primary" @click="downloadKernelFile(r.judge_result_kernel, 'judge_result', null, r.round_id)">
                       <t-icon name="download" size="14px" />
