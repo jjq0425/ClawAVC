@@ -36,3 +36,4 @@ logs/*
 *.pyc
 
 infos/kernel_infos/*
+infos/kernel_judge/*

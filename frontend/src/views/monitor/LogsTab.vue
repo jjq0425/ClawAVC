@@ -135,7 +135,19 @@
               </div>
               <div class="sub-block">
                 <div class="sub-block-header kernel">内核态行为意图一致性检测</div>
-                <div class="integrating-hint">正在集成中...</div>
+                <div v-if="r.judge_result_kernel" class="kernel-item">
+                  <div class="kernel-item-header kernel-judge">
+                    <span class="kernel-item-label">判断结果文档</span>
+                    <t-button size="small" variant="text" theme="primary" @click="openKernelJudgeDialog(r.judge_result_kernel)">
+                      <t-icon name="browse" size="14px" />
+                      查看详情
+                    </t-button>
+                  </div>
+                  <div class="kernel-item-preview" v-if="getKernelJudgePreview(r.judge_result_kernel)">
+                    {{ getKernelJudgePreview(r.judge_result_kernel) }}
+                  </div>
+                </div>
+                <div v-else class="integrating-hint">（本轮无行为记录）</div>
               </div>
               <div class="sub-block">
                 <div class="sub-block-header ai">多维行为轨迹综合研判（大模型）</div>
@@ -151,6 +163,7 @@
     <SyscallSeqDialog v-model="syscallSeqVisible" :file-path="currentSyscallSeqPath" />
     <LsmHookDialog v-model="lsmHookVisible" :file-path="currentLsmHookPath" />
     <ResourceFactsDialog v-model="resourceFactsVisible" :content="currentResourceFacts" />
+    <MarkdownDialog v-model="kernelJudgeVisible" :file-path="currentKernelJudgePath" />
 
     <!-- Pagination -->
     <div class="pagination-bar" v-if="total > 0">
@@ -166,6 +179,7 @@ import { NotifyPlugin } from "tdesign-vue-next"
 import SyscallSeqDialog from "../../components/dialogs/SyscallSeqDialog.vue"
 import LsmHookDialog from "../../components/dialogs/LsmHookDialog.vue"
 import ResourceFactsDialog from "../../components/dialogs/ResourceFactsDialog.vue"
+import MarkdownDialog from "../../components/dialogs/MarkdownDialog.vue"
 
 const rounds = ref([])
 const total = ref(0)
@@ -185,6 +199,22 @@ const currentLsmHookPath = ref('')
 
 const resourceFactsVisible = ref(false)
 const currentResourceFacts = ref('')
+
+const kernelJudgeVisible = ref(false)
+const currentKernelJudgePath = ref('')
+
+// 打开内核态判断结果弹窗
+function openKernelJudgeDialog(filePath) {
+  currentKernelJudgePath.value = filePath
+  kernelJudgeVisible.value = true
+}
+
+// 获取内核态判断结果预览
+function getKernelJudgePreview(filePath) {
+  if (!filePath) return ''
+  // 显示完整路径
+  return filePath
+}
 
 // 通用筛选函数
 function matchesFilter(data) {

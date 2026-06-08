@@ -180,7 +180,7 @@ def report_kernel_judge_result():
     
     Body: {
         "round_id": "xxx",
-        "judge_result_kernel": "恶意/正常/可疑..."
+        "judge_result_kernel_md_path": "/path/to/judge_result.md"
     }
     
     15分钟限制受平台管理页面的开关控制
@@ -193,22 +193,22 @@ def report_kernel_judge_result():
     if not round_id:
         return jsonify({"ok": False, "error": "round_id is required"}), 400
     
-    judge_result_kernel = data.get("judge_result_kernel", "")
-    if not judge_result_kernel:
-        return jsonify({"ok": False, "error": "judge_result_kernel is required"}), 400
+    judge_result_kernel_md_path = data.get("judge_result_kernel_md_path", "")
+    if not judge_result_kernel_md_path:
+        return jsonify({"ok": False, "error": "judge_result_kernel_md_path is required"}), 400
     
     # 获取15分钟限制开关状态
     time_limit_enabled = db.get_config("round_update_time_limit_enabled", "True")
     time_limit_enabled = time_limit_enabled.lower() == "true"
     
     # 检查round_id是否存在及时间限制
-    result = db.update_judge_result_kernel(round_id, judge_result_kernel, time_limit_enabled)
+    result = db.update_judge_result_kernel(round_id, judge_result_kernel_md_path, time_limit_enabled)
     if result == "not_found":
         return jsonify({"ok": False, "error": f"未找到对应的 round_id: {round_id}"}), 404
     if result == "too_old":
         return jsonify({"ok": False, "error": "数据创建时间超过 15 分钟，不支持API修改，请前往数据运维页面修改"}), 400
     if result == "error":
-        return jsonify({"ok": False, "error": "更新失败"}), 500
+        return jsonify({"ok": False, "error": "文件处理或更新失败"}), 500
     
     # 推送更新到前端
     record = db.get_round_by_id(round_id)
@@ -223,7 +223,7 @@ def report_kernel_judge_result():
         socketio.emit("push", {
             "push_type": "round_kernel_judge",
             "round_id": round_id,
-            "judge_result_kernel": judge_result_kernel,
+            "judge_result_kernel": record.get("judge_result_kernel", ""),
             "push_time": push_time
         }, namespace="/wss/monitor")
     

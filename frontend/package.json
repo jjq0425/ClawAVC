@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "markdown-it": "^14.0.0",
     "socket.io-client": "^4.7.0",
     "tdesign-vue-next": "^1.9.0",
     "vue": "^3.4.0",

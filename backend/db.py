@@ -412,12 +412,12 @@ def update_kernel_info(round_id: str, kernel_syscall_seq_path: str, kernel_lsm_h
         conn.close()
 
 
-def update_judge_result_kernel(round_id: str, judge_result_kernel: str, time_limit_enabled: bool = True) -> str:
+def update_judge_result_kernel(round_id: str, judge_result_kernel_md_path: str, time_limit_enabled: bool = True) -> str:
     """更新内核态判断结果。
     
     Args:
         round_id: Round ID
-        judge_result_kernel: 内核态判断结果字符串
+        judge_result_kernel_md_path: 内核态判断结果 Markdown 文件路径
         time_limit_enabled: 是否启用15分钟时间限制
     
     Returns:
@@ -426,6 +426,32 @@ def update_judge_result_kernel(round_id: str, judge_result_kernel: str, time_lim
         "too_old" - 数据超过 15 分钟，需前往数据运维页面修改
         "error" - 其他错误
     """
+    import os
+    import shutil
+    from pathlib import Path
+    
+    # 获取 kernel_judge 目录路径
+    kernel_judge_dir = Path(__file__).parent.parent / "infos" / "kernel_judge"
+    kernel_judge_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 处理 judge_result_kernel_md：复制文件并获取新路径（覆盖已存在的文件）
+    judge_result_kernel = ""
+    if judge_result_kernel_md_path:
+        try:
+            src_path = Path(judge_result_kernel_md_path)
+            if src_path.exists():
+                dest_path = kernel_judge_dir / f"{round_id}_judge_result.md"
+                if dest_path.exists():
+                    print(f"[db] Overwriting existing judge_result_kernel file: {dest_path}")
+                shutil.copy2(src_path, dest_path)
+                # 存储绝对路径
+                judge_result_kernel = str(dest_path.absolute())
+            else:
+                return "error"
+        except Exception as e:
+            print(f"[db] Copy judge_result_kernel_md failed: {e}")
+            return "error"
+    
     conn = get_conn()
     try:
         # 检查 round_id 是否存在，并获取创建时间
