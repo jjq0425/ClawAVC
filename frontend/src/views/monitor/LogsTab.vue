@@ -62,6 +62,10 @@
                     <div class="kernel-item-header">
                       <span class="kernel-item-label">系统调用序列</span>
                       <span class="kernel-item-path">{{ r.kernel_syscall_seq }}</span>
+                      <t-button size="small" variant="text" theme="primary" @click="downloadKernelFile(r.kernel_syscall_seq, 'syscall_seq', null, r.round_id)">
+                        <t-icon name="download" size="14px" />
+                        下载
+                      </t-button>
                       <t-button size="small" variant="text" theme="primary" @click="currentSyscallSeqPath = r.kernel_syscall_seq; syscallSeqVisible = true">
                         <t-icon name="browse" size="14px" />
                         查看详情
@@ -74,6 +78,10 @@
                     <div class="kernel-item-header">
                       <span class="kernel-item-label">LSM Hook结果</span>
                       <span class="kernel-item-path">{{ r.kernel_lsm_hook_result }}</span>
+                      <t-button size="small" variant="text" theme="primary" @click="downloadKernelFile(r.kernel_lsm_hook_result, 'lsm_hook_result', null, r.round_id)">
+                        <t-icon name="download" size="14px" />
+                        下载
+                      </t-button>
                       <t-button size="small" variant="text" theme="primary" @click="currentLsmHookPath = r.kernel_lsm_hook_result; lsmHookVisible = true">
                         <t-icon name="browse" size="14px" />
                         查看详情
@@ -85,6 +93,10 @@
                   <div class="kernel-item" v-if="r.kernel_resource_facts">
                     <div class="kernel-item-header resource-facts">
                       <span class="kernel-item-label">资源事实</span>
+                      <t-button size="small" variant="text" theme="primary" @click="downloadKernelFile('resource_facts', 'resource_facts', r.kernel_resource_facts, r.round_id)">
+                        <t-icon name="download" size="14px" />
+                        下载
+                      </t-button>
                       <t-button size="small" variant="text" theme="primary" @click="openResourceFactsDialog(r.kernel_resource_facts)">
                         <t-icon name="browse" size="14px" />
                         查看详情
@@ -138,14 +150,19 @@
                 <div v-if="r.judge_result_kernel" class="kernel-item">
                   <div class="kernel-item-header kernel-judge">
                     <span class="kernel-item-label">判断结果文档</span>
+                    <span class="kernel-item-path">{{ r.judge_result_kernel }}</span>
+                    <t-button size="small" variant="text" theme="primary" @click="downloadKernelFile(r.judge_result_kernel, 'judge_result', null, r.round_id)">
+                      <t-icon name="download" size="14px" />
+                      下载
+                    </t-button>
                     <t-button size="small" variant="text" theme="primary" @click="openKernelJudgeDialog(r.judge_result_kernel)">
                       <t-icon name="browse" size="14px" />
                       查看详情
                     </t-button>
                   </div>
-                  <div class="kernel-item-preview" v-if="getKernelJudgePreview(r.judge_result_kernel)">
+                  <!-- <div class="kernel-item-preview" v-if="getKernelJudgePreview(r.judge_result_kernel)">
                     {{ getKernelJudgePreview(r.judge_result_kernel) }}
-                  </div>
+                  </div> -->
                 </div>
                 <div v-else class="integrating-hint">（本轮无行为记录）</div>
               </div>
@@ -214,6 +231,42 @@ function getKernelJudgePreview(filePath) {
   if (!filePath) return ''
   // 显示完整路径
   return filePath
+}
+
+// 下载内核态文件
+function downloadKernelFile(filePath, baseName, content = null, roundId = null) {
+  const now = new Date()
+  const timestamp = now.getFullYear() + 
+    String(now.getMonth() + 1).padStart(2, '0') + 
+    String(now.getDate()).padStart(2, '0') + '_' +
+    String(now.getHours()).padStart(2, '0') +
+    String(now.getMinutes()).padStart(2, '0') +
+    String(now.getSeconds()).padStart(2, '0')
+  
+  // 资源事实是内容而不是文件路径
+  if (content) {
+    const blob = new Blob([content], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    const fileName = roundId ? `${baseName}_${roundId}_${timestamp}.json` : `${baseName}_${timestamp}.json`
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    return
+  }
+  
+  // 文件路径下载
+  if (!filePath) return
+  const link = document.createElement('a')
+  link.href = `/api/kernel/file?path=${encodeURIComponent(filePath)}`
+  const fileName = roundId ? `${baseName}_${roundId}_${timestamp}.jsonl` : `${baseName}_${timestamp}.jsonl`
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 
 // 通用筛选函数
