@@ -14,6 +14,7 @@ UPDATABLE_FIELDS = [
     "action_json",
     "ir_json",
     "judge_result",
+    "judge_result_kernel",
 ]
 
 
@@ -47,6 +48,7 @@ def init_db():
             kernel_syscall_seq TEXT DEFAULT '',
             kernel_lsm_hook_result TEXT DEFAULT '',
             kernel_resource_facts TEXT DEFAULT '',
+            judge_result_kernel TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -62,6 +64,8 @@ def init_db():
         conn.execute("ALTER TABLE rounds ADD COLUMN kernel_lsm_hook_result TEXT DEFAULT ''")
     if "kernel_resource_facts" not in cols:
         conn.execute("ALTER TABLE rounds ADD COLUMN kernel_resource_facts TEXT DEFAULT ''")
+    if "judge_result_kernel" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN judge_result_kernel TEXT DEFAULT ''")
     # 迁移：将旧的 resource_facts 列重命名为 kernel_resource_facts（如果存在）
     if "resource_facts" in cols and "kernel_resource_facts" not in cols:
         try:
@@ -403,6 +407,51 @@ def update_kernel_info(round_id: str, kernel_syscall_seq_path: str, kernel_lsm_h
         return "ok"
     except Exception as e:
         print(f"[db] update_kernel_info error: {e}")
+        return "error"
+    finally:
+        conn.close()
+
+
+def update_judge_result_kernel(round_id: str, judge_result_kernel: str, time_limit_enabled: bool = True) -> str:
+    """更新内核态判断结果。
+    
+    Args:
+        round_id: Round ID
+        judge_result_kernel: 内核态判断结果字符串
+        time_limit_enabled: 是否启用15分钟时间限制
+    
+    Returns:
+        "ok" - 更新成功
+        "not_found" - round_id 不存在
+        "too_old" - 数据超过 15 分钟，需前往数据运维页面修改
+        "error" - 其他错误
+    """
+    conn = get_conn()
+    try:
+        # 检查 round_id 是否存在，并获取创建时间
+        existing = conn.execute(
+            "SELECT created_at FROM rounds WHERE round_id = ?", (round_id,)
+        ).fetchone()
+        if not existing:
+            return "not_found"
+        # 检查创建时间是否超过 15 分钟（仅当开关启用时）
+        if time_limit_enabled:
+            created_at = existing[0]
+            if created_at:
+                from datetime import datetime, timedelta
+                created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                now = datetime.now()
+                if now - created_dt > timedelta(minutes=15):
+                    return "too_old"
+        # 更新 judge_result_kernel 字段
+        conn.execute(
+            "UPDATE rounds SET judge_result_kernel = ? WHERE round_id = ?",
+            (judge_result_kernel, round_id)
+        )
+        conn.commit()
+        return "ok"
+    except Exception as e:
+        print(f"[db] update_judge_result_kernel error: {e}")
         return "error"
     finally:
         conn.close()

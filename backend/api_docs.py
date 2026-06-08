@@ -89,6 +89,17 @@ ENDPOINT_REGISTRY = {
         "response": {"ok": True},
         "public": True,
     },
+    "POST /api/rounds/detection/kernel": {
+        "summary": "内核态判断结果上报",
+        "description": "上报内核态的判断结果字符串。支持15分钟时间限制（受平台管理开关控制）。成功后通过 WebSocket 推送 round_kernel_judge 阶段。",
+        "category": "数据查询与更新",
+        "params": [
+            {"name": "round_id", "type": "string", "desc": "Round ID"},
+            {"name": "judge_result_kernel", "type": "string", "desc": "内核态判断结果字符串（如：恶意/正常/可疑）"},
+        ],
+        "response": {"ok": True},
+        "public": True,
+    },
     "GET /api/stats": {
         "summary": "统计概览",
         "description": "获取系统整体统计数据：总 Round 数、异常数、合规数、平均得分。",
