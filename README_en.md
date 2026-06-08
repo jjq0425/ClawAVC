@@ -692,12 +692,16 @@ The system supports reporting and pushing kernel-level information, including sy
 - `kernel_syscall_seq`: Kernel syscall sequence file path (JSONL format)
 - `kernel_lsm_hook_result`: Kernel LSM hook check result file path (JSONL format)
 - `kernel_resource_facts`: Kernel resource facts content
+- `judge_result_kernel`: Kernel judgment result Markdown file path
+- `syscall_judge`: Syscall judgment result Markdown file path
 
-**API Endpoint**:
+**API Endpoints**:
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/rounds/kernel` | Report kernel information (with 15-minute time limit) |
+| `POST` | `/api/rounds/detection/kernel` | Report kernel judgment result (with 15-minute time limit) |
+| `POST` | `/api/rounds/detection/syscall` | Report syscall judgment result (with 15-minute time limit) |
 
 **WebSocket Push**:
 

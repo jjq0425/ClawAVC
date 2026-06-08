@@ -688,12 +688,16 @@ GET /api/docs/public ← 对外公开接口
 - `kernel_syscall_seq`: 内核态系统调用序列文件路径 (JSONL格式)
 - `kernel_lsm_hook_result`: 内核态LSM hook检查结果文件路径 (JSONL格式)
 - `kernel_resource_facts`: 内核资源事实内容
+- `judge_result_kernel`: 内核态判断结果 Markdown 文件路径
+- `syscall_judge`: 系统调用判断结果 Markdown 文件路径
 
 **API 接口**：
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `POST` | `/api/rounds/kernel` | 内核态信息上报（支持15分钟时间限制） |
+| `POST` | `/api/rounds/detection/kernel` | 内核态判断结果上报（支持15分钟时间限制） |
+| `POST` | `/api/rounds/detection/syscall` | 系统调用判断结果上报（支持15分钟时间限制） |
 
 **WebSocket 推送**：
 

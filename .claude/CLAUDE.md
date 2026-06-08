@@ -24,6 +24,8 @@
 | `PUT` | `/api/rounds/update` | 更新 round 字段（仅支持部分字段，15分钟内，受开关控制） |
 | `POST` | `/api/rounds` | 上报 round (支持 event=start 和 event=end) |
 | `POST` | `/api/rounds/kernel` | 内核态信息上报（15分钟时间限制，受开关控制） |
+| `POST` | `/api/rounds/detection/kernel` | 内核态判断结果上报（15分钟时间限制，受开关控制） |
+| `POST` | `/api/rounds/detection/syscall` | 系统调用判断结果上报（15分钟时间限制，受开关控制） |
 | `GET` | `/api/stats` | 统计概览 |
 
 **Monitor API:**
@@ -84,7 +86,7 @@
 #### db.py — SQLite 数据层
 
 **表结构:**
-- `rounds` — round_id, time_start, time_end, session_key, session_id, user_query, last_llm_message, action_json, ir_json, judge_result, is_abnormal, overall_score, attack_config, **pid_info**, kernel_syscall_seq, kernel_lsm_hook_result, kernel_resource_facts
+- `rounds` — round_id, time_start, time_end, session_key, session_id, user_query, last_llm_message, action_json, ir_json, judge_result, is_abnormal, overall_score, attack_config, **pid_info**, kernel_syscall_seq, kernel_lsm_hook_result, kernel_resource_facts, judge_result_kernel, syscall_judge
 - `config` — key (TEXT PRIMARY KEY), value (TEXT)
 - `translation_log` — 翻译日志
 
@@ -92,6 +94,8 @@
 - `kernel_syscall_seq`: 内核态系统调用序列文件路径 (JSONL格式)
 - `kernel_lsm_hook_result`: 内核态LSM hook检查结果文件路径 (JSONL格式)
 - `kernel_resource_facts`: 内核资源事实内容
+- `judge_result_kernel`: 内核态判断结果 Markdown 文件路径
+- `syscall_judge`: 系统调用判断结果 Markdown 文件路径
 
 > `pid_info` 是 `TEXT`，存 watcher 在 ROUND_START 时采集的 OpenClaw 主进程 + 子孙工具进程的 JSON 快照（PID/cmdline/exe/SELinux 标签/capabilities/namespaces/cgroup/ancestors 等）。详见 [`auditor/monitor/proc_info.py`](#proc_infopy--进程--安全上下文采集) 一节。`init_db()` 自带 `ALTER TABLE rounds ADD COLUMN pid_info TEXT DEFAULT ''` 迁移，存量库无需手动改。
 
