@@ -216,17 +216,7 @@ def report_kernel_judge_result():
         # 推送1: 向本平台推送
         socketio.emit("new_round_info", record)
         
-        # 推送2: 向监控平台推送
-        from datetime import datetime
-        push_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "+0800"
         
-        socketio.emit("push", {
-            "push_type": "round_kernel_judge",
-            "round_id": round_id,
-            "judge_result_kernel": record.get("judge_result_kernel", ""),
-            "push_time": push_time
-        }, namespace="/wss/monitor")
-    
     return jsonify({"ok": True})
 
 
