@@ -389,9 +389,10 @@ def get_config():
 def update_config():
     """Update config. Privileged keys require admin auth."""
     data = request.get_json(force=True)
-    admin_key = request.headers.get("X-Admin-Key", "")
+    # admin_key = request.headers.get("X-Admin-Key", "")
     auth_token = request.headers.get("X-Auth-Token", "")
-
+    token = request.headers.get("X-Admin-Session", "")
+    is_admin = _check_admin_session(token)
     # Privileged config keys that require admin
     privileged_keys = {"secret_key", "subdomain"}
 
@@ -400,7 +401,7 @@ def update_config():
             # Admin key cannot be modified
             return jsonify({"ok": False, "error": "特权密钥不可修改"}), 403
         if key in privileged_keys:
-            if not db.verify_admin(admin_key):
+            if not is_admin:
                 return jsonify({"ok": False, "error": "需要特权密钥"}), 403
             db.set_config(key, value)
         else:
