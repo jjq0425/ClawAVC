@@ -106,7 +106,7 @@ ENDPOINT_REGISTRY = {
         "category": "数据查询与更新",
         "params": [
             {"name": "round_id", "type": "string", "desc": "Round ID"},
-            {"name": "syscall_judge", "type": "string/object", "desc": "系统调用判断结果 JSON 数据（支持各种格式）"},
+            {"name": "syscall_judge", "type": "string", "desc": "系统调用判断结果 JSON 数据（支持各种格式）"},
         ],
         "response": {"ok": True},
         "public": True,
