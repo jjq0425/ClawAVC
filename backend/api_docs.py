@@ -102,11 +102,11 @@ ENDPOINT_REGISTRY = {
     },
     "POST /api/rounds/detection/syscall": {
         "summary": "系统调用判断结果上报",
-        "description": "上报系统调用的判断结果 Markdown 文件路径。文件会被复制到 infos/syscall_judge 目录，然后将绝对路径存入数据库。支持15分钟时间限制（受平台管理开关控制）。",
+        "description": "直接上报系统调用的判断结果 JSON 数据，存入数据库。支持15分钟时间限制（受平台管理开关控制）。",
         "category": "数据查询与更新",
         "params": [
             {"name": "round_id", "type": "string", "desc": "Round ID"},
-            {"name": "syscall_judge_md_path", "type": "string", "desc": "系统调用判断结果 Markdown 文件路径"},
+            {"name": "syscall_judge", "type": "object", "desc": "系统调用判断结果 JSON 数据"},
         ],
         "response": {"ok": True},
         "public": True,
