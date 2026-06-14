@@ -164,7 +164,16 @@
                     {{ getKernelJudgePreview(r.judge_result_kernel) }}
                   </div> -->
                 </div>
-                <div v-else class="integrating-hint">（本轮无行为记录）</div>
+                <div v-if="r.syscall_judge" class="kernel-item">
+                  <div class="kernel-item-header kernel-judge">
+                    <span class="kernel-item-label">系统调用分析判断结果</span>
+                    <t-button size="small" variant="text" theme="primary" @click="openSyscallAnalysisDialog(r.syscall_judge)">
+                      <t-icon name="browse" size="14px" />
+                      查看详情
+                    </t-button>
+                  </div>
+                </div>
+                <div v-else-if="!r.judge_result_kernel" class="integrating-hint">（本轮无行为记录）</div>
               </div>
               <div class="sub-block">
                 <div class="sub-block-header ai">多维行为轨迹综合研判（大模型）</div>
@@ -181,6 +190,7 @@
     <LsmHookDialog v-model="lsmHookVisible" :file-path="currentLsmHookPath" />
     <ResourceFactsDialog v-model="resourceFactsVisible" :content="currentResourceFacts" />
     <MarkdownDialog v-model="kernelJudgeVisible" :file-path="currentKernelJudgePath" />
+    <SyscallAnalysisDialog v-model="syscallAnalysisVisible" :json-data="currentSyscallAnalysisData" />
 
     <!-- Pagination -->
     <div class="pagination-bar" v-if="total > 0">
@@ -197,6 +207,7 @@ import SyscallSeqDialog from "../../components/dialogs/SyscallSeqDialog.vue"
 import LsmHookDialog from "../../components/dialogs/LsmHookDialog.vue"
 import ResourceFactsDialog from "../../components/dialogs/ResourceFactsDialog.vue"
 import MarkdownDialog from "../../components/dialogs/MarkdownDialog.vue"
+import SyscallAnalysisDialog from "../../components/dialogs/SyscallAnalysisDialog.vue"
 
 const rounds = ref([])
 const total = ref(0)
@@ -220,10 +231,19 @@ const currentResourceFacts = ref('')
 const kernelJudgeVisible = ref(false)
 const currentKernelJudgePath = ref('')
 
+const syscallAnalysisVisible = ref(false)
+const currentSyscallAnalysisData = ref('')
+
 // 打开内核态判断结果弹窗
 function openKernelJudgeDialog(filePath) {
   currentKernelJudgePath.value = filePath
   kernelJudgeVisible.value = true
+}
+
+// 打开系统调用分析判断结果弹窗
+function openSyscallAnalysisDialog(jsonData) {
+  currentSyscallAnalysisData.value = jsonData
+  syscallAnalysisVisible.value = true
 }
 
 // 获取内核态判断结果预览
