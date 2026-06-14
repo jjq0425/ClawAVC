@@ -167,6 +167,10 @@
                 <div v-if="r.syscall_judge" class="kernel-item">
                   <div class="kernel-item-header kernel-judge">
                     <span class="kernel-item-label">系统调用分析判断结果</span>
+                    <t-button size="small" variant="text" theme="primary" @click="downloadSyscallJudge(r.syscall_judge, r.round_id)">
+                      <t-icon name="download" size="14px" />
+                      下载
+                    </t-button>
                     <t-button size="small" variant="text" theme="primary" @click="openSyscallAnalysisDialog(r.syscall_judge)">
                       <t-icon name="browse" size="14px" />
                       查看详情
@@ -244,6 +248,43 @@ function openKernelJudgeDialog(filePath) {
 function openSyscallAnalysisDialog(jsonData) {
   currentSyscallAnalysisData.value = jsonData
   syscallAnalysisVisible.value = true
+}
+
+// 下载系统调用分析判断结果
+function downloadSyscallJudge(jsonData, roundId) {
+  const now = new Date()
+  const timestamp = now.getFullYear() + 
+    String(now.getMonth() + 1).padStart(2, '0') + 
+    String(now.getDate()).padStart(2, '0') + '_' +
+    String(now.getHours()).padStart(2, '0') +
+    String(now.getMinutes()).padStart(2, '0') +
+    String(now.getSeconds()).padStart(2, '0')
+  
+  // 解析 JSON 数据
+  let jsonStr = jsonData
+  if (typeof jsonData === 'object') {
+    jsonStr = JSON.stringify(jsonData, null, 2)
+  } else if (typeof jsonData === 'string') {
+    // 尝试解析并格式化
+    try {
+      const parsed = JSON.parse(jsonData)
+      jsonStr = JSON.stringify(parsed, null, 2)
+    } catch {
+      // 如果解析失败，直接使用原始字符串
+      jsonStr = jsonData
+    }
+  }
+  
+  const blob = new Blob([jsonStr], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  const fileName = roundId ? `syscall_analysis_${roundId}_${timestamp}.json` : `syscall_analysis_${timestamp}.json`
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 
 // 获取内核态判断结果预览
