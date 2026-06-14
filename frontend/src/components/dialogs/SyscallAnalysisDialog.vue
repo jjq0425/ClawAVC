@@ -25,103 +25,54 @@
               <span class="info-value">{{ analysisData.round_id }}</span>
             </div>
             <div class="info-item">
-              <span class="info-label">检测器:</span>
-              <span class="info-value">{{ analysisData.detector?.name || '-' }} v{{ analysisData.detector?.version || '-' }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">判定结果:</span>
-              <t-tag :theme="verdictTheme" variant="light">{{ verdictText }}</t-tag>
-            </div>
-            <div class="info-item">
-              <span class="info-label">风险分数:</span>
-              <span class="info-value">{{ analysisData.risk_score !== null ? analysisData.risk_score : '-' }}</span>
-            </div>
-          </div>
-          <div class="summary-section">
-            <span class="summary-label">摘要:</span>
-            <span class="summary-text">{{ analysisData.summary }}</span>
-          </div>
-        </div>
-
-        <!-- 错误信息 -->
-        <div v-if="analysisData.error" class="error-section">
-          <t-alert theme="error" :message="analysisData.error.message">
-            <template #operation>
-              <span class="error-code">{{ analysisData.error.code }}</span>
-            </template>
-          </t-alert>
-        </div>
-
-        <!-- 工具分析 -->
-        <div v-if="analysisData.tool_analysis" class="analysis-section">
-          <div class="section-header">工具调用分析</div>
-          <div class="tool-analysis-grid">
-            <div class="tool-item">
-              <span class="info-label">工具调用 ID:</span>
-              <span class="info-value mono">{{ analysisData.tool_analysis.tool_call_id }}</span>
-            </div>
-            <div class="tool-item">
-              <span class="info-label">期望工具:</span>
-              <span class="info-value">{{ analysisData.tool_analysis.expected_tool }}</span>
-            </div>
-            <div class="tool-item">
-              <span class="info-label">实际工具:</span>
-              <span class="info-value" :class="{ 'text-error': !analysisData.tool_analysis.authorized }">
-                {{ analysisData.tool_analysis.actual_tool }}
-              </span>
-            </div>
-            <div class="tool-item">
               <span class="info-label">授权状态:</span>
-              <t-tag :theme="analysisData.tool_analysis.authorized ? 'success' : 'danger'" variant="light">
-                {{ analysisData.tool_analysis.authorized ? '已授权' : '未授权' }}
+              <t-tag :theme="analysisData.authorized !== false ? 'success' : 'danger'" variant="light">
+                {{ analysisData.authorized === false ? '未授权' : '已授权' }}
               </t-tag>
             </div>
-          </div>
-          <div v-if="analysisData.tool_analysis.arguments" class="arguments-section">
-            <span class="arguments-label">调用参数:</span>
-            <pre class="arguments-json">{{ JSON.stringify(analysisData.tool_analysis.arguments, null, 2) }}</pre>
-          </div>
-        </div>
-
-        <!-- 系统调用分析 -->
-        <div v-if="analysisData.syscall_analysis" class="analysis-section">
-          <div class="section-header">系统调用统计</div>
-          <div class="stats-grid">
-            <div class="stat-item">
-              <span class="stat-label">处理事件数:</span>
-              <span class="stat-value">{{ analysisData.syscall_analysis.processed_event_count }}</span>
+            <div class="info-item">
+              <span class="info-label">期望工具:</span>
+              <span class="info-value">{{ analysisData.expected_tool || '-' }}</span>
             </div>
-            <div class="stat-item">
-              <span class="stat-label">告警数:</span>
-              <span class="stat-value" :class="{ 'text-warning': analysisData.syscall_analysis.alert_count > 0 }">
-                {{ analysisData.syscall_analysis.alert_count }}
+            <div class="info-item">
+              <span class="info-label">实际工具:</span>
+              <span class="info-value" :class="{ 'text-error': analysisData.authorized === false }">
+                {{ analysisData.actual_tool || '-' }}
               </span>
             </div>
           </div>
+          <div v-if="analysisData.events" class="summary-section">
+            <span class="summary-label">处理事件数:</span>
+            <span class="summary-text">{{ analysisData.events }}</span>
+          </div>
+        </div>
+
+        <!-- 工具参数 -->
+        <div v-if="toolArgs" class="analysis-section">
+          <div class="section-header">工具调用参数</div>
+          <pre class="arguments-json">{{ JSON.stringify(toolArgs, null, 2) }}</pre>
         </div>
 
         <!-- 告警列表 -->
         <div v-if="analysisData.alerts && analysisData.alerts.length > 0" class="analysis-section">
           <div class="section-header">告警详情 ({{ analysisData.alerts.length }} 条)</div>
           <div class="alerts-list">
-            <div v-for="(alert, idx) in analysisData.alerts" :key="alert.alert_id" class="alert-item">
+            <div v-for="(alert, idx) in analysisData.alerts" :key="idx" class="alert-item">
               <div class="alert-header">
-                <t-tag :theme="getSeverityTheme(alert.severity)" variant="light" size="small">
-                  {{ alert.severity }}
+                <t-tag theme="danger" variant="light" size="small">
+                  {{ alert.severity || 'high' }}
                 </t-tag>
-                <span class="alert-id">{{ alert.alert_id }}</span>
+                <span class="alert-source">{{ alert.source_event_id || 'N/A' }}</span>
               </div>
               <div class="alert-rule">规则: {{ alert.rule_id }}</div>
-              <div class="alert-message">{{ alert.message }}</div>
+              <div class="alert-message">{{ alert.msg || alert.message }}</div>
               <div class="alert-meta">
-                <span>PID: {{ alert.pid }}</span>
-                <span v-if="alert.resource" class="resource-info">
-                  资源: {{ alert.resource.type }} - <code>{{ alert.resource.path }}</code>
-                </span>
+                <span>PID: {{ alert.pid || 'N/A' }}</span>
+                <span v-if="alert.ts" class="alert-ts">时间戳: {{ formatTimestamp(alert.ts) }}</span>
               </div>
-              <div v-if="alert.evidence" class="alert-evidence">
-                <span class="evidence-label">证据链:</span>
-                <pre class="evidence-json">{{ JSON.stringify(alert.evidence, null, 2) }}</pre>
+              <div v-if="alert.context" class="alert-context">
+                <span class="context-label">上下文:</span>
+                <pre class="context-json">{{ JSON.stringify(alert.context, null, 2) }}</pre>
               </div>
             </div>
           </div>
@@ -172,25 +123,14 @@ const error = ref('')
 const analysisData = ref(null)
 const showRawJson = ref(false)
 
-// 判定结果主题
-const verdictTheme = computed(() => {
-  const v = analysisData.value?.verdict
-  if (v === 'abnormal') return 'danger'
-  if (v === 'normal') return 'success'
-  if (v === 'error') return 'warning'
-  return 'default'
-})
-
-// 判定结果文本
-const verdictText = computed(() => {
-  const v = analysisData.value?.verdict
-  const map = {
-    'abnormal': '异常',
-    'normal': '正常',
-    'error': '错误',
-    'unknown': '未知'
+// 工具参数（从 context.tool_args 或独立字段获取）
+const toolArgs = computed(() => {
+  if (!analysisData.value) return null
+  const firstAlert = analysisData.value.alerts?.[0]?.context
+  if (firstAlert?.tool_args) {
+    return firstAlert.tool_args
   }
-  return map[v] || v || '-'
+  return null
 })
 
 // 格式化原始 JSON
@@ -199,15 +139,22 @@ const formattedJson = computed(() => {
   return JSON.stringify(analysisData.value, null, 2)
 })
 
-// 获取严重程度主题
-function getSeverityTheme(severity) {
-  const map = {
-    'high': 'danger',
-    'medium': 'warning',
-    'low': 'primary',
-    'info': 'default'
+// 格式化时间戳
+function formatTimestamp(ts) {
+  if (!ts) return ''
+  // 如果是秒级时间戳（大于 1e12 说明是毫秒）
+  if (ts < 1e12) {
+    ts = ts * 1000
   }
-  return map[severity] || 'default'
+  const date = new Date(ts)
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
 }
 
 // 监听弹窗打开
@@ -347,11 +294,6 @@ function onClose() {
   font-weight: 500;
 }
 
-.info-value.mono {
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 12px;
-}
-
 .summary-section {
   display: flex;
   flex-wrap: wrap;
@@ -366,17 +308,6 @@ function onClose() {
 
 .summary-text {
   font-size: 14px;
-  color: #333;
-}
-
-/* 错误信息 */
-.error-section {
-  margin-top: 8px;
-}
-
-.error-code {
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 12px;
   color: #333;
 }
 
@@ -400,34 +331,7 @@ function onClose() {
   user-select: none;
 }
 
-/* 工具分析 */
-.tool-analysis-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.tool-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.text-error {
-  color: #e34d59;
-}
-
-.arguments-section {
-  margin-top: 8px;
-}
-
-.arguments-label {
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 4px;
-}
-
+/* 参数显示 */
 .arguments-json {
   background: #1a1a2e;
   color: #e0e0e0;
@@ -437,34 +341,6 @@ function onClose() {
   overflow-x: auto;
   max-height: 150px;
   overflow-y: auto;
-}
-
-/* 统计信息 */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.stat-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.stat-label {
-  font-size: 12px;
-  color: #666;
-}
-
-.stat-value {
-  font-size: 16px;
-  color: #333;
-  font-weight: 600;
-}
-
-.text-warning {
-  color: #ed7b2f;
 }
 
 /* 告警列表 */
@@ -490,7 +366,7 @@ function onClose() {
   margin-bottom: 8px;
 }
 
-.alert-id {
+.alert-source {
   font-family: "SF Mono", Menlo, monospace;
   font-size: 12px;
   color: #666;
@@ -516,36 +392,27 @@ function onClose() {
   color: #666;
 }
 
-.resource-info {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.alert-ts {
+  font-family: "SF Mono", Menlo, monospace;
 }
 
-.resource-info code {
-  background: #f5f5f5;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 11px;
-}
-
-.alert-evidence {
+.alert-context {
   margin-top: 8px;
 }
 
-.evidence-label {
+.context-label {
   font-size: 12px;
   color: #666;
   margin-bottom: 4px;
 }
 
-.evidence-json {
+.context-json {
   background: #f5f5f5;
   padding: 8px 12px;
   border-radius: 4px;
   font-size: 11px;
   overflow-x: auto;
-  max-height: 100px;
+  max-height: 150px;
   overflow-y: auto;
 }
 
@@ -568,5 +435,9 @@ function onClose() {
   overflow-x: auto;
   max-height: 300px;
   overflow-y: auto;
+}
+
+.text-error {
+  color: #e34d59;
 }
 </style>
