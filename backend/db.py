@@ -487,12 +487,113 @@ def update_judge_result_kernel(round_id: str, judge_result_kernel_md_path: str, 
         conn.close()
 
 
-def update_syscall_judge_json(round_id: str, syscall_judge_data: dict, time_limit_enabled: bool = True) -> str:
+def parse_json_input(data) -> dict:
+    """解析各种格式的 JSON 输入，返回 dict 对象。
+    
+    支持的格式：
+    1. 已经是 dict 对象
+    2. 标准 JSON 字符串
+    3. 带转义的 JSON 字符串 (如 \\" -> \")
+    4. 多重转义的 JSON 字符串
+    5. 压缩的 JSON 字符串
+    6. 格式的 JSON 字符串（带换行、缩进）
+    """
+    import json
+    import re
+    
+    # 如果已经是 dict，直接返回
+    if isinstance(data, dict):
+        return data
+    
+    # 如果是 bytes，先转为字符串
+    if isinstance(data, bytes):
+        data = data.decode('utf-8')
+    
+    # 如果不是字符串，尝试转为字符串
+    if not isinstance(data, str):
+        return dict(data) if data else {}
+    
+    s = data.strip()
+    if not s:
+        return {}
+    
+    # 递归解析函数
+    def try_parse(text, depth=0):
+        if depth > 5:
+            raise ValueError("JSON 嵌套过深")
+        
+        # 尝试直接解析
+        try:
+            result = json.loads(text)
+            # 如果结果还是字符串，可能是双重编码，继续解析
+            if isinstance(result, str):
+                return try_parse(result, depth + 1)
+            return result
+        except json.JSONDecodeError:
+            pass
+        
+        # 尝试修复转义后解析
+        try:
+            # 处理 \\" -> \"
+            fixed = text.replace('\\"', '"')
+            result = json.loads(fixed)
+            if isinstance(result, str):
+                return try_parse(result, depth + 1)
+            return result
+        except json.JSONDecodeError:
+            pass
+        
+        # 尝试处理 \\n -> \n
+        try:
+            fixed = text.replace('\\n', '\n')
+            fixed = fixed.replace('\\r', '\r')
+            fixed = fixed.replace('\\t', '\t')
+            result = json.loads(fixed)
+            if isinstance(result, str):
+                return try_parse(result, depth + 1)
+            return result
+        except json.JSONDecodeError:
+            pass
+        
+        # 尝试处理 \\\\ -> \\
+        try:
+            fixed = text.replace('\\\\', '\\')
+            result = json.loads(fixed)
+            if isinstance(result, str):
+                return try_parse(result, depth + 1)
+            return result
+        except json.JSONDecodeError:
+            pass
+        
+        # 尝试使用 ast.literal_eval (处理 Python 字面量)
+        try:
+            import ast
+            result = ast.literal_eval(text)
+            if isinstance(result, str):
+                return try_parse(result, depth + 1)
+            return result
+        except (ValueError, SyntaxError):
+            pass
+        
+        raise ValueError(f"无法解析 JSON: {text[:100]}...")
+    
+    result = try_parse(s)
+    
+    # 确保返回 dict
+    if isinstance(result, dict):
+        return result
+    elif isinstance(result, list):
+        return {"data": result}
+    else:
+        return {"value": result}
+
+
+def update_syscall_judge_json(round_id: str, syscall_judge_data, time_limit_enabled: bool = True) -> str:
     """更新系统调用判断结果（直接存储 JSON）。
     
     Args:
         round_id: Round ID
-        syscall_judge_data: 系统调用判断结果 JSON 数据
+        syscall_judge_data: 系统调用判断结果 JSON 数据（支持各种格式）
         time_limit_enabled: 是否启用15分钟时间限制
     
     Returns:
@@ -503,8 +604,15 @@ def update_syscall_judge_json(round_id: str, syscall_judge_data: dict, time_limi
     """
     import json
     
-    # 将 JSON 转为字符串存储
-    syscall_judge_json = json.dumps(syscall_judge_data, ensure_ascii=False)
+    # 解析输入的 JSON 数据
+    try:
+        data_dict = parse_json_input(syscall_judge_data)
+    except ValueError as e:
+        print(f"[db] parse_json_input error: {e}")
+        return "error"
+    
+    # 将 dict 压缩后转为 JSON 字符串存储（ensure_ascii=True 确保纯 ASCII）
+    syscall_judge_json = json.dumps(data_dict, ensure_ascii=True, separators=(',', ':'))
     
     conn = get_conn()
     try:

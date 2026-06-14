@@ -102,11 +102,11 @@ ENDPOINT_REGISTRY = {
     },
     "POST /api/rounds/detection/syscall": {
         "summary": "系统调用判断结果上报",
-        "description": "直接上报系统调用的判断结果 JSON 数据，存入数据库。支持15分钟时间限制（受平台管理开关控制）。",
+        "description": "上报系统调用的判断结果。支持多种 JSON 格式输入（标准JSON、带转义的字符串、压缩格式、格式化格式），后端会自动解析并压缩存储。支持15分钟时间限制（受平台管理开关控制）。",
         "category": "数据查询与更新",
         "params": [
             {"name": "round_id", "type": "string", "desc": "Round ID"},
-            {"name": "syscall_judge", "type": "object", "desc": "系统调用判断结果 JSON 数据"},
+            {"name": "syscall_judge", "type": "string/object", "desc": "系统调用判断结果 JSON 数据（支持各种格式）"},
         ],
         "response": {"ok": True},
         "public": True,
