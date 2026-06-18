@@ -228,6 +228,7 @@ LEVEL2_SYS = """你是一个「OpenClaw function-level 权限 IR 生成器」。
 8. 如果同一 scene 中多个 function 都能完成任务，必须全部列出——无法预知 Agent 选哪个。
 9. 任何 required=true 的参数无法安全确定时，不生成该 function 对象。
 10. 严禁输出密钥、隐私数据、敏感目录路径。
+11. **子场景选择**：当 constraint_spec.static 为数组时，每个元素的 note 字段标注了子场景（如"只读查询"、"安装依赖"等）。你必须根据用户 query 的意图，选择最匹配的子场景对应的约束（allowlist/denylist/default 等）来生成参数值，而非盲目使用第一个或默认值。
 
 当前可用 function 定义 JSON：
 {SELECTED_REGISTRY}
@@ -299,9 +300,12 @@ def level2_generate(query: str, scenes: List[str], config: Optional[Dict[str, An
 # ---------------------------------------------------------------------------
 # Normalize
 # ---------------------------------------------------------------------------
-def _static_spec(param_def: Dict[str, Any]) -> Dict[str, Any]:
-    spec = param_def.get("constraint_spec", {}).get("static", {})
-    return spec if isinstance(spec, dict) else {}
+def _static_spec(param_def: Dict[str, Any]) -> List[Dict[str, Any]]:
+    spec = param_def.get("constraint_spec", {}).get("static", [])
+    # 兼容旧格式：单个 dict 视为只有一个子场景
+    if isinstance(spec, dict):
+        return [{"note": "default", **spec}]
+    return spec if isinstance(spec, list) else []
 
 
 def normalize_ir(ir: Dict[str, Any]) -> Dict[str, Any]:
@@ -351,9 +355,14 @@ def normalize_ir(ir: Dict[str, Any]) -> Dict[str, Any]:
             params = fn.get("params", {})
             if not isinstance(params, dict):
                 params = {}
+            # Fill defaults from first matching static sub-scenario
             for param_name, param_def in fn_def.get("params", {}).items():
-                static = _static_spec(param_def)
-                default = static.get("default")
+                static_list = _static_spec(param_def)
+                default = None
+                for static in static_list:
+                    if static.get("default") is not None:
+                        default = static["default"]
+                        break
                 if param_name not in params and default is not None:
                     params[param_name] = default
             param_list = [{"name": k, "identifier": str(v)} for k, v in params.items() if v is not None]
