@@ -239,7 +239,7 @@ LEVEL2_SYS = """你是一个「OpenClaw function-level 权限 IR 生成器」。
      - ✅ 正确：`{"name": "path", "identifier": "/workspace/**/*.txt"}`
      - ✅ 正确：`{"name": "url", "identifier": "https://*"}`
      - ❌ 错误：`{"name": "content", "identifier": "整理后的数据"}`
-     - ❌ 错误：`{"name": "content", "identifier": ""}`（空字符串表示不确定，但应使用 `*`）
+     - ❌ 错误：`{"name": "content", "identifier": ""}`（空字符串表示不确定，但应使用 `*`，或者你可以不写这个参数）
 
 当前可用 function 定义 JSON：
 {SELECTED_REGISTRY}
