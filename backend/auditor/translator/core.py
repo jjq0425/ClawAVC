@@ -229,6 +229,17 @@ LEVEL2_SYS = """你是一个「OpenClaw function-level 权限 IR 生成器」。
 9. 任何 required=true 的参数无法安全确定时，不生成该 function 对象。
 10. 严禁输出密钥、隐私数据、敏感目录路径。
 11. **子场景选择**：当 constraint_spec.static 为数组时，每个元素的 note 字段标注了子场景（如"只读查询"、"安装依赖"等）。你必须根据用户 query 的意图，选择最匹配的子场景对应的约束（allowlist/denylist/default 等）来生成参数值，而非盲目使用第一个或默认值。
+12. **通配符与正则表达式**：对于不确定或可变的内容，必须使用通配符或正则表达式，而非通用描述性话语。具体规则：
+   - 文件路径：使用 `*` 匹配任意字符（如 `*.txt`、`/workspace/*`、`**/*.py`），使用 `**` 匹配多级目录（如 `/workspace/**/*`）
+   - 写入内容（content 参数）：不确定具体内容时使用 `*` 或 `.*` 表示任意内容，而非写 "搜索结果"、"处理后的内容" 等描述性文字
+   - URL/域名：使用 `*://*` 或 `https://*.example.com/*` 等模式
+   - 命令参数：不确定的参数值使用 `*` 或正则如 `[a-zA-Z0-9]+`
+   - 示例：
+     - ✅ 正确：`{"name": "content", "identifier": "*"}`
+     - ✅ 正确：`{"name": "path", "identifier": "/workspace/**/*.txt"}`
+     - ✅ 正确：`{"name": "url", "identifier": "https://*"}`
+     - ❌ 错误：`{"name": "content", "identifier": "整理后的数据"}`
+     - ❌ 错误：`{"name": "content", "identifier": ""}`（空字符串表示不确定，但应使用 `*`）
 
 当前可用 function 定义 JSON：
 {SELECTED_REGISTRY}
