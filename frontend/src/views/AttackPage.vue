@@ -648,12 +648,20 @@
     </div>
 
     <!-- ─── Footer Notice ───────────────────── -->
-    <div class="notice">
-      <div class="notice-bar"></div>
-      <div class="notice-icon"><t-icon name="info-circle-filled" size="16px" /></div>
-      <div class="notice-text">
-        <strong>合规提示</strong>
-        <span>以上场景仅用于验证 ClawAVC 检测引擎的能力边界。请勿在未经授权的生产环境中启用任何攻击配置。</span>
+    <div class="notice-banner-v3">
+      <div class="notice-banner-v3-header">
+        <span class="notice-icon-v3"><t-icon name="lock-on" size="14px" /></span>
+        <span class="notice-title-v3">合规提示</span>
+        <span class="notice-status-v3"><span class="dot-v3"></span>安全</span>
+      </div>
+      <div class="notice-divider-v3"></div>
+      <div class="notice-text-v3">
+        以上场景仅用于验证 ClawAVC 检测引擎的能力边界。请勿在未经授权的生产环境中启用任何攻击配置。
+      </div>
+      <div class="notice-meta-v3">
+        <span>用途：检测引擎验证</span>
+        <span>环境：仅限测试</span>
+        <span>审计：全程记录</span>
       </div>
     </div>
   </div>
@@ -2171,6 +2179,74 @@ onUnmounted(() => {
   font-size: 12px;
   color: #047857;
   font-weight: 500;
+}
+
+/* ─── Notice Banner V3 (简约版) ─────────────────────────────────────── */
+.notice-banner-v3 {
+  margin-top: 32px;
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.notice-banner-v3-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.notice-icon-v3 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: #e0f2fe;
+  color: #0ea5e9;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.notice-title-v3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  letter-spacing: 0.5px;
+}
+.notice-status-v3 {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #059669;
+  font-weight: 500;
+}
+.dot-v3 {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+}
+.notice-divider-v3 {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 12px 0;
+}
+.notice-text-v3 {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+.notice-meta-v3 {
+  display: flex;
+  gap: 18px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.notice-meta-v3 span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .notice-icon { color: #ED7B2F; padding-top: 1px; }
