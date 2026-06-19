@@ -443,6 +443,210 @@
       </article>
     </div>
 
+    <!-- ─── Attack Messages Panel ───────────────────── -->
+    <div class="section-title">
+      <span class="section-bar" style="background: linear-gradient(180deg, #00a870, #0052D9);"></span>
+      <span class="section-name">攻击消息日志</span>
+      <span class="section-count">实时监控 · 恶意工具注入</span>
+    </div>
+
+    <div class="attack-messages-panel">
+      <div class="attack-msg-head">
+        <div class="attack-msg-info">
+          <span class="attack-msg-icon">
+            <t-icon name="error-circle-filled" size="18px" />
+          </span>
+          <div>
+            <div class="attack-msg-title">已捕获的攻击消息</div>
+            <div class="attack-msg-sub">恶意工具向 /api/webhook 发送的消息将显示在此处</div>
+          </div>
+        </div>
+        <div class="attack-msg-actions">
+          <t-button theme="default" variant="outline" size="small" @click="loadAttackMessages">
+            <template #icon><t-icon name="refresh" /></template>
+            刷新
+          </t-button>
+        </div>
+      </div>
+
+      <div v-if="attackMessages.length === 0" class="attack-msg-empty">
+        <div class="empty-icon">
+          <t-icon name="secured-filled" size="48px" />
+        </div>
+        <div class="empty-title">暂无攻击消息</div>
+        <div class="empty-desc">系统安全，未检测到恶意工具注入</div>
+        <div class="empty-hint">
+          <t-icon name="info-circle" />
+          <span>模拟攻击：使用任意 HTTP 方法向 <code>/api/webhook</code> 发送请求即可触发告警</span>
+        </div>
+      </div>
+
+      <div v-else class="attack-msg-wrapper">
+        <!-- 列表视图 -->
+        <div v-if="!selectedMessage" class="attack-msg-list-view">
+          <div class="list-header">
+            <div class="col-method">方法</div>
+            <div class="col-id">ID</div>
+            <div class="col-time">时间</div>
+            <div class="col-ip">来源 IP</div>
+            <div class="col-host">Host</div>
+            <div class="col-size">大小</div>
+          </div>
+          <div class="list-body">
+            <div
+              v-for="msg in attackMessages"
+              :key="msg.id"
+              class="list-row"
+              @click="selectMessage(msg)"
+            >
+              <div class="col-method">
+                <span class="msg-method" :class="'method-' + msg.request_method.toLowerCase()">
+                  {{ msg.request_method }}
+                </span>
+              </div>
+              <div class="col-id">#{{ msg.id }}</div>
+              <div class="col-time">{{ msg.received_at }}</div>
+              <div class="col-ip" :title="msg.source_ip">{{ msg.source_ip }}</div>
+              <div class="col-host" :title="msg.source_host">{{ msg.source_host }}</div>
+              <div class="col-size">{{ msg.content_length || 0 }} B</div>
+            </div>
+          </div>
+          <!-- 分页 -->
+          <div v-if="attackTotal > attackPageSize" class="attack-pagination">
+            <t-button
+              size="small"
+              :disabled="attackCurrentPage <= 1"
+              @click="changeAttackPage(-1)"
+            >
+              <template #icon><t-icon name="chevron-left" /></template>
+              上一页
+            </t-button>
+            <span class="page-info">第 {{ attackCurrentPage }} / {{ Math.ceil(attackTotal / attackPageSize) }} 页</span>
+            <t-button
+              size="small"
+              :disabled="attackCurrentPage >= Math.ceil(attackTotal / attackPageSize)"
+              @click="changeAttackPage(1)"
+            >
+              下一页
+              <template #icon><t-icon name="chevron-right" /></template>
+            </t-button>
+            <div class="page-size-select">
+              <span>每页</span>
+              <t-select
+                v-model="attackPageSize"
+                size="small"
+                :options="[{label:'10',value:10},{label:'20',value:20},{label:'50',value:50},{label:'100',value:100}]"
+                style="width: 60px;"
+                @change="onPageSizeChange"
+              />
+              <span>条</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 详情视图 -->
+        <div v-else class="attack-msg-detail-view">
+          <div class="detail-header">
+            <div class="detail-back" @click="selectMessage(null)">
+              <t-icon name="chevron-left" size="18px" />
+              <span>返回列表</span>
+            </div>
+            <div class="detail-title-section">
+              <div class="msg-method-lg" :class="'method-' + selectedMessage.request_method.toLowerCase()">
+                {{ selectedMessage.request_method }}
+              </div>
+              <div class="detail-id">#{{ selectedMessage.id }}</div>
+            </div>
+            <div class="detail-actions">
+              <t-button theme="default" variant="outline" size="small" @click="copyMessageContent">
+                <template #icon><t-icon name="file-copy" /></template>
+                复制内容
+              </t-button>
+            </div>
+          </div>
+
+          <div class="detail-body">
+            <div class="detail-section">
+              <div class="detail-section-title">
+                <t-icon name="time" size="14px" />
+                <span>基本信息</span>
+              </div>
+              <div class="detail-grid">
+                <div class="detail-item">
+                  <span class="detail-label">接收时间</span>
+                  <span class="detail-value">{{ selectedMessage.received_at }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">请求方法</span>
+                  <span class="detail-value method-tag" :class="'method-' + selectedMessage.request_method.toLowerCase()">
+                    {{ selectedMessage.request_method }}
+                  </span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">来源 IP</span>
+                  <span class="detail-value">{{ selectedMessage.source_ip }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Host</span>
+                  <span class="detail-value">{{ selectedMessage.source_host }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">User-Agent</span>
+                  <span class="detail-value" :title="selectedMessage.user_agent">{{ selectedMessage.user_agent || '-' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Referer</span>
+                  <span class="detail-value" :title="selectedMessage.referrer">{{ selectedMessage.referrer || '-' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Content-Type</span>
+                  <span class="detail-value">{{ selectedMessage.content_type || '-' }}</span>
+                </div>
+                <div class="detail-item">
+                  <span class="detail-label">Content-Length</span>
+                  <span class="detail-value">{{ selectedMessage.content_length || 0 }} bytes</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="detail-section">
+              <div class="detail-section-title">
+                <t-icon name="secured" size="14px" />
+                <span>请求内容</span>
+              </div>
+              <pre class="detail-content-pre">{{ formatMessageContent(selectedMessage.message_content) }}</pre>
+            </div>
+
+            <div v-if="selectedMessage.headers && Object.keys(selectedMessage.headers).length" class="detail-section">
+              <div class="detail-section-title">
+                <t-icon name="setting" size="14px" />
+                <span>请求头</span>
+              </div>
+              <div class="headers-list">
+                <div v-for="(value, key) in selectedMessage.headers" :key="key" class="header-row">
+                  <span class="header-key">{{ key }}</span>
+                  <span class="header-value">{{ value }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="selectedMessage.payload && Object.keys(selectedMessage.payload).length" class="detail-section">
+              <div class="detail-section-title">
+                <t-icon name="file-json" size="14px" />
+                <span>JSON Payload</span>
+              </div>
+              <pre class="detail-content-pre">{{ JSON.stringify(selectedMessage.payload, null, 2) }}</pre>
+            </div>
+
+            <div class="detail-footer">
+              <span class="status-indicator"></span>
+              <span>攻击已记录</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ─── Footer Notice ───────────────────── -->
     <div class="notice">
       <div class="notice-bar"></div>
@@ -467,6 +671,63 @@ const injectConfig = ref({
   filepath: { enabled: false, value: '' },
 })
 const injectSaving = ref(false)
+
+// 攻击消息相关
+const attackMessages = ref([])
+const attackTotal = ref(0)
+const attackCurrentPage = ref(1)
+const attackPageSize = ref(20)
+const selectedMessage = ref(null)
+const attackMsgPolling = ref(null)
+
+const formatMessageContent = (content) => {
+  if (!content) return ''
+  try {
+    const parsed = JSON.parse(content)
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return content
+  }
+}
+
+const loadAttackMessages = async () => {
+  try {
+    const offset = (attackCurrentPage.value - 1) * attackPageSize.value
+    const res = await fetch(`${API}/attack/messages?limit=${attackPageSize.value}&offset=${offset}`)
+    const data = await res.json()
+    if (data.ok) {
+      attackMessages.value = data.data || []
+      attackTotal.value = data.total || 0
+    }
+  } catch (e) {
+    console.error('Failed to load attack messages:', e)
+  }
+}
+
+const changeAttackPage = (delta) => {
+  const maxPage = Math.max(1, Math.ceil(attackTotal.value / attackPageSize.value))
+  const newPage = Math.max(1, Math.min(maxPage, attackCurrentPage.value + delta))
+  if (newPage !== attackCurrentPage.value) {
+    attackCurrentPage.value = newPage
+    loadAttackMessages()
+  }
+}
+
+const onPageSizeChange = () => {
+  attackCurrentPage.value = 1
+  loadAttackMessages()
+}
+
+const selectMessage = (msg) => {
+  selectedMessage.value = msg
+}
+
+const copyMessageContent = () => {
+  if (selectedMessage.value?.message_content) {
+    navigator.clipboard.writeText(selectedMessage.value.message_content)
+    MessagePlugin.success('已复制到剪贴板')
+  }
+}
 
 const tamperConfig = ref({
   replace: { enabled: false, value: '' },
@@ -562,6 +823,16 @@ onMounted(async () => {
   } catch (e) {
     /* silent */
   }
+  
+  // 加载攻击消息并启动轮询
+  loadAttackMessages()
+  attackMsgPolling.value = setInterval(loadAttackMessages, 5000)
+})
+
+onUnmounted(() => {
+  if (saveTimeout) clearTimeout(saveTimeout)
+  if (initTimeout) clearTimeout(initTimeout)
+  if (attackMsgPolling.value) clearInterval(attackMsgPolling.value)
 })
 
 async function saveInjectConfig() {
@@ -1348,6 +1619,560 @@ onUnmounted(() => {
   width: 3px;
   background: linear-gradient(180deg, #ED7B2F, #e63946);
 }
+
+/* ─── Attack Messages Panel ─────────────────────────────────────── */
+.attack-messages-panel {
+  border-radius: 14px;
+  padding: 18px 18px 16px;
+  border: 1px solid;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #f0fdf4, #ecfeff 70%, #f0f9ff);
+  border-color: #a7f3d0;
+}
+.attack-messages-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; width: 120px; height: 120px;
+  background: radial-gradient(circle, rgba(0, 168, 112, 0.15), transparent 70%);
+  pointer-events: none;
+}
+.attack-msg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed rgba(0, 168, 112, 0.3);
+}
+.attack-msg-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.attack-msg-icon {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  color: #047857;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 0 0 1px #a7f3d0;
+}
+.attack-msg-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #065f46;
+  margin-bottom: 2px;
+}
+.attack-msg-sub {
+  font-size: 12px;
+  color: #047857;
+}
+.attack-msg-actions { display: flex; gap: 8px; }
+
+.attack-msg-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+.empty-icon {
+  color: #6ee7b7;
+  margin-bottom: 12px;
+  opacity: 0.8;
+}
+.empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #065f46;
+  margin-bottom: 6px;
+}
+.empty-desc {
+  font-size: 13px;
+  color: #047857;
+  margin-bottom: 16px;
+}
+.empty-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(0, 168, 112, 0.1);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #047857;
+}
+.empty-hint code {
+  background: rgba(0, 168, 112, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.attack-msg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 500px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.attack-msg-list::-webkit-scrollbar { width: 6px; }
+.attack-msg-list::-webkit-scrollbar-track { background: transparent; }
+.attack-msg-list::-webkit-scrollbar-thumb { background: rgba(0, 168, 112, 0.3); border-radius: 3px; }
+
+.attack-msg-card {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(0, 168, 112, 0.15);
+  border-radius: 12px;
+  padding: 14px 16px;
+  position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.attack-msg-card:hover {
+  border-color: rgba(0, 168, 112, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 168, 112, 0.1);
+}
+.msg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 12px;
+}
+.msg-method {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  font-family: 'JetBrains Mono', monospace;
+  background: #f3f4f6;
+  color: #374151;
+}
+.msg-method.method-get { background: #dbeafe !important; color: #1d4ed8 !important; }
+.msg-method.method-post { background: #dcfce7 !important; color: #15803d !important; }
+.msg-method.method-put { background: #fef3c7 !important; color: #92400e !important; }
+.msg-method.method-delete { background: #fee2e2 !important; color: #991b1b !important; }
+.msg-method.method-patch { background: #e0e7ff !important; color: #3730a3 !important; }
+.msg-method.method-head { background: #e5e7eb !important; color: #374151 !important; }
+.msg-method.method-options { background: #f3f4f6 !important; color: #6b7280 !important; }
+.msg-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #047857;
+  font-family: 'JetBrains Mono', monospace;
+}
+.msg-id {
+  font-size: 11px;
+  color: #6b7280;
+  font-family: 'JetBrains Mono', monospace;
+}
+.method-tag {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  font-family: 'JetBrains Mono', monospace;
+  background: #f3f4f6;
+  color: #374151;
+}
+.method-tag.method-get { background: #dbeafe !important; color: #1d4ed8 !important; }
+.method-tag.method-post { background: #dcfce7 !important; color: #15803d !important; }
+.method-tag.method-put { background: #fef3c7 !important; color: #92400e !important; }
+.method-tag.method-delete { background: #fee2e2 !important; color: #991b1b !important; }
+.method-tag.method-patch { background: #e0e7ff !important; color: #3730a3 !important; }
+.method-tag.method-head { background: #e5e7eb !important; color: #374151 !important; }
+.method-tag.method-options { background: #f3f4f6 !important; color: #6b7280 !important; }
+.method-tag.method-unknown { background: #f3f4f6 !important; color: #6b7280 !important; }
+.msg-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.msg-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(0, 168, 112, 0.1);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #047857;
+  font-family: 'JetBrains Mono', monospace;
+}
+.msg-content {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+.msg-content-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.msg-content-pre {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 168, 112, 0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #1f2937;
+  overflow-x: auto;
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+.msg-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(0, 168, 112, 0.2);
+}
+.msg-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.meta-label {
+  color: #6b7280;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.meta-value {
+  color: #047857;
+  font-family: 'JetBrains Mono', monospace;
+}
+.msg-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 168, 112, 0.15);
+  font-size: 12px;
+  color: #047857;
+  font-weight: 500;
+}
+.status-indicator {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.3);
+}
+
+/* ─── Attack Messages List View ─────────────────────────────────────── */
+.attack-msg-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 600px;
+  overflow: hidden;
+}
+.attack-msg-list-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.list-header {
+  display: grid;
+  grid-template-columns: 80px 60px 160px 1fr 1fr 100px;
+  gap: 12px;
+  padding: 10px 16px;
+  background: linear-gradient(180deg, #f0f9ff, #e6f4ff);
+  border-bottom: 2px solid #bae0ff;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0c4a6e;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-family: 'JetBrains Mono', monospace;
+}
+.list-body {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 400px;
+}
+.list-body::-webkit-scrollbar { width: 6px; }
+.list-body::-webkit-scrollbar-track { background: transparent; }
+.list-body::-webkit-scrollbar-thumb { background: rgba(0, 168, 112, 0.3); border-radius: 3px; }
+.list-row {
+  display: grid;
+  grid-template-columns: 80px 60px 160px 1fr 1fr 100px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid #eef2f7;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.list-row:hover {
+  background: rgba(0, 168, 112, 0.06);
+  border-left: 3px solid #10b981;
+  padding-left: 13px;
+}
+.list-row .col-method {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.list-row .col-id {
+  font-size: 11px;
+  color: #6b7280;
+  font-family: 'JetBrains Mono', monospace;
+}
+.list-row .col-time {
+  font-size: 12px;
+  color: #374151;
+  font-family: 'JetBrains Mono', monospace;
+}
+.list-row .col-ip,
+.list-row .col-host {
+  font-size: 12px;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.list-row .col-size {
+  font-size: 11px;
+  color: #6b7280;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Pagination */
+.attack-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border-top: 1px solid #eef2f7;
+}
+.page-info {
+  font-size: 12px;
+  color: #6b7280;
+  font-family: 'JetBrains Mono', monospace;
+}
+.page-size-select {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #6b7280;
+  margin-left: 8px;
+}
+
+/* ─── Attack Messages Detail View ─────────────────────────────────────── */
+.attack-msg-detail-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+  border: 1px solid #eef2f7;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+  border-bottom: 1px solid #bbf7d0;
+}
+.detail-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(0, 168, 112, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #047857;
+  transition: background 0.15s;
+}
+.detail-back:hover {
+  background: rgba(0, 168, 112, 0.2);
+}
+.detail-title-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.msg-method-lg {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  font-family: 'JetBrains Mono', monospace;
+  background: #f3f4f6;
+  color: #374151;
+}
+.msg-method-lg.method-get { background: #dbeafe !important; color: #1d4ed8 !important; }
+.msg-method-lg.method-post { background: #dcfce7 !important; color: #15803d !important; }
+.msg-method-lg.method-put { background: #fef3c7 !important; color: #92400e !important; }
+.msg-method-lg.method-delete { background: #fee2e2 !important; color: #991b1b !important; }
+.msg-method-lg.method-patch { background: #e0e7ff !important; color: #3730a3 !important; }
+.msg-method-lg.method-head { background: #e5e7eb !important; color: #374151 !important; }
+.msg-method-lg.method-options { background: #f3f4f6 !important; color: #6b7280 !important; }
+.detail-id {
+  font-size: 12px;
+  color: #6b7280;
+  font-family: 'JetBrains Mono', monospace;
+}
+.detail-actions {
+  margin-left: auto;
+}
+.detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  overflow-y: auto;
+  max-height: 500px;
+}
+.detail-section {
+  background: #fafbfc;
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.detail-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #eef2f7;
+  letter-spacing: 0.5px;
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.detail-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.detail-value {
+  font-size: 13px;
+  color: #1f2937;
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.detail-value.method-tag {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #374151;
+}
+.detail-value.method-tag.method-get { background: #dbeafe !important; color: #1d4ed8 !important; }
+.detail-value.method-tag.method-post { background: #dcfce7 !important; color: #15803d !important; }
+.detail-value.method-tag.method-put { background: #fef3c7 !important; color: #92400e !important; }
+.detail-value.method-tag.method-delete { background: #fee2e2 !important; color: #991b1b !important; }
+.detail-value.method-tag.method-patch { background: #e0e7ff !important; color: #3730a3 !important; }
+.detail-value.method-tag.method-head { background: #e5e7eb !important; color: #374151 !important; }
+.detail-value.method-tag.method-options { background: #f3f4f6 !important; color: #6b7280 !important; }
+.detail-content-pre {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 14px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  line-height: 1.6;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+.headers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.header-row {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 4px 0;
+  border-bottom: 1px dashed #eef2f7;
+}
+.header-row:last-child {
+  border-bottom: none;
+}
+.header-key {
+  flex-shrink: 0;
+  color: #6b7280;
+  font-weight: 600;
+  min-width: 120px;
+}
+.header-value {
+  color: #1f2937;
+  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.detail-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+  border-top: 1px solid #bbf7d0;
+  font-size: 12px;
+  color: #047857;
+  font-weight: 500;
+}
+
 .notice-icon { color: #ED7B2F; padding-top: 1px; }
 .notice-text strong {
   display: block;

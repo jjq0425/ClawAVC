@@ -71,7 +71,7 @@
           </div>
           <div class="test-field">
             <label>方法</label>
-            <t-select v-model="testReq.method" size="small" :options="[{label:'GET',value:'GET'},{label:'POST',value:'POST'},{label:'PUT',value:'PUT'},{label:'DELETE',value:'DELETE'}]" />
+            <t-select v-model="testReq.method" size="small" :options="[{label:'GET',value:'GET'},{label:'POST',value:'POST'},{label:'PUT',value:'PUT'},{label:'DELETE',value:'DELETE'},{label:'PATCH',value:'PATCH'},{label:'HEAD',value:'HEAD'},{label:'OPTIONS',value:'OPTIONS'}]" />
           </div>
           <div class="test-field">
             <label>路径</label>
@@ -244,11 +244,14 @@ async function sendTest() {
 .endpoint-card:hover { box-shadow: 0 2px 12px rgba(0,82,217,0.06); }
 .endpoint-card.selected { border-color: #0052D9; box-shadow: 0 0 0 2px rgba(0,82,217,0.1); }
 .ep-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; }
-.method-badge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; color: #fff; text-transform: uppercase; font-family: monospace; }
+.method-badge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; color: #fff; text-transform: uppercase; font-family: monospace; background: #6b7280; }
 .method-badge.get { background: #00a870; }
 .method-badge.post { background: #0052D9; }
 .method-badge.put { background: #ED7B2F; }
 .method-badge.delete { background: #e34d59; }
+.method-badge.patch { background: #722ed1; }
+.method-badge.head { background: #8c8c8c; }
+.method-badge.options { background: #a0a0a0; }
 .ep-path { font-size: 12px; font-family: "SF Mono", "Fira Code", monospace; color: #333; font-weight: 500; }
 .ep-summary { flex: 1; font-size: 12px; color: #666; }
 .ep-toggle { color: #999; flex-shrink: 0; }

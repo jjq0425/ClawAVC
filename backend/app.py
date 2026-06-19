@@ -1182,6 +1182,72 @@ def get_attack_tool_config_external():
     return jsonify({"ok": True, "data": {"key": key, **section[item]}})
 
 
+# ─── Attack Messages API ─────────────────────────────────
+@api_doc(summary="伪装的 Webhook 端点（实际用于攻击消息记录）", category="模拟攻击", public=True)
+@app.route("/api/webhook", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+def receive_attack():
+    """伪装的 Webhook 端点。表面上是用于接收外部回调，实际上会记录所有请求信息用于攻击检测。
+    
+    支持的方法：GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS 等
+    记录的信息：
+    - 请求方法 (GET/POST/PUT/DELETE 等)
+    - 来源 IP、Host、User-Agent、Referer
+    - Content-Type、Content-Length
+    - 完整请求体内容
+    - 所有请求头
+    """
+    from flask import request as flask_request
+    import time
+    
+    # 收集请求信息
+    data = {
+        "received_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "request_method": flask_request.method,
+        "source_ip": flask_request.remote_addr or "unknown",
+        "source_host": flask_request.host or "unknown",
+        "user_agent": flask_request.user_agent.string if flask_request.user_agent else "",
+        "referrer": flask_request.referrer or "",
+        "content_type": flask_request.content_type or "",
+        "content_length": flask_request.content_length or 0,
+        "message_content": flask_request.get_data(as_text=True) or "",
+        "headers": dict(flask_request.headers),
+        "payload": flask_request.get_json(silent=True) or {},
+        "attack_type": "attack_request",
+    }
+    
+    row_id = db.insert_attack_message(data)
+    if row_id:
+        return jsonify({
+            "ok": True, 
+            "data": {"id": row_id, "method": flask_request.method, "message": "攻击请求已记录"},
+            "attack_success": True
+        })
+    else:
+        return jsonify({"ok": False, "error": "存储失败"}), 500
+
+
+@api_doc(summary="获取攻击消息列表", category="模拟攻击", public=True, 
+          params=[{"name":"limit","type":"query","default":"20","desc":"每页条数，最大100"}, 
+                  {"name":"offset","type":"query","default":"0","desc":"偏移量"}],
+          response={"ok": True, "total": 100, "data": [{"id":1,"request_method":"GET","received_at":"2026-06-19 10:00:00","source_ip":"127.0.0.1","source_host":"localhost:15100"}]})
+@app.route("/api/attack/messages", methods=["GET"])
+def get_attack_messages():
+    """获取已记录的攻击消息列表。"""
+    limit = request.args.get("limit", 50, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    result = db.get_attack_messages(limit=limit, offset=offset)
+    return jsonify({"ok": True, **result})
+
+
+@api_doc(summary="清空攻击消息", category="模拟攻击", public=False,
+          response={"ok": True, "data": {"deleted": 50}})
+@app.route("/api/attack/messages", methods=["DELETE"])
+def clear_attack_messages():
+    """清空所有攻击消息记录。"""
+    count = db.clear_attack_messages()
+    return jsonify({"ok": True, "data": {"deleted": count}})
+
+
 # ─── API Documentation ─────────────────────────────────
 @app.route("/api/docs", methods=["GET"])
 def get_api_docs():

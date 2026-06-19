@@ -108,6 +108,29 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # 攻击消息表
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS attack_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            request_method TEXT,
+            source_ip TEXT,
+            source_host TEXT,
+            user_agent TEXT,
+            referrer TEXT,
+            content_type TEXT,
+            content_length INTEGER,
+            message_content TEXT,
+            headers_json TEXT,
+            payload_json TEXT,
+            attack_type TEXT DEFAULT 'unknown'
+        )
+    """)
+    # 迁移：添加 request_method 列（如果不存在）
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(attack_messages)").fetchall()]
+    if "request_method" not in cols:
+        conn.execute("ALTER TABLE attack_messages ADD COLUMN request_method TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_attack_messages_time ON attack_messages(received_at DESC)")
     # 初始化默认配置
     conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('round_update_time_limit_enabled', 'True')")
     conn.commit()
@@ -728,6 +751,96 @@ def import_from_jsonl(jsonl_path: str):
     return count
 
 
+
+# ============================================================
+# Attack Messages
+# ============================================================
+
+def insert_attack_message(data: Dict[str, Any]) -> Optional[int]:
+    """Insert an attack message record. Returns row id or None on error."""
+    conn = get_conn()
+    try:
+        cursor = conn.execute("""
+            INSERT INTO attack_messages
+            (received_at, request_method, source_ip, source_host, user_agent, referrer, 
+             content_type, content_length, message_content, headers_json, 
+             payload_json, attack_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data.get("received_at", ""),
+            data.get("request_method", ""),
+            data.get("source_ip", ""),
+            data.get("source_host", ""),
+            data.get("user_agent", ""),
+            data.get("referrer", ""),
+            data.get("content_type", ""),
+            data.get("content_length", 0),
+            data.get("message_content", ""),
+            json.dumps(data.get("headers", {}), ensure_ascii=False),
+            json.dumps(data.get("payload", {}), ensure_ascii=False),
+            data.get("attack_type", "unknown"),
+        ))
+        conn.commit()
+        return cursor.lastrowid
+    except Exception as e:
+        print(f"[db] insert_attack_message error: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def get_attack_messages(limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+    """Get attack messages with pagination. Returns {total, data}."""
+    conn = get_conn()
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM attack_messages").fetchone()[0]
+        rows = conn.execute(
+            """SELECT id, received_at, request_method, source_ip, source_host, user_agent,
+                      referrer, content_type, content_length, message_content,
+                      headers_json, payload_json, attack_type
+               FROM attack_messages 
+               ORDER BY received_at DESC 
+               LIMIT ? OFFSET ?""",
+            (limit, offset)
+        ).fetchall()
+        data = []
+        for row in rows:
+            d = dict(row)
+            # 解析 JSON 字段
+            if d.get("headers_json"):
+                try:
+                    d["headers"] = json.loads(d.pop("headers_json"))
+                except:
+                    d["headers"] = {}
+            else:
+                d["headers"] = {}
+            if d.get("payload_json"):
+                try:
+                    d["payload"] = json.loads(d.pop("payload_json"))
+                except:
+                    d["payload"] = {}
+            else:
+                d["payload"] = {}
+            data.append(d)
+        conn.close()
+        return {"total": total, "data": data}
+    except Exception as e:
+        print(f"[db] get_attack_messages error: {e}")
+        return {"total": 0, "data": []}
+
+
+def clear_attack_messages() -> int:
+    """Clear all attack messages. Returns deleted count."""
+    conn = get_conn()
+    try:
+        cursor = conn.execute("DELETE FROM attack_messages")
+        conn.commit()
+        return cursor.rowcount
+    except Exception as e:
+        print(f"[db] clear_attack_messages error: {e}")
+        return 0
+    finally:
+        conn.close()
 
 
 # ============================================================
