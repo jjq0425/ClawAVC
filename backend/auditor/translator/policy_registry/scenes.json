@@ -49,7 +49,9 @@
     "desc": "执行一次性 shell 命令、运行脚本、查看命令输出或启动短生命周期进程；属于高风险能力，必须限制命令范围并记录审计日志。",
     "functions": [
       "exec",
-      "process"
+      "process",
+      "cmd_executor__exec_command",
+      "cmd_executor__exec_script"
     ]
   },
   "terminal_session": {
