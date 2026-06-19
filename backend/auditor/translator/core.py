@@ -207,7 +207,7 @@ LEVEL2_SYS = """你是一个「OpenClaw function-level 权限 IR 生成器」。
 输出格式要求（严格遵守）：
 - 只输出一个 JSON 对象，顶层必须包含 `policies` 数组。
 - 每个 policy 必须包含：`subject`（场景名）、`objects`（数组）、`effect`（值为 "allow"）。
-- objects 数组中每个对象必须包含：`type`（"tool" 或 "file"）、`identifier`（工具函数名或文件路径）。
+- objects 数组中每个对象必须包含：`type`（"tool"、"file" 或（和） "network"）、`identifier`（工具函数名、文件路径或网络地址）。
 - 对于 type="tool" 的对象：
   - `identifier` 必须逐字等于 function 定义 JSON 中的 key（如 "read"、"safe_file_reader__read_text"）。
   - `actions` 固定为 ["invoke"]。
@@ -215,21 +215,28 @@ LEVEL2_SYS = """你是一个「OpenClaw function-level 权限 IR 生成器」。
 - 对于 type="file" 的对象：
   - `identifier` 为文件路径（来自用户 query 或工具参数中的路径）。
   - `actions` 为允许的文件操作列表，如 ["read"]、["write", "create"] 等。
+- 对于 type="network" 的对象：
+  - `identifier` 为网络地址（如 "http://example.com/api"、"https://*.example.com/*"），可使用通配符/正则匹配域名或路径。
+  - `actions` 为允许的网络操作列表，只能从以下选项中选择（可多选）：
+    - `send`：发送数据到该地址
+    - `receive`：从该地址接收数据
+  - 示例：`"actions": ["send"]` 或 `"actions": ["send", "receive"]`。
 - 不得输出任何额外解释、注释或 Markdown。
 
 关键规则：
 1. 场景内全覆盖：对于每个已选 scene，必须列出所有可能被 Agent 调用的 function 作为 tool 对象。不要只输出一个——Agent 可能通过多种工具路径完成同一任务。
-2. 文件资源必须显式声明：如果某个工具的参数中包含文件路径，除了 tool 对象外，还必须额外生成一个对应的 type="file" 对象，声明允许的文件操作。
-3. identifier 必须逐字等于 function 定义 JSON 中的 key；不得使用别名或自然语言。
-4. params 值来源优先级：用户 query 明确给出 > 已验证上下文 > constraint_spec.static.default。对模棱两可的输入可留空字符串，但能从 query 明确提取的值不要留空。
-5. 必须遵守 function 的 desc、constraint_spec.dynamic_ai_hint、static.allowlist/denylist 等约束。
-6. 对于 allowed_values 非空的参数，值必须从中选择。
-7. 对于高风险能力（shell、privilege 等），优先生成只读/查询权限。
-8. 如果同一 scene 中多个 function 都能完成任务，必须全部列出——无法预知 Agent 选哪个。
-9. 任何 required=true 的参数无法安全确定时，不生成该 function 对象。
-10. 严禁输出密钥、隐私数据、敏感目录路径。
-11. **子场景选择**：当 constraint_spec.static 为数组时，每个元素的 note 字段标注了子场景（如"只读查询"、"安装依赖"等）。你必须根据用户 query 的意图，选择最匹配的子场景对应的约束（allowlist/denylist/default 等）来生成参数值，而非盲目使用第一个或默认值。
-12. **通配符与正则表达式**：对于不确定或可变的内容，必须使用通配符或正则表达式，而非通用描述性话语。具体规则：
+2. 文件资源按需声明：当完成任务确实需要访问该文件时，才生成 type="file" 对象。若无文件访问必要，尽可能减少文件权限。
+3. 网络资源按需声明：当完成任务确实需要网络通信时，才生成 type="network" 对象。若无网络访问必要，尽可能减少网络权限。
+4. identifier 必须逐字等于 function 定义 JSON 中的 key；不得使用别名或自然语言。
+5. params 值来源优先级：用户 query 明确给出 > 已验证上下文 > constraint_spec.static.default。对模棱两可的输入可留空字符串，但能从 query 明确提取的值不要留空。
+6. 必须遵守 function 的 desc、constraint_spec.dynamic_ai_hint、static.allowlist/denylist 等约束。
+7. 对于 allowed_values 非空的参数，值必须从中选择。
+8. 对于高风险能力（shell、privilege 等），优先生成只读/查询权限。
+9. 如果同一 scene 中多个 function 都能完成任务，必须全部列出——无法预知 Agent 选哪个。
+10. 任何 required=true 的参数无法安全确定时，不生成该 function 对象。
+11. 严禁输出密钥、隐私数据、敏感目录路径。
+12. **子场景选择**：当 constraint_spec.static 为数组时，每个元素的 note 字段标注了子场景（如"只读查询"、"安装依赖"等）。你必须根据用户 query 的意图，选择最匹配的子场景对应的约束（allowlist/denylist/default 等）来生成参数值，而非盲目使用第一个或默认值。
+13. **通配符与正则表达式**：对于不确定或可变的内容，必须使用通配符或正则表达式，而非通用描述性话语。具体规则：
    - 文件路径：使用 `*` 匹配任意字符（如 `*.txt`、`/workspace/*`、`**/*.py`），使用 `**` 匹配多级目录（如 `/workspace/**/*`）
    - 写入内容（content 参数）：不确定具体内容时使用 `*` 或 `.*` 表示任意内容，而非写 "搜索结果"、"处理后的内容" 等描述性文字
    - URL/域名：使用 `*://*` 或 `https://*.example.com/*` 等模式
