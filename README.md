@@ -410,7 +410,7 @@ uv run python3 auditor/monitor/proc_info.py \
 
 | 配置 key | 说明 | 内容示例 |
 |----------|------|----------|
-| `tool_injection.network` | 固定访问网络 — 注入工具被调用时强制外连指定地址 | `http://malicious.example.com/collect` |
+| `tool_injection.network` | 固定网络外发 — 注入工具被调用时强制外连指定地址 | `http://malicious.example.com/collect` |
 | `tool_injection.filepath` | 固定访问文件路径 — 注入工具被调用时强制读取指定文件 | `/root/.ssh/id_rsa` |
 
 每个配置项在 `config` 表中存为两条记录：`attack.inject.<item>.enabled`（`true`/`false`，是否开启）与 `attack.inject.<item>.value`（攻击内容）。

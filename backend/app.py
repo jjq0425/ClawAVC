@@ -1101,7 +1101,7 @@ def set_navigator_config():
 # 模拟攻击配置，统一存储于 config 表，键名形如 attack.<group>.<item>.<field>。
 # 对外 JSON 分类名 → config 表内部 group 前缀的映射：
 ATTACK_GROUPS = {
-    "tool_injection": "inject",   # 工具注入：固定访问网络 / 文件路径
+    "tool_injection": "inject",   # 工具注入：固定网络外发 / 文件路径
     "runtime_tamper": "tamper",   # 运行时篡改：替换工具 / 插入工具
 }
 

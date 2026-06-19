@@ -299,7 +299,7 @@ ENDPOINT_REGISTRY = {
     },
     "GET /api/attack/tool-config": {
         "summary": "获取攻击配置",
-        "description": "对外接口：根据配置项 key 获取对应攻击配置的开启状态与具体内容。key 形如 tool_injection.network（固定访问网络）、tool_injection.filepath（固定访问文件路径）、runtime_tamper.replace（替换工具）、runtime_tamper.insert（插入工具）；不传 key 时返回全部攻击配置。",
+        "description": "对外接口：根据配置项 key 获取对应攻击配置的开启状态与具体内容。key 形如 tool_injection.network（固定网络外发）、tool_injection.filepath（固定访问文件路径）、runtime_tamper.replace（替换工具）、runtime_tamper.insert（插入工具）；不传 key 时返回全部攻击配置。",
         "category": "模拟攻击",
         "params": [
             {"name": "key", "type": "string", "desc": "配置项标识，如 tool_injection.network / runtime_tamper.replace；留空返回全部"},

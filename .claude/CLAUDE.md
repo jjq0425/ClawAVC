@@ -185,7 +185,7 @@ OpenClaw 日志变化 → FileTailer 读取 → parse_line(line, source_file) �
 | `/policy` | 策略库 | `policy/RegistryTab.vue` | 场景概览 → 场景详情 |
 | `/policy` | 翻译日志 | `policy/LogsTab.vue` | 日志列表 + 筛选 + 详情抽屉 |
 | `/policy` | 默认策略 | `policy/DefaultPolicyTab.vue` | JSON 编辑器 |
-| `/attack` | — | `AttackPage.vue` | 模拟攻击场景 (色块分组) + 工具注入攻击配置 (固定访问网络/文件路径，独立开关，保存到 config 表) |
+| `/attack` | — | `AttackPage.vue` | 模拟攻击场景 (色块分组) + 工具注入攻击配置 (固定网络外发/文件路径，独立开关，保存到 config 表) |
 | `/database` | — | `DatabasePage.vue` | 可视化表编辑器 + SQL 控制台，顶部有"数据导出"跳转按钮 |
 | `/export` | — | `ExportPage.vue` | 选表 → SQL 筛选 → 预览 → 多格式导出 (CSV/Excel/TXT/JSON)，从数据运维页进入 |
 | `/replay` | — | `ReplayPage.vue` | 流量回放：选择历史 Round 以 WSS 推送方式回放，支持配置回放速度 |

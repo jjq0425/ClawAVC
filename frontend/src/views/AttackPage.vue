@@ -405,7 +405,7 @@
               <div class="cfg-item" :class="{ on: injectConfig.network.enabled }">
                 <div class="cfg-row">
                   <div class="cfg-info">
-                    <div class="cfg-name">固定访问网络</div>
+                    <div class="cfg-name">固定网络外发</div>
                     <code class="cfg-key">tool_injection.network</code>
                     <div class="cfg-desc">注入的工具被调用时强制外连到指定地址</div>
                   </div>
