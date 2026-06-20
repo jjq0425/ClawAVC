@@ -123,7 +123,7 @@
                   <div class="sub-block-header user">{{ policy.subject || 'policy ' + i }}</div>
                   <div class="ir-objects-list">
                     <div v-for="(obj, j) in (policy.objects || [])" :key="j" class="ir-obj-row">
-                      <t-tag :theme="obj.type === 'tool' ? 'primary' : 'success'" variant="light" size="small">{{ obj.type }}</t-tag>
+                      <t-tag :theme="getIRTypeTheme(obj.type)" variant="light" size="small">{{ obj.type }}</t-tag>
                       <span class="ir-ident">{{ obj.identifier }}</span>
                       <span v-if="obj.actions" class="ir-act">[{{ obj.actions.join(', ') }}]</span>
                       <div v-if="obj.params && obj.params.length" class="ir-params">
@@ -386,6 +386,16 @@ function toggleExpand(id) { expandedId.value = expandedId.value === id ? null : 
 function fmtTime(t) { if (!t) return ""; return t.replace(/\+\d{4}\s*$/, "").trim() }
 function parseJSON(str) { try { return JSON.parse(str || "[]") } catch { return [] } }
 function getIRPolicies(irStr) { try { const ir = JSON.parse(irStr || "{}"); const level2 = ir.level2 || ir; return level2.policies || [] } catch { return [] } }
+
+// 获取 IR 对象类型的 tag 主题
+function getIRTypeTheme(type) {
+  const themes = {
+    'tool': 'primary',
+    'file': 'success',
+    'network': 'warning'
+  }
+  return themes[type] || 'default'
+}
 
 // 内核态详情查看
 function getKernelPreview(content) {
