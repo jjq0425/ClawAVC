@@ -465,9 +465,9 @@ function openResourceFactsDialog(content) {
 .action-chip { background: #fafbfc; border: 1px solid #eee; border-radius: 8px; padding: 10px 14px; }
 .action-tool { margin-bottom: 4px; }
 .tool-field { font-size: 11px; color: #888; margin-right: 4px; }
-.action-detail { margin-top: 4px; display: flex; align-items: flex-start; gap: 4px; }
+.action-detail { margin-top: 4px; display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px; }
 .action-detail code { font-size: 11px; color: #666; word-break: break-all; }
-.resource-tag { font-size: 11px; color: #0052D9; background: #f0f5ff; padding: 2px 6px; border-radius: 4px; margin-right: 4px; }
+.resource-tag { font-size: 11px; color: #0052D9; background: #f0f5ff; padding: 2px 6px; border-radius: 4px; margin-right: 4px; flex-shrink: 0; }
 .ir-policies { display: flex; flex-direction: column; gap: 10px; }
 .ir-objects-list { display: flex; flex-direction: column; gap: 6px; }
 .ir-obj-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 4px 0; }
