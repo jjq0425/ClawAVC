@@ -1023,6 +1023,187 @@ def get_attack_config_snapshot() -> str:
     return ""
 
 
+def truncate_text(text: str, max_len: int = 2000) -> str:
+    """Truncate text with [Truncated] marker if too long."""
+    if not text or len(text) <= max_len:
+        return text
+    return text[:max_len] + " [Truncated]"
+
+
+def extract_history_for_round(openclaw_root: Path, round_id: str) -> List[Dict[str, Any]]:
+    """Extract conversation history before the current round from OpenClaw session logs.
+    
+    This function is called when a round starts, to capture the context/history
+    before the current round begins. Includes user messages, assistant messages,
+    tool calls, and tool results.
+    
+    OpenClaw JSONL format:
+      {"type": "message", "id": "...", "parentId": "...", "message": {"role": "user", "content": "text"}}
+      {"type": "message", "id": "...", "parentId": "...", "message": {"role": "assistant", "content": [{"type": "text", "text": "..."}]}}
+      {"type": "message", "id": "...", "parentId": "...", "message": {"role": "assistant", "content": [{"type": "toolCall", "name": "...", "arguments": {...]}]}}
+      {"type": "message", "id": "...", "parentId": "...", "message": {"role": "toolResult", "content": [{"type": "text", "text": "..."}]}}
+    """
+    history = []
+    
+    sessions_dir = openclaw_root / "agents" / "main" / "sessions"
+    if not sessions_dir.exists():
+        return history
+    
+    # Find session file containing this round_id
+    session_files = sorted(sessions_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    target_file = None
+    for sf in session_files[:10]:
+        try:
+            text = sf.read_text(encoding="utf-8", errors="replace")
+            if round_id in text:
+                target_file = sf
+                break
+        except Exception:
+            continue
+    
+    # 如果没找到包含 round_id 的文件，尝试使用最新的 session 文件
+    if not target_file and session_files:
+        target_file = session_files[0]
+    
+    if not target_file:
+        return history
+    
+    found_round = False
+    pending_tool_calls: Dict[str, List[Dict[str, Any]]] = {}  # assistant_id -> tool calls
+    
+    try:
+        with target_file.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                
+                # 只处理 type="message" 的行
+                if obj.get("type") != "message":
+                    continue
+                
+                msg_id = obj.get("id", "")
+                parent_id = obj.get("parentId", "")
+                msg = obj.get("message", {})
+                role = msg.get("role", "")
+                content = msg.get("content", [])
+                
+                # Find the user message that starts this round
+                if msg_id == round_id and role == "user":
+                    found_round = True
+                    continue  # 跳过当前轮次的 query
+                
+                # 收集当前 round 之前的对话上下文作为 history
+                if not found_round:
+                    if role == "user":
+                        # User 消息的 content 可能是字符串或数组
+                        if isinstance(content, str):
+                            user_text = content
+                        elif isinstance(content, list):
+                            user_text = ""
+                            for c in content:
+                                if isinstance(c, dict) and c.get("type") == "text":
+                                    user_text = c.get("text", "")
+                                    break
+                        else:
+                            user_text = str(content)
+                        
+                        if user_text:
+                            # 清理发送者元数据
+                            user_text = re.sub(r"Sender\s*\(untrusted metadata\):\s*```json\s*\{[^}]*\}\s*```\s*", "", user_text, flags=re.DOTALL).strip()
+                            lines_t = [l.strip() for l in user_text.splitlines() if l.strip()]
+                            if lines_t:
+                                last_line = re.sub(r"^\[.*?\]\s*", "", lines_t[-1])
+                                if last_line:
+                                    history.append({"type": "user", "content": truncate_text(last_line, 500)})
+                    
+                    elif role == "assistant" and isinstance(content, list):
+                        # 处理 assistant 消息，可能包含 tool 调用和文本
+                        text_parts = []
+                        tool_calls = []
+                        for c in content:
+                            if isinstance(c, dict):
+                                if c.get("type") == "text":
+                                    text_parts.append(c.get("text", ""))
+                                elif c.get("type") == "toolCall":
+                                    # 保存 toolCall 的 id 以便后续匹配 toolResult
+                                    tool_calls.append({
+                                        "id": c.get("id", ""),
+                                        "tool": c.get("name", ""),
+                                        "arguments": c.get("arguments", {}),
+                                    })
+                        
+                        # 添加 assistant 文本（如果有）
+                        if text_parts:
+                            text_content = "\n".join(text_parts)
+                            if text_content.strip():
+                                history.append({"type": "assistant", "content": truncate_text(text_content, 500)})
+                        
+                        # 记录 tool 调用，等待 toolResult
+                        if tool_calls and msg_id:
+                            pending_tool_calls[msg_id] = tool_calls
+                    
+                    elif role == "toolResult":
+                        # 处理工具结果 - toolResult 使用 toolCallId 而不是 parentId
+                        tool_call_id = obj.get("toolCallId", "") or msg.get("toolCallId", "")
+                        tool_name = obj.get("toolName", "") or msg.get("toolName", "") or "unknown"
+                        
+                        result_text = ""
+                        if isinstance(content, list):
+                            for c in content:
+                                if isinstance(c, dict) and c.get("type") == "text":
+                                    result_text += c.get("text", "")
+                        elif isinstance(content, str):
+                            result_text = content
+                        
+                        # 通过 toolCallId 找到对应的 tool 调用
+                        # 需要遍历所有 pending_tool_calls 找到包含这个 toolCallId 的
+                        found_tool_call = False
+                        for parent_id, tools in list(pending_tool_calls.items()):
+                            for tool_info in tools:
+                                if tool_info.get("id") == tool_call_id:
+                                    found_tool_call = True
+                                    # 添加工具调用
+                                    history.append({
+                                        "type": "tool_call",
+                                        "tool": tool_name,
+                                        "arguments": truncate_text(str(tool_info.get("arguments", {})), 300),
+                                    })
+                                    # 添加工具结果
+                                    if result_text:
+                                        history.append({
+                                            "type": "tool_result",
+                                            "tool": tool_name,
+                                            "content": truncate_text(result_text[:1000], 500),
+                                        })
+                                    break
+                            if found_tool_call:
+                                break
+                        
+                        # 如果没找到对应的 tool_call，直接添加 tool_result
+                        if not found_tool_call and result_text:
+                            history.append({
+                                "type": "tool_result",
+                                "tool": tool_name,
+                                "content": truncate_text(result_text[:500], 500),
+                            })
+                    
+                    continue
+                
+                # If we hit a new user message after finding the round, stop
+                if role == "user" and msg_id != round_id:
+                    break
+                    
+    except Exception as e:
+        print(f"[monitor] extract_history_for_round error: {e}", flush=True)
+    
+    # 只保留最近 20 条历史消息（因为现在包含更多类型）
+    return history[-20:]
+
 
 def extract_from_openclaw_session(openclaw_root: Path, round_id: str, start_time: float) -> Dict[str, Any]:
     """Extract user_query, actions (with results), last_llm_message from OpenClaw session logs.
@@ -1032,7 +1213,7 @@ def extract_from_openclaw_session(openclaw_root: Path, round_id: str, start_time
       toolResult (parentId=assistant.id): content[] has {type:text, text:result_text}
       assistant (stopReason=stop): content[] has {type:text, text:final_reply}
     """
-    result = {"user_query": None, "actions": [], "last_llm_msg": None}
+    result = {"user_query": None, "actions": [], "last_llm_msg": None, "history": None}
     
     sessions_dir = openclaw_root / "agents" / "main" / "sessions"
     if not sessions_dir.exists():
@@ -1092,9 +1273,6 @@ def extract_from_openclaw_session(openclaw_root: Path, round_id: str, start_time
                                     last_line = _re.sub(r"^\[.*?\]\s*", "", lines_t[-1])
                                     if last_line:
                                         result["user_query"] = last_line
-                    continue
-                
-                if not found_round:
                     continue
                 
                 # If we hit a new user message, this round is over
@@ -1158,6 +1336,7 @@ class MonitorOrchestrator:
         self._round_ir_results: Dict[str, Dict] = {}
         self._round_queries: Dict[str, str] = {}
         self._round_workers: Dict[str, threading.Thread] = {}
+        self._round_histories: Dict[str, List[Dict[str, str]]] = {}  # 存储每个 round 的 history
         # Cache the OpenClaw main process across rounds: (pid, starttime_ticks).
         # If the cached PID still exists with the same starttime at the next
         # round_start, proc_info.collect_for_round skips its full /proc scan.
@@ -1227,6 +1406,18 @@ class MonitorOrchestrator:
         except Exception as e:
             print(f"[monitor] pid_info capture failed: {e}", flush=True)
 
+        # 在 round start 时提取 history（对话上下文）
+        history = []
+        try:
+            history = extract_history_for_round(self.openclaw_log_root, r.round_id)
+            if history:
+                self._round_histories[r.round_id] = history
+                print(f"[monitor] History captured for {r.round_id}: {len(history)} messages", flush=True)
+            else:
+                print(f"[monitor] No history found for {r.round_id}", flush=True)
+        except Exception as e:
+            print(f"[monitor] Failed to capture history for {r.round_id}: {e}", flush=True)
+
         report_to_clawavc({"event": "start", "round_id": r.round_id, "time_start": format_bj_time(), "session_key": session_key, "session_id": session_id, "attack_config": attack_config, "pid_info": pid_info})
 
         t = threading.Thread(target=self._query_and_ir_worker, args=(r.round_id, r.started_at), daemon=True)
@@ -1285,6 +1476,8 @@ class MonitorOrchestrator:
 
         user_query = self._round_queries.pop(r.round_id, None)
         ir_result = self._round_ir_results.pop(r.round_id, None)
+        # 优先使用在 round start 时捕获的 history
+        history = self._round_histories.pop(r.round_id, [])
 
         use_gw = self._should_use_gateway()
         trajectory = []
@@ -1346,6 +1539,7 @@ class MonitorOrchestrator:
             "session_id": session_id,
             "user_query": user_query or "(not found)",
             "last_llm_message": last_llm_msg or "",
+            "history": json.dumps(history, ensure_ascii=False) if history else "",
             "action_json": json.dumps(actions, ensure_ascii=False),
             "ir_json": json.dumps(ir_result, ensure_ascii=False) if ir_result else "",
             "judge_result": judge_result,

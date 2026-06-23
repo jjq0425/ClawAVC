@@ -70,6 +70,8 @@ def init_db():
         conn.execute("ALTER TABLE rounds ADD COLUMN judge_result_kernel TEXT DEFAULT ''")
     if "syscall_judge" not in cols:
         conn.execute("ALTER TABLE rounds ADD COLUMN syscall_judge TEXT DEFAULT ''")
+    if "history" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN history TEXT DEFAULT ''")
     # 迁移：将旧的 resource_facts 列重命名为 kernel_resource_facts（如果存在）
     if "resource_facts" in cols and "kernel_resource_facts" not in cols:
         try:
@@ -222,6 +224,7 @@ def update_round_end(round_id: str, data: Dict[str, Any]) -> bool:
                 time_end = ?,
                 user_query = ?,
                 last_llm_message = ?,
+                history = ?,
                 action_json = ?,
                 ir_json = ?,
                 judge_result = ?,
@@ -232,6 +235,7 @@ def update_round_end(round_id: str, data: Dict[str, Any]) -> bool:
             data.get("time_end", ""),
             data.get("user_query", ""),
             data.get("last_llm_message", ""),
+            data.get("history", ""),
             data.get("action_json", "[]"),
             data.get("ir_json", "{}"),
             data.get("judge_result", ""),
