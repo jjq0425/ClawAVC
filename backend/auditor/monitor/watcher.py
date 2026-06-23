@@ -1049,24 +1049,42 @@ def extract_history_for_round(openclaw_root: Path, round_id: str) -> List[Dict[s
     if not sessions_dir.exists():
         return history
     
-    # Find session file containing this round_id
-    session_files = sorted(sessions_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    # 重试机制：/clear 后第一条消息时，session 文件可能还没写入磁盘
     target_file = None
-    for sf in session_files[:10]:
-        try:
-            text = sf.read_text(encoding="utf-8", errors="replace")
-            if round_id in text:
-                target_file = sf
-                break
-        except Exception:
-            continue
+    for retry in range(5):
+        session_files = sorted(sessions_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+        
+        # Find session file containing this round_id
+        for sf in session_files[:10]:
+            try:
+                text = sf.read_text(encoding="utf-8", errors="replace")
+                if round_id in text:
+                    target_file = sf
+                    break
+            except Exception:
+                continue
+        
+        if target_file:
+            break
+        
+        # 如果没找到，等待一下再重试
+        if not target_file and retry < 4:
+            time.sleep(0.2)
     
     # 如果没找到包含 round_id 的文件，尝试使用最新的 session 文件
     if not target_file and session_files:
         target_file = session_files[0]
-    
-    if not target_file:
+        print(f"[monitor] extract_history: no file contains round_id={round_id}, using latest: {target_file.name}", flush=True)
+    elif not target_file:
+        print(f"[monitor] extract_history: no session files found for round_id={round_id}", flush=True)
         return history
+    
+    # 读取文件内容用于调试
+    try:
+        file_text = target_file.read_text(encoding="utf-8", errors="replace")
+        print(f"[monitor] extract_history: file size={len(file_text)}, round_id={round_id}, round_id in file={round_id in file_text}", flush=True)
+    except Exception as e:
+        print(f"[monitor] extract_history: error reading file: {e}", flush=True)
     
     found_round = False
     pending_tool_calls: Dict[str, List[Dict[str, Any]]] = {}  # assistant_id -> tool calls
@@ -1203,6 +1221,69 @@ def extract_history_for_round(openclaw_root: Path, round_id: str) -> List[Dict[s
     
     # 只保留最近 20 条历史消息（因为现在包含更多类型）
     return history[-20:]
+
+
+def extract_user_query_from_session(openclaw_root: Path, round_id: str) -> Optional[str]:
+    """Extract user query from OpenClaw session logs by round_id.
+    
+    This is used as a fallback when gateway logs haven't been written yet.
+    """
+    sessions_dir = openclaw_root / "agents" / "main" / "sessions"
+    if not sessions_dir.exists():
+        return None
+    
+    # Find session file containing this round_id
+    session_files = sorted(sessions_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for sf in session_files[:10]:
+        try:
+            text = sf.read_text(encoding="utf-8", errors="replace")
+            if round_id in text:
+                # Found the session file, now extract the user query
+                with sf.open("r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except Exception:
+                            continue
+                        
+                        # Only process message type
+                        if obj.get("type") != "message":
+                            continue
+                        
+                        msg_id = obj.get("id", "")
+                        msg = obj.get("message", {})
+                        role = msg.get("role", "")
+                        content = msg.get("content", [])
+                        
+                        # Found the user message for this round
+                        if msg_id == round_id and role == "user":
+                            if isinstance(content, str):
+                                user_text = content
+                            elif isinstance(content, list):
+                                user_text = ""
+                                for c in content:
+                                    if isinstance(c, dict) and c.get("type") == "text":
+                                        user_text = c.get("text", "")
+                                        break
+                            else:
+                                user_text = str(content)
+                            
+                            if user_text:
+                                # Clean up sender metadata
+                                user_text = re.sub(r"Sender\s*\(untrusted metadata\):\s*```json\s*\{[^}]*\}\s*```\s*", "", user_text, flags=re.DOTALL).strip()
+                                lines_t = [l.strip() for l in user_text.splitlines() if l.strip()]
+                                if lines_t:
+                                    last_line = re.sub(r"^\[.*?\]\s*", "", lines_t[-1])
+                                    if last_line:
+                                        return last_line.strip()
+                            break
+        except Exception:
+            continue
+    
+    return None
 
 
 def extract_from_openclaw_session(openclaw_root: Path, round_id: str, start_time: float) -> Dict[str, Any]:
@@ -1408,6 +1489,8 @@ class MonitorOrchestrator:
 
         # 在 round start 时提取 history（对话上下文）
         history = []
+        openclaw_root_str = str(self.openclaw_log_root) if self.openclaw_log_root else ""
+        print(f"[monitor] About to extract history for round_id={r.round_id}, openclaw_root={openclaw_root_str}", flush=True)
         try:
             history = extract_history_for_round(self.openclaw_log_root, r.round_id)
             if history:
@@ -1439,18 +1522,29 @@ class MonitorOrchestrator:
         gw_dir = self._get_gateway_dir()
 
         user_query = None
+        retry_count = 0
         for _ in range(60):
             if not self.running:
                 return
+            
+            # 尝试从 gateway 日志提取
             if gw_dir:
+                retry_count += 1
                 for obj in read_gateway_logs_since(gw_dir, start_dt):
                     q = extract_user_query_from_obj(obj)
                     if q:
                         user_query = q
                         break
+            
+            # 如果 gateway 没找到，尝试从 session 文件提取
+            if not user_query:
+                user_query = extract_user_query_from_session(self.openclaw_log_root, round_id)
+            
             if user_query:
                 break
             time.sleep(0.5)
+        
+        print(f"[monitor] _query_and_ir_worker finished: round_id={round_id}, user_query={'found' if user_query else 'NOT FOUND'}, retries={retry_count}", flush=True)
 
         if not user_query:
             self._round_queries[round_id] = ""
@@ -1459,8 +1553,19 @@ class MonitorOrchestrator:
         self._round_queries[round_id] = user_query
         print(f"[monitor] Query found for {round_id}: {user_query[:60]}", flush=True)
 
-        # 获取之前捕获的 history
-        history = self._round_histories.get(round_id, [])
+        # 在找到 user_query 时重新提取 history（此时 session 文件已写入完整内容）
+        try:
+            history = extract_history_for_round(self.openclaw_log_root, round_id)
+            if history:
+                self._round_histories[round_id] = history
+                print(f"[monitor] History extracted at query time for {round_id}: {len(history)} messages", flush=True)
+            else:
+                # 如果还是没有 history，使用之前存储的
+                history = self._round_histories.get(round_id, [])
+                print(f"[monitor] No history found at query time for {round_id}, using cached: {len(history)} messages", flush=True)
+        except Exception as e:
+            print(f"[monitor] Failed to extract history at query time for {round_id}: {e}", flush=True)
+            history = self._round_histories.get(round_id, [])
 
         report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "history": json.dumps(history, ensure_ascii=False) if history else "", "action_json": "[]", "ir_json": self.LOADING_MARKER, "judge_result": "", "is_abnormal": False, "overall_score": -1.0})
 
@@ -1587,6 +1692,7 @@ class MonitorOrchestrator:
             for path, line in tailer.scan_new_lines():
                 ev = parse_line(line, str(path))
                 if ev:
+                    print(f"[monitor] Parsed event: kind={ev.kind}", flush=True)
                     self.sm.apply(ev)
 
             self.sm.check_idle_end()
