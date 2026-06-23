@@ -119,6 +119,7 @@ const formats = [
   { value: 'xlsx', label: 'Excel', icon: '📗' },
   { value: 'txt', label: 'TXT', icon: '📄' },
   { value: 'json', label: 'JSON', icon: '📋' },
+  { value: 'jsonl', label: 'JSONL', icon: '📜' },
 ]
 
 const exportableTables = ref([])
@@ -223,6 +224,9 @@ function doExport() {
       case 'json':
         exportJSON(filename)
         break
+      case 'jsonl':
+        exportJSONL(filename)
+        break
     }
     MessagePlugin.success(`已导出 ${previewRows.value.length} 条数据`)
   } catch (e) {
@@ -273,6 +277,12 @@ function exportTXT(filename) {
 function exportJSON(filename) {
   const json = JSON.stringify(previewRows.value, null, 2)
   downloadBlob(json, `${filename}.json`, 'application/json;charset=utf-8')
+}
+
+// --- JSONL Export (one JSON object per line) ---
+function exportJSONL(filename) {
+  const lines = previewRows.value.map(row => JSON.stringify(row))
+  downloadBlob(lines.join('\n'), `${filename}.jsonl`, 'application/x-jsonlines;charset=utf-8')
 }
 
 // --- XLSX Export (lightweight, no external dependency) ---
