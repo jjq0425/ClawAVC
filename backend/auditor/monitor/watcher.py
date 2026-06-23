@@ -1418,7 +1418,17 @@ class MonitorOrchestrator:
         except Exception as e:
             print(f"[monitor] Failed to capture history for {r.round_id}: {e}", flush=True)
 
-        report_to_clawavc({"event": "start", "round_id": r.round_id, "time_start": format_bj_time(), "session_key": session_key, "session_id": session_id, "attack_config": attack_config, "pid_info": pid_info})
+        # 立即上报 start 事件，包含 history
+        report_to_clawavc({
+            "event": "start",
+            "round_id": r.round_id,
+            "time_start": format_bj_time(),
+            "session_key": session_key,
+            "session_id": session_id,
+            "attack_config": attack_config,
+            "pid_info": pid_info,
+            "history": json.dumps(history, ensure_ascii=False) if history else "",
+        })
 
         t = threading.Thread(target=self._query_and_ir_worker, args=(r.round_id, r.started_at), daemon=True)
         self._round_workers[r.round_id] = t
@@ -1449,7 +1459,10 @@ class MonitorOrchestrator:
         self._round_queries[round_id] = user_query
         print(f"[monitor] Query found for {round_id}: {user_query[:60]}", flush=True)
 
-        report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "action_json": "[]", "ir_json": self.LOADING_MARKER, "judge_result": "", "is_abnormal": False, "overall_score": -1.0})
+        # 获取之前捕获的 history
+        history = self._round_histories.get(round_id, [])
+
+        report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "history": json.dumps(history, ensure_ascii=False) if history else "", "action_json": "[]", "ir_json": self.LOADING_MARKER, "judge_result": "", "is_abnormal": False, "overall_score": -1.0})
 
         try:
             ir_result, ir_error = ir_translate(query=user_query, round_id=round_id, use_llm=True)
@@ -1461,7 +1474,7 @@ class MonitorOrchestrator:
             self._round_ir_results[round_id] = {}
 
         ir_data = self._round_ir_results.get(round_id, {})
-        report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "action_json": "[]", "ir_json": json.dumps(ir_data, ensure_ascii=False) if ir_data else "", "judge_result": "", "is_abnormal": False, "overall_score": -1.0})
+        report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "history": json.dumps(history, ensure_ascii=False) if history else "", "action_json": "[]", "ir_json": json.dumps(ir_data, ensure_ascii=False) if ir_data else "", "judge_result": "", "is_abnormal": False, "overall_score": -1.0})
         print(f"[monitor] IR ready for {round_id}", flush=True)
 
     def _on_round_end(self, r: RoundLedger) -> None:

@@ -286,6 +286,8 @@ def report_round():
         # SELinux/AppArmor 标签、capabilities、namespaces、cgroup、ancestors 等），
         # 直接以已编码的 JSON 字符串透传；缺省存空串。
         pid_info = data.get("pid_info") or ""
+        # history: 对话历史，包含之前的 user/assistant/tool 消息
+        history = data.get("history") or ""
         row_id = db.insert_round_start(
             round_id=round_id,
             time_start=data.get("time_start", ""),
@@ -293,6 +295,7 @@ def report_round():
             session_id=data.get("session_id") or data.get("sessionID", ""),
             attack_config=attack_config,
             pid_info=pid_info,
+            history=history,
         )
         if row_id:
             record = db.get_round_by_id(round_id)

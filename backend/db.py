@@ -187,12 +187,13 @@ def insert_round(data: Dict[str, Any]) -> Optional[int]:
 
 
 def insert_round_start(round_id: str, time_start: str, session_key: str, session_id: str,
-                       attack_config: str = "", pid_info: str = "") -> Optional[int]:
+                       attack_config: str = "", pid_info: str = "", history: str = "") -> Optional[int]:
     """Insert a round record at ROUND_START (partial data, no score yet).
 
     attack_config: 当前攻击配置的完整 JSON 快照，在 round 开始时固化保存。
     pid_info: OpenClaw 进程及其安全/隔离上下文（PID、SELinux/AppArmor、capabilities、
               namespaces、cgroup、ancestors 等）的 JSON 快照。
+    history: 对话历史 JSON，包含之前的 user/assistant/tool 消息。
     """
     conn = get_conn()
     try:
@@ -200,11 +201,11 @@ def insert_round_start(round_id: str, time_start: str, session_key: str, session
             INSERT OR IGNORE INTO rounds
             (round_id, time_start, time_end, session_key, session_id,
              user_query, last_llm_message, action_json, ir_json,
-             judge_result, is_abnormal, overall_score, attack_config, pid_info)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             judge_result, is_abnormal, overall_score, attack_config, pid_info, history)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             round_id, time_start, "", session_key, session_id,
-            "", "", "[]", "{}", "", 0, -1.0, attack_config, pid_info,
+            "", "", "[]", "{}", "", 0, -1.0, attack_config, pid_info, history,
         ))
         conn.commit()
         return cursor.lastrowid if cursor.rowcount > 0 else None
