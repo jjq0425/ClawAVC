@@ -939,7 +939,7 @@ def handle_monitor_disconnect():
 
 
 # ─── Monitor Config API ───────────────────────────────
-MONITOR_CONF_KEYS = ["gateway_log_path", "openclaw_root", "use_gateway"]
+MONITOR_CONF_KEYS = ["gateway_log_path", "openclaw_root", "use_gateway", "tool_trace_enabled"]
 
 @app.route("/api/monitor/config", methods=["GET"])
 def get_monitor_config():

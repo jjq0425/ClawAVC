@@ -107,6 +107,16 @@
           </div>
         </div>
       </div>
+
+      <t-divider />
+
+      <div class="form-group">
+        <label class="form-label">工具调用追踪 <t-tag size="small" theme="primary" variant="light">调试</t-tag></label>
+        <p class="form-hint">启用后，每次 Agent 调用工具时会将工具名、参数等信息写入 /tmp/openclaw-tool-trace.jsonl 文件，便于调试监控逻辑。</p>
+        <t-switch v-model="tool_trace_enabled" @change="saveSingle('tool_trace_enabled')" :disabled="monitorRunning">
+          <template #label>{{ tool_trace_enabled ? '已启用' : '已禁用' }}</template>
+        </t-switch>
+      </div>
     </div>
   </div>
 </template>
@@ -118,6 +128,7 @@ import { MessagePlugin } from "tdesign-vue-next"
 const gateway_log_path = ref("")
 const openclaw_root = ref("")
 const use_gateway = ref(false)
+const tool_trace_enabled = ref(false)
 const saving = ref("")
 const pathStatus = ref({})
 const monitorRunning = ref(false)
@@ -137,6 +148,7 @@ async function loadConfig() {
       gateway_log_path.value = d.gateway_log_path || ""
       openclaw_root.value = d.openclaw_root || ""
       use_gateway.value = d.use_gateway === "true"
+      tool_trace_enabled.value = d.tool_trace_enabled === "true"
       pathStatus.value = d._path_status || {}
     }
   } catch {}
@@ -186,6 +198,7 @@ async function saveSingle(key) {
     gateway_log_path: gateway_log_path.value,
     openclaw_root: openclaw_root.value,
     use_gateway: use_gateway.value ? "true" : "false",
+    tool_trace_enabled: tool_trace_enabled.value ? "true" : "false",
   }
   try {
     const r = await fetch("/api/monitor/config", {

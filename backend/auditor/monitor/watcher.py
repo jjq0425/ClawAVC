@@ -1422,11 +1422,167 @@ class MonitorOrchestrator:
         # If the cached PID still exists with the same starttime at the next
         # round_start, proc_info.collect_for_round skips its full /proc scan.
         self._main_pid_cache = None
+        
+        # 存储 tool_started 的信息，用于在 tool_completed 时关联
+        # key: toolCallId, value: {toolName, paramsPreview, ...}
+        self._pending_tool_traces: Dict[str, Dict[str, Any]] = {}
 
         self.sm = RoundStateMachine(
             on_round_start=self._on_round_start,
             on_round_end=self._on_round_end,
         )
+
+    def _write_tool_trace(self, line: str, ev: ParsedEvent, phase: str) -> None:
+        """当检测到 tool_started/tool_completed 时，提取 tool 信息并写入 JSONL 文件。
+        
+        phase 可以是 "before_tool_call" 或 "after_tool_call"
+        
+        输出格式：
+        {
+            "phase": "before_tool_call" | "after_tool_call",
+            "ts": "2026-06-25T14:40:01.000Z",
+            "toolName": "read",
+            "toolCallId": "call_xxx",
+            "runId": "xxx",
+            "paramsPreview": "{\"path\":\"/tmp/test\"}",  // before 阶段
+            "resultPreview": "file content...",  // after 阶段
+            "agentId": "main",
+            "sessionId": "xxx",
+            "sessionKey": "agent:main:main"
+        }
+        
+        注意：此功能通过后端配置项 tool_trace_enabled 控制，默认关闭。
+        """
+        # 检查开关是否开启
+        try:
+            config = get_config_from_db()
+            if config.get("tool_trace_enabled", "false").lower() != "true":
+                return
+        except Exception:
+            return  # 默认关闭
+        
+        try:
+            obj = json.loads(line)
+        except Exception as e:
+            print(f"[monitor] Failed to parse line: {e}", flush=True)
+            return
+        
+        flat = flatten_dict(obj)
+        
+        # 提取 tool 信息
+        tool_name = flat.get("message.toolName") or flat.get("message.tool_name") or ""
+        tool_call_id = flat.get("message.toolCallId") or flat.get("message.tool_call_id") or flat.get("id") or ""
+        
+        # 如果没有 toolName，尝试从 content 中提取（tool_calls 或 content 数组）
+        if not tool_name:
+            msg = obj.get("message", {})
+            if isinstance(msg, dict):
+                content = msg.get("content", [])
+                if isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict):
+                            item_type = item.get("type")
+                            if item_type == "toolCall":
+                                tool_name = item.get("name", "")
+                                if not tool_call_id:
+                                    tool_call_id = item.get("id", "")
+                                break
+                            elif item_type == "tool_calls":
+                                # tool_calls 是一个数组
+                                tool_calls = item.get("tool_calls", [])
+                                if isinstance(tool_calls, list) and len(tool_calls) > 0:
+                                    first_call = tool_calls[0]
+                                    if isinstance(first_call, dict):
+                                        function = first_call.get("function", {})
+                                        if isinstance(function, dict):
+                                            tool_name = function.get("name", "")
+                                        if not tool_call_id:
+                                            tool_call_id = first_call.get("id", "")
+                                        break
+        
+        if not tool_name:
+            print(f"[monitor] No tool_name found, skipping write", flush=True)
+            return
+        
+        # 提取参数预览 (before 阶段)
+        params_preview = ""
+        if phase == "before_tool_call":
+            arguments = flat.get("message.arguments") or flat.get("arguments")
+            if isinstance(arguments, dict):
+                params_preview = json.dumps(arguments, ensure_ascii=False)
+            elif isinstance(arguments, str):
+                params_preview = arguments
+            
+            # 如果还没有参数，尝试从 tool_calls 中提取
+            if not params_preview:
+                msg = obj.get("message", {})
+                if isinstance(msg, dict):
+                    content = msg.get("content", [])
+                    if isinstance(content, list):
+                        for item in content:
+                            if isinstance(item, dict):
+                                if item.get("type") == "toolCall":
+                                    args = item.get("arguments", {})
+                                    if isinstance(args, dict):
+                                        params_preview = json.dumps(args, ensure_ascii=False)
+                                    elif isinstance(args, str):
+                                        params_preview = args
+                                    break
+                                elif item.get("type") == "tool_calls":
+                                    tool_calls = item.get("tool_calls", [])
+                                    if isinstance(tool_calls, list) and len(tool_calls) > 0:
+                                        first_call = tool_calls[0]
+                                        if isinstance(first_call, dict):
+                                            function = first_call.get("function", {})
+                                            if isinstance(function, dict):
+                                                args = function.get("arguments", {})
+                                                if isinstance(args, str):
+                                                    try:
+                                                        params_preview = args
+                                                    except:
+                                                        pass
+                                                elif isinstance(args, dict):
+                                                    params_preview = json.dumps(args, ensure_ascii=False)
+        
+        # 提取结果预览 (after 阶段)
+        result_preview = ""
+        if phase == "after_tool_call":
+            # 从 content 中提取结果文本
+            msg = obj.get("message", {})
+            if isinstance(msg, dict):
+                content = msg.get("content", [])
+                if isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            text = item.get("text", "")
+                            if text:
+                                result_preview = text
+                                break
+                elif isinstance(content, str):
+                    result_preview = content
+        
+        # 构建输出记录
+        record = {
+            "phase": phase,
+            "ts": flat.get("time") or flat.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+            "toolName": tool_name,
+            "toolCallId": tool_call_id,
+            "runId": flat.get("runId") or flat.get("run_id") or flat.get("message.runId") or "",
+            "paramsPreview": params_preview[:500] if params_preview else "",
+            "resultPreview": result_preview[:500] if result_preview else "",
+            "agentId": flat.get("agentId") or flat.get("agent_id") or flat.get("message.agentId") or "main",
+            "sessionId": flat.get("sessionId") or flat.get("session_id") or flat.get("message.sessionId") or "",
+            "sessionKey": flat.get("sessionKey") or flat.get("session_key") or ev.session_key,
+        }
+        
+        # 写入 JSONL 文件
+        try:
+            trace_file = Path("/tmp/openclaw-tool-trace.jsonl")
+            with trace_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            print(f"[monitor] Wrote tool trace: phase={phase}, tool={tool_name}, callId={tool_call_id}", flush=True)
+        except Exception as e:
+            print(f"[monitor] Failed to write tool trace: {e}", flush=True)
 
     def _get_gateway_dir(self) -> Optional[Path]:
         config = get_config_from_db()
@@ -1693,6 +1849,13 @@ class MonitorOrchestrator:
                 ev = parse_line(line, str(path))
                 if ev:
                     print(f"[monitor] Parsed event: kind={ev.kind}", flush=True)
+                    
+                    # 当检测到 tool_started 或 tool_completed 时，提取 tool 信息并写入 JSONL
+                    if ev.kind == "tool_started":
+                        self._write_tool_trace(line, ev, "before_tool_call")
+                    elif ev.kind == "tool_completed":
+                        self._write_tool_trace(line, ev, "after_tool_call")
+                    
                     self.sm.apply(ev)
 
             self.sm.check_idle_end()
