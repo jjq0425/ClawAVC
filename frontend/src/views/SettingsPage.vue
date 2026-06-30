@@ -78,6 +78,8 @@
         </div>
       </div>
 
+      <!-- Intercept Non-IR Tools 开关已迁移至「安全拦截」页面 -->
+
       <!-- Unlock hint -->
       <div v-if="!adminValid" style="margin-top: 12px;">
         <PrivilegeStatus hint="以上配置项需要特权密钥" @unlock="showPrivDialog = true" />

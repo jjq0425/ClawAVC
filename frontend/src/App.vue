@@ -33,6 +33,7 @@ const navItems = [
   { path: "/monitor", icon: "dashboard", label: "运行监控" },
   { path: "/attack", icon: "bug", label: "模拟攻击" },
   { path: "/policy", icon: "file-setting", label: "策略翻译" },
+  { path: "/security", icon: "shield-error", label: "安全拦截" },
   { path: "/database", icon: "server", label: "数据运维" },
   { path: "/replay", icon: "play-circle", label: "流量回放" },
   { path: "/api-docs", icon: "code", label: "对外接口" },

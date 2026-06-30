@@ -133,6 +133,31 @@ def init_db():
     if "request_method" not in cols:
         conn.execute("ALTER TABLE attack_messages ADD COLUMN request_method TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_attack_messages_time ON attack_messages(received_at DESC)")
+    # 安全拦截事件表（IR 外工具拦截 / 后续可扩展更多拦截类型）
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS intercept_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            event_type TEXT DEFAULT 'ir_tool_block',
+            protocol TEXT,
+            turn_key TEXT,
+            user_query TEXT,
+            violations_json TEXT,
+            allowed_tools_json TEXT,
+            source TEXT,
+            extra_json TEXT,
+            note TEXT
+        )
+    """)
+    # 迁移：为已存在的旧库补 note 列（IR 长轮询超时上报等场景使用）
+    ie_cols = [r[1] for r in conn.execute("PRAGMA table_info(intercept_events)").fetchall()]
+    if "note" not in ie_cols:
+        try:
+            conn.execute("ALTER TABLE intercept_events ADD COLUMN note TEXT")
+        except Exception as e:
+            print(f"[db] migrate intercept_events.note failed: {e}", flush=True)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_intercept_events_time ON intercept_events(received_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_intercept_events_turn ON intercept_events(turn_key)")
     # 初始化默认配置
     conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('round_update_time_limit_enabled', 'True')")
     conn.commit()
@@ -217,35 +242,110 @@ def insert_round_start(round_id: str, time_start: str, session_key: str, session
 
 
 def update_round_end(round_id: str, data: Dict[str, Any]) -> bool:
-    """Update a round record at ROUND_END with full data."""
+    """Update a round record at ROUND_END with full data.
+
+    重要：**ir_json / action_json / history 字段做"防覆盖"处理**——
+    portkey 网关在拦截路径上通过 `_backfill_round_ir` 把真实的 IR 翻译结果
+    写入 rounds.ir_json；与此同时 monitor/watcher 也会多次上报 ROUND_END
+    （如 LOADING_MARKER 占位、本地 ir_translate 失败时传空字符串等）。
+    若简单地 `SET ir_json = ?` 用上报值覆盖，**真实 IR 会被立刻擦掉**，
+    表现就是"运行监控页面 IR 闪现一下就消失"。
+
+    防覆盖规则：
+      - ir_json：若入参为 None / 空字符串 / `'{}'` / `'__loading__'`，
+        则在 UPDATE 中 **跳过该列**（保留 DB 当前值，可能已经由 portkey 回填）。
+      - action_json：若入参为 None / 空字符串 / `'[]'`（空数组占位），
+        跳过该列，避免覆盖真实 actions。
+      - history：若入参为 None / 空字符串，跳过。
+      - 其它字段：按原行为覆盖（user_query、time_end、judge_result、
+        is_abnormal、overall_score、last_llm_message）。
+    """
     conn = get_conn()
     try:
-        conn.execute("""
-            UPDATE rounds SET
-                time_end = ?,
-                user_query = ?,
-                last_llm_message = ?,
-                history = ?,
-                action_json = ?,
-                ir_json = ?,
-                judge_result = ?,
-                is_abnormal = ?,
-                overall_score = ?
-            WHERE round_id = ?
-        """, (
-            data.get("time_end", ""),
-            data.get("user_query", ""),
-            data.get("last_llm_message", ""),
-            data.get("history", ""),
-            data.get("action_json", "[]"),
-            data.get("ir_json", "{}"),
-            data.get("judge_result", ""),
-            1 if data.get("is_abnormal") else 0,
-            data.get("overall_score", 1.0),
-            round_id,
-        ))
+        # 动态拼接 SET 子句，仅对"有意义"的字段做更新
+        set_parts: list = []
+        params: list = []
+
+        # 1) 必更字段（即使为空也允许覆盖，保持原行为）
+        set_parts.append("time_end = ?")
+        params.append(data.get("time_end", ""))
+        set_parts.append("user_query = ?")
+        params.append(data.get("user_query", ""))
+        set_parts.append("last_llm_message = ?")
+        params.append(data.get("last_llm_message", ""))
+        set_parts.append("judge_result = ?")
+        params.append(data.get("judge_result", ""))
+        set_parts.append("is_abnormal = ?")
+        params.append(1 if data.get("is_abnormal") else 0)
+        set_parts.append("overall_score = ?")
+        params.append(data.get("overall_score", 1.0))
+
+        # 2) 防覆盖字段：值为占位时跳过
+        history_in = data.get("history", "")
+        if history_in not in (None, ""):
+            set_parts.append("history = ?")
+            params.append(history_in)
+
+        action_in = data.get("action_json", "")
+        # '[]' 是 watcher 在 IR 路径上发的"actions 还没解析出来"的占位
+        if action_in not in (None, "", "[]"):
+            set_parts.append("action_json = ?")
+            params.append(action_in)
+
+        ir_in = data.get("ir_json", "")
+        ir_skip_values = (None, "", "{}", "__loading__")
+        ir_keep_reason = ""
+        if ir_in in ir_skip_values:
+            ir_keep_reason = "input_placeholder"
+        else:
+            # 二级保护：若 DB 当前 ir_json 已经是"真实 IR"（portkey 回填的），
+            # 而入参 ir_in 来自 watcher 本地翻译，可能两者内容不同；为了避免
+            # 前端展示来回跳变，**保持 DB 已有的真实 IR 不变**。
+            # 仅当 DB 当前为空/占位时，才接受入参覆盖。
+            try:
+                cur_row = conn.execute(
+                    "SELECT ir_json FROM rounds WHERE round_id = ?",
+                    (round_id,),
+                ).fetchone()
+                cur_ir = (cur_row[0] if cur_row else "") or ""
+                if cur_ir and cur_ir not in ("{}", "__loading__"):
+                    ir_keep_reason = f"db_already_has_real_ir(len={len(cur_ir)})"
+            except Exception:
+                pass
+
+        if not ir_keep_reason:
+            set_parts.append("ir_json = ?")
+            params.append(ir_in)
+
+        params.append(round_id)
+        sql = f"UPDATE rounds SET {', '.join(set_parts)} WHERE round_id = ?"
+        cursor = conn.execute(sql, params)
         conn.commit()
-        return True
+        affected = cursor.rowcount
+
+        # 诊断日志：哪些字段被跳过了，方便排查"IR 消失/不更新"等问题
+        skipped: list = []
+        if history_in in (None, ""):
+            skipped.append(f"history({history_in!r})")
+        if action_in in (None, "", "[]"):
+            skipped.append(f"action_json({action_in!r})")
+        if ir_keep_reason:
+            # f-string 表达式部分不能用 if/else 三元，预先算好再插入
+            if isinstance(ir_in, str) and len(ir_in) <= 16:
+                ir_in_repr = repr(ir_in)
+            else:
+                ir_in_repr = type(ir_in).__name__
+            skipped.append(f"ir_json[{ir_keep_reason}]({ir_in_repr})")
+
+        ir_brief = ir_in if (isinstance(ir_in, str) and len(ir_in) <= 32) else (
+            (ir_in[:29] + "...") if isinstance(ir_in, str) else type(ir_in).__name__
+        )
+        print(
+            f"[db.update_round_end] round_id={round_id} affected={affected} "
+            f"ir_json_brief={ir_brief!r} skipped={skipped}",
+            flush=True,
+        )
+        return affected > 0
     except Exception as e:
         print(f"[db] update_round_end error: {e}")
         return False

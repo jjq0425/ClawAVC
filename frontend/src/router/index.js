@@ -67,6 +67,12 @@ const routes = [
     component: () => import("../views/ReplayPage.vue"),
     meta: { requiresAuth: true },
   },
+  {
+    path: "/security",
+    name: "Security",
+    component: () => import("../views/SecurityPage.vue"),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

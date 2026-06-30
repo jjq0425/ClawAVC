@@ -14,6 +14,7 @@ import os
 import sys
 import threading
 from pathlib import Path
+from typing import Any, Dict, List
 from api_docs import api_doc, generate_docs
 
 from flask import Flask, request, jsonify
@@ -308,6 +309,15 @@ def report_round():
         # ROUND_ENDED: update existing or insert full record
         # Try update first (if start was already inserted)
         updated = db.update_round_end(round_id, data)
+        ir_v = data.get("ir_json", "")
+        ir_brief = ir_v if (isinstance(ir_v, str) and len(ir_v) <= 32) else (
+            (ir_v[:29] + "...") if isinstance(ir_v, str) else type(ir_v).__name__
+        )
+        print(
+            f"[/api/rounds end] round_id={round_id} update_ok={updated} "
+            f"ir_json_brief={ir_brief!r}",
+            flush=True,
+        )
         if not updated:
             # Fallback: insert full record (legacy orchestrator format)
             legacy_data = {
@@ -333,20 +343,30 @@ def report_round():
                     legacy_data["IR"] = json.loads(data["ir_json"])
                 except Exception:
                     legacy_data["IR"] = {}
-            db.insert_round(legacy_data)
+            inserted = db.insert_round(legacy_data)
+            print(
+                f"[/api/rounds end] fallback insert_round round_id={round_id} "
+                f"rowid={inserted}",
+                flush=True,
+            )
 
         # Push updated record to frontend
         record = db.get_round_by_id(round_id)
         if record:
             socketio.emit("new_round_info", record)
             # Emit fine-grained WSS events
-            ir_json = data.get("ir_json", "")
+            # 关键：精细化 push 的 ir_json / action_json 一律取 DB 当前真实值
+            # （record），而不是请求体里的 data——因为 update_round_end 对
+            # 空/占位的 ir_json/action_json 已做防覆盖，DB 里可能保存着
+            # portkey 早先回填的真实 IR，请求体那个版本反而是空的。
+            ir_json = (record or {}).get("ir_json") or ""
+            action_json = (record or {}).get("action_json") or "[]"
             if ir_json and ir_json != "__loading__" and data.get("overall_score", -1) < 0:
                 # IR ready but not yet judged
                 socketio.emit("push", {"push_type": "round_ir_ready", "round_id": round_id, "ir_json": ir_json, "push_time": data.get("time_end") or data.get("time_start", "")}, namespace="/wss/monitor")
             elif data.get("overall_score", -1) >= 0:
                 # Full round end with judge
-                socketio.emit("push", {"push_type": "round_end", "round_id": round_id, "time_start": data.get("time_start", ""), "time_end": data.get("time_end", ""), "action_json": data.get("action_json", "[]"), "ir_json": ir_json, "overall_score": data.get("overall_score", 1.0), "judge_result": data.get("judge_result", ""), "push_time": data.get("time_end", "")}, namespace="/wss/monitor")
+                socketio.emit("push", {"push_type": "round_end", "round_id": round_id, "time_start": data.get("time_start", ""), "time_end": data.get("time_end", ""), "action_json": action_json, "ir_json": ir_json, "overall_score": data.get("overall_score", 1.0), "judge_result": data.get("judge_result", ""), "push_time": data.get("time_end", "")}, namespace="/wss/monitor")
 
         return jsonify({"ok": True})
 
@@ -1278,6 +1298,896 @@ def set_public_api_docs():
     data = request.get_json(force=True)
     endpoints = data.get("endpoints", [])
     db.set_config("api_docs.public_endpoints", json.dumps(endpoints, ensure_ascii=False))
+    return jsonify({"ok": True})
+
+
+# ─── Intercept Non-IR Tools Config ─────────────────────────
+# 是否拦截 IR 外工具：开启后，portkey 网关在收到 LLM 响应中的 tool_calls 时，
+# 会先通过 turn-ir 接口同步获取该轮的 IR，仅放行 IR 白名单内的工具调用；
+# 其它工具会被替换为系统提示，建议 Agent 使用 IR 内允许的工具。
+@api_doc(summary="获取 IR 外工具拦截开关状态", category="平台配置", public=False)
+@app.route("/api/config/intercept_non_ir_tools", methods=["GET"])
+def get_intercept_non_ir_tools():
+    enabled = db.get_config("intercept.non_ir_tools_enabled", "false")
+    return jsonify({"ok": True, "data": {"enabled": (enabled or "false").lower() == "true"}})
+
+
+@api_doc(summary="设置 IR 外工具拦截开关状态", category="平台配置", public=False)
+@app.route("/api/config/intercept_non_ir_tools", methods=["PUT"])
+def set_intercept_non_ir_tools():
+    """开关需特权验证。开启后 portkey 网关会根据 IR 拦截 tool_calls。"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    data = request.get_json(force=True)
+    enabled = bool(data.get("enabled", False))
+    db.set_config("intercept.non_ir_tools_enabled", "true" if enabled else "false")
+    # 切换开关时清空 turn-ir 缓存
+    try:
+        _TURN_IR_CACHE.clear()
+    except Exception:
+        pass
+    return jsonify({"ok": True, "data": {"enabled": enabled}})
+
+
+# ─── Loop-Breaker（死循环熔断）配置 ─────────────────────────
+# Agent 在 IR 白名单极窄且唯一工具"看似返回成功但内容不达预期"时，会反复重试
+# 同一工具调用陷入死循环（典型：safe_file_reader__read_directory）。
+# 该开关开启后，portkey 网关会在 turn 粒度对 (tool_name, arguments_hash) 计数，
+# 一旦阈值（默认 3 次，含本次）触达，跳过 retry 直接合成"loop break"拒绝文本，
+# 强制 Agent 改用自然语言回答用户原始问题，结束死循环。
+@api_doc(summary="获取死循环熔断配置", category="平台配置", public=False)
+@app.route("/api/config/loop_breaker", methods=["GET"])
+def get_loop_breaker():
+    enabled = (db.get_config("intercept.loop_breaker_enabled", "true") or "true").lower() == "true"
+    try:
+        threshold = int(db.get_config("intercept.loop_breaker_threshold", "3") or "3")
+    except Exception:
+        threshold = 3
+    if threshold < 2:
+        threshold = 2
+    return jsonify({"ok": True, "data": {"enabled": enabled, "threshold": threshold}})
+
+
+@api_doc(summary="设置死循环熔断配置", category="平台配置", public=False)
+@app.route("/api/config/loop_breaker", methods=["PUT"])
+def set_loop_breaker():
+    """开关需特权验证。enabled: bool；threshold: int >=2，默认 3。"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    data = request.get_json(force=True) or {}
+    enabled = bool(data.get("enabled", True))
+    try:
+        threshold = int(data.get("threshold", 3))
+    except Exception:
+        threshold = 3
+    if threshold < 2:
+        threshold = 2
+    if threshold > 50:
+        threshold = 50
+    db.set_config("intercept.loop_breaker_enabled", "true" if enabled else "false")
+    db.set_config("intercept.loop_breaker_threshold", str(threshold))
+    # 切换熔断配置时清空 turn-ir 缓存（让 portkey 拿到新值）
+    try:
+        _TURN_IR_CACHE.clear()
+    except Exception:
+        pass
+    return jsonify({"ok": True, "data": {"enabled": enabled, "threshold": threshold}})
+
+
+# ─── Turn IR 长轮询超时配置 ──────────────────────────────────────────────
+# 单位毫秒；下限 5_000（5s）避免请求秒回，上限 1_800_000（30 分钟）兼顾极慢翻译。
+TURN_IR_WAIT_MS_DEFAULT = 300_000
+TURN_IR_WAIT_MS_MIN = 5_000
+TURN_IR_WAIT_MS_MAX = 1_800_000
+
+
+def _get_turn_ir_wait_ms_config() -> int:
+    """读取 DB 中配置的长轮询超时（毫秒），自动 clamp 到 [MIN, MAX]。"""
+    try:
+        v = int(db.get_config("intercept.turn_ir_wait_ms", str(TURN_IR_WAIT_MS_DEFAULT)) or TURN_IR_WAIT_MS_DEFAULT)
+    except Exception:
+        v = TURN_IR_WAIT_MS_DEFAULT
+    return max(TURN_IR_WAIT_MS_MIN, min(v, TURN_IR_WAIT_MS_MAX))
+
+
+@api_doc(summary="获取 IR 长轮询超时配置", category="平台配置", public=False)
+@app.route("/api/config/turn_ir_wait_ms", methods=["GET"])
+def get_turn_ir_wait_ms():
+    wait_ms = _get_turn_ir_wait_ms_config()
+    return jsonify({"ok": True, "data": {
+        "wait_ms": wait_ms,
+        "min_ms": TURN_IR_WAIT_MS_MIN,
+        "max_ms": TURN_IR_WAIT_MS_MAX,
+        "default_ms": TURN_IR_WAIT_MS_DEFAULT,
+    }})
+
+
+@api_doc(summary="设置 IR 长轮询超时配置", category="平台配置", public=False)
+@app.route("/api/config/turn_ir_wait_ms", methods=["PUT"])
+def set_turn_ir_wait_ms():
+    """超时调整需特权验证。wait_ms: 5_000~1_800_000 毫秒，默认 300_000（5 分钟）。"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    data = request.get_json(force=True) or {}
+    try:
+        wait_ms = int(data.get("wait_ms", TURN_IR_WAIT_MS_DEFAULT))
+    except Exception:
+        wait_ms = TURN_IR_WAIT_MS_DEFAULT
+    wait_ms = max(TURN_IR_WAIT_MS_MIN, min(wait_ms, TURN_IR_WAIT_MS_MAX))
+    db.set_config("intercept.turn_ir_wait_ms", str(wait_ms))
+    return jsonify({"ok": True, "data": {"wait_ms": wait_ms}})
+
+
+# ─── Turn IR (供 portkey 网关同步调用) ─────────────────────
+# 同一 turn（user_query）共享一个 IR。portkey 在拦截 LLM 响应时调用本接口：
+#   - 传入 turn_key 与 user_query
+#   - 若该 turn 已翻译过则直接返回缓存
+#   - 否则同步调用现有翻译流水线，缓存并返回
+import threading as _threading
+import re as _re_turn
+_TURN_IR_LOCK = _threading.Lock()
+# cache key：**normalize 后的 user_query**（不再用 portkey 的 hash turn_key）
+# 这样 watcher 翻译完成后只要用同一份 user_query 算 key，就能命中
+# portkey 长轮询线程；portkey 端的 turn_key 仅作为 round 绑定/事件去重等用途。
+_TURN_IR_CACHE: Dict[str, Dict[str, Any]] = {}
+_TURN_IR_MAX_ENTRIES = 256
+# normalized_user_query -> threading.Event，watcher 翻译完成后 set；
+# portkey 长轮询线程 wait 在这个 Event 上，超时或被 round_start 清掉时返回。
+_TURN_IR_EVENTS: Dict[str, _threading.Event] = {}
+# 当前正在等待翻译完成的 normalized user_query 集合（用于 round_start 清理）
+_TURN_IR_PENDING: set = set()
+# turn_key -> round_id 绑定（首次回填成功后记住，后续 turn 命中缓存也能复用）
+_TURN_IR_ROUND_BIND: Dict[str, str] = {}
+
+# ─── normalize user_query ─────────────────────────────────────────────────
+# 与 portkey 端 `sanitizeUserQuery` 规则完全一致，必须保持同步！否则 portkey
+# 算出来的 turn_key 命中 user_query 与 watcher 算出来的 cache key 不一致，
+# 长轮询会永远 wait 到超时。
+_SENDER_META_RE = _re_turn.compile(
+    r"Sender\s*\(untrusted metadata\)\s*:\s*```json\s*\{[\s\S]*?\}\s*```\s*"
+)
+_TS_PREFIX_RE = _re_turn.compile(r"^\[[^\]]*\]\s*")
+
+
+def _normalize_user_query(raw: str) -> str:
+    """剥离 Sender 元信息块 + 行首时间戳前缀，取最后一行非空文本。
+
+    必须与 portkey/src/middlewares/irIntercept.ts:sanitizeUserQuery 保持一致。
+    """
+    if not isinstance(raw, str) or not raw:
+        return ""
+    cleaned = _SENDER_META_RE.sub("", raw).strip()
+    if not cleaned:
+        return ""
+    lines = [l.strip() for l in cleaned.splitlines() if l.strip()]
+    if not lines:
+        return cleaned
+    last = _TS_PREFIX_RE.sub("", lines[-1]).strip()
+    return last or cleaned
+
+
+def _turn_ir_get_or_create_event(key: str) -> _threading.Event:
+    """返回 normalized_user_query 对应的 Event，不存在则创建。必须在 LOCK 内调用。"""
+    ev = _TURN_IR_EVENTS.get(key)
+    if ev is None:
+        ev = _threading.Event()
+        _TURN_IR_EVENTS[key] = ev
+    return ev
+
+
+def _turn_ir_publish_translation(user_query: str, ir_result: Dict[str, Any]) -> None:
+    """watcher 翻译完成后调用：写 cache + set Event 唤醒所有长轮询线程。
+
+    幂等：同一个 normalized user_query 多次发布只保留最新 IR，但 Event 始终 set。
+    """
+    key = _normalize_user_query(user_query)
+    if not key:
+        print("[turn-ir.publish] skip: empty normalized key", flush=True)
+        return
+    allowed_tools = _extract_allowed_tools_from_ir(ir_result or {})
+    entry = {
+        "allowed_tools": allowed_tools,
+        "ir": ir_result or {},
+        "user_query": user_query,
+    }
+    with _TURN_IR_LOCK:
+        # 简单 LRU：超过容量先丢首条
+        if key not in _TURN_IR_CACHE and len(_TURN_IR_CACHE) >= _TURN_IR_MAX_ENTRIES:
+            try:
+                _TURN_IR_CACHE.pop(next(iter(_TURN_IR_CACHE)))
+            except Exception:
+                pass
+        _TURN_IR_CACHE[key] = entry
+        ev = _turn_ir_get_or_create_event(key)
+        _TURN_IR_PENDING.discard(key)
+    ev.set()
+    print(
+        f"[turn-ir.publish] cached key={key[:40]!r} allowed_tools={allowed_tools} "
+        f"event_set=1",
+        flush=True,
+    )
+
+
+def _turn_ir_reset_for_new_round() -> None:
+    """round_start 时清掉旧 turn 的 pending Event。
+
+    旧 IR 仍保留在 cache 中（短期内同 user_query 复用），但 pending 状态被清空，
+    避免上一轮没等到翻译的长轮询线程一直 hang 到 5 分钟。
+    """
+    with _TURN_IR_LOCK:
+        # 把 pending 集合里仍未完成的 Event 全部 set（让对应长轮询返回 pending），
+        # 然后丢掉 pending 标记。已经发布成功的 Event 不动。
+        stale_keys = list(_TURN_IR_PENDING)
+        _TURN_IR_PENDING.clear()
+        # 清掉对应的 Event 对象本身，避免下一轮误命中
+        for k in stale_keys:
+            ev = _TURN_IR_EVENTS.pop(k, None)
+            if ev is not None:
+                try:
+                    ev.set()  # 唤醒老的长轮询线程，让它返回 pending
+                except Exception:
+                    pass
+    if stale_keys:
+        print(
+            f"[turn-ir.reset] round_start cleared {len(stale_keys)} stale pending keys",
+            flush=True,
+        )
+
+
+def _extract_allowed_tools_from_ir(ir_result: Dict[str, Any]) -> List[str]:
+    """从翻译结果中抽取所有允许调用的 tool identifier。"""
+    tools: set = set()
+    level2 = (ir_result or {}).get("level2") or {}
+    for pol in level2.get("policies", []) or []:
+        if not isinstance(pol, dict):
+            continue
+        if pol.get("effect") and pol.get("effect") != "allow":
+            continue
+        for obj in pol.get("objects", []) or []:
+            if isinstance(obj, dict) and obj.get("type") == "tool":
+                ident = obj.get("identifier")
+                if isinstance(ident, str) and ident:
+                    tools.add(ident)
+    return sorted(tools)
+
+
+@api_doc(summary="获取/翻译指定 turn 的 IR（portkey 网关同步调用，long-poll）",
+         category="策略翻译",
+         description=(
+             "按 normalized user_query 缓存：同一 turn 多次调用复用首个 IR。\n"
+             "**Long-Poll 语义**：\n"
+             "  - cache 命中 → 立即返回 cached=true；\n"
+             "  - cache 未命中 → 等待 watcher 翻译完成（_query_and_ir_worker 写 cache + set Event）；\n"
+             "  - 超时仍未完成 → **本端自行 fallback 调一次 translate**，成功则正常返回；"
+             "失败再上报 ir_timeout 拦截事件并返回 pending=true，由 portkey 端降级放行。\n"
+             "默认翻译均由 watcher 在 round_start 后异步完成，仅在 watcher 漏触发等异常时走 fallback。\n"
+             "wait_ms 由 DB 配置 `intercept.turn_ir_wait_ms` 控制（默认 300_000ms，可在前端调整）。"
+         ),
+         params=[{"name": "turn_key", "type": "body", "desc": "turn 标识（portkey 计算）"},
+                 {"name": "user_query", "type": "body", "desc": "用户原始 query（必填，作为 cache key）"},
+                 {"name": "round_id", "type": "body", "desc": "可选 round_id"},
+                 {"name": "wait_ms", "type": "body", "desc": "可选；缺省读取 DB 配置；范围 5_000 ~ 1_800_000 ms"}],
+         response={"ok": True, "data": {"allowed_tools": [], "ir": {}, "cached": False, "pending": False, "intercept_enabled": False}},
+         public=True)
+@app.route("/api/translator/turn-ir", methods=["POST"])
+def get_turn_ir():
+    """portkey 同步调用：根据 normalized user_query 长轮询返回 IR + 允许的 tool 白名单。"""
+    data = request.get_json(force=True) or {}
+    turn_key = (data.get("turn_key") or "").strip()
+    user_query = (data.get("user_query") or "").strip()
+    round_id = (data.get("round_id") or "").strip()
+    # wait_ms 优先级：请求体显式传入 > DB 配置 > 默认值
+    cfg_wait_ms = _get_turn_ir_wait_ms_config()
+    if "wait_ms" in data and data.get("wait_ms") is not None:
+        try:
+            wait_ms = int(data.get("wait_ms"))
+        except Exception:
+            wait_ms = cfg_wait_ms
+    else:
+        wait_ms = cfg_wait_ms
+    # 0 仍允许（前端"立即探测"）；其它值 clamp 到 [MIN, MAX]
+    if wait_ms > 0:
+        wait_ms = max(TURN_IR_WAIT_MS_MIN, min(wait_ms, TURN_IR_WAIT_MS_MAX))
+    else:
+        wait_ms = 0
+
+    print(
+        f"[turn-ir] hit endpoint turn_key={turn_key[:12]}... "
+        f"uq_len={len(user_query)} round_id={round_id} wait_ms={wait_ms}",
+        flush=True,
+    )
+
+    # 总开关：未启用时直接返回 disabled，让网关跳过拦截逻辑
+    enabled = (db.get_config("intercept.non_ir_tools_enabled", "false") or "false").lower() == "true"
+
+    # [loop-breaker] 死循环熔断配置：随每次响应回吐给 portkey
+    lb_enabled = (db.get_config("intercept.loop_breaker_enabled", "true") or "true").lower() == "true"
+    try:
+        lb_threshold = int(db.get_config("intercept.loop_breaker_threshold", "3") or "3")
+    except Exception:
+        lb_threshold = 3
+    if lb_threshold < 2:
+        lb_threshold = 2
+
+    if not enabled:
+        print(f"[turn-ir] switch disabled, return intercept_enabled=False", flush=True)
+        return jsonify({"ok": True, "data": {
+            "intercept_enabled": False,
+            "allowed_tools": [],
+            "ir": {},
+            "cached": False,
+            "pending": False,
+            "loop_breaker_enabled": lb_enabled,
+            "loop_breaker_threshold": lb_threshold,
+        }})
+
+    if not user_query:
+        return jsonify({"ok": False, "error": "user_query is required"}), 400
+
+    norm_key = _normalize_user_query(user_query)
+    if not norm_key:
+        return jsonify({"ok": False, "error": "user_query normalized to empty"}), 400
+
+    def _make_response_from_entry(entry: Dict[str, Any], cached: bool, pending: bool = False):
+        # turn_key 已绑定的话仍执行一次 backfill（用 portkey 的 turn_key 做 round 关联）
+        if entry and turn_key:
+            try:
+                _backfill_round_ir(
+                    user_query or entry.get("user_query", ""),
+                    entry.get("ir", {}),
+                    turn_key=turn_key,
+                )
+            except Exception as e:
+                print(f"[turn-ir] backfill failed: {e}", flush=True)
+        return jsonify({"ok": True, "data": {
+            "intercept_enabled": True,
+            "allowed_tools": (entry or {}).get("allowed_tools", []),
+            "ir": (entry or {}).get("ir", {}),
+            "cached": cached,
+            "pending": pending,
+            "loop_breaker_enabled": lb_enabled,
+            "loop_breaker_threshold": lb_threshold,
+        }})
+
+    # 1) 命中缓存：立即返回
+    with _TURN_IR_LOCK:
+        cached = _TURN_IR_CACHE.get(norm_key)
+    if cached:
+        print(
+            f"[turn-ir] CACHE HIT key={norm_key[:40]!r} "
+            f"allowed_tools={cached.get('allowed_tools', [])}",
+            flush=True,
+        )
+        return _make_response_from_entry(cached, cached=True)
+
+    # 2) 未命中且 wait_ms == 0：直接返回 pending（portkey 可选用此模式快速探测）
+    if wait_ms <= 0:
+        return _make_response_from_entry({}, cached=False, pending=True)
+
+    # 3) 长轮询：等待 watcher 翻译完成（_turn_ir_publish_translation 会 set Event）
+    with _TURN_IR_LOCK:
+        ev = _turn_ir_get_or_create_event(norm_key)
+        _TURN_IR_PENDING.add(norm_key)
+        # 二次检查：可能在拿锁前 watcher 已 publish 完了
+        cached2 = _TURN_IR_CACHE.get(norm_key)
+    if cached2:
+        return _make_response_from_entry(cached2, cached=True)
+
+    print(
+        f"[turn-ir] LONG-POLL waiting key={norm_key[:40]!r} timeout={wait_ms}ms",
+        flush=True,
+    )
+    # 改用轮询 + 短 sleep 替代 Event.wait()：
+    # gevent monkey-patched 下 threading.Event 跨执行体唤醒在某些路径上不稳定
+    # （观测到 watcher 已 set 但 wait 未返回），改成主动轮询 cache 最稳：
+    #   - 每 100ms 检查一次 cache，watcher publish 后最多 100ms 内被发现；
+    #   - time.sleep 也被 gevent patch，每次都会让出 hub，不占 CPU；
+    #   - 通过 time.monotonic 控制超时上限，行为与 Event.wait 一致。
+    import time as _time_lp
+    poll_interval = 0.1
+    deadline = _time_lp.monotonic() + (wait_ms / 1000.0)
+    entry = None
+    while _time_lp.monotonic() < deadline:
+        with _TURN_IR_LOCK:
+            entry = _TURN_IR_CACHE.get(norm_key)
+        if entry:
+            break
+        _time_lp.sleep(poll_interval)
+
+    if entry:
+        print(
+            f"[turn-ir] LONG-POLL got key={norm_key[:40]!r} "
+            f"after_polling=True allowed_tools={entry.get('allowed_tools', [])}",
+            flush=True,
+        )
+        return _make_response_from_entry(entry, cached=False)
+
+    # 4) 超时仍无 IR：**fallback 主动 translate 一次**作为兜底
+    #    （watcher 可能漏触发、user_query 提取失败等异常场景）
+    print(
+        f"[turn-ir] LONG-POLL TIMEOUT key={norm_key[:40]!r} "
+        f"after {wait_ms/1000:.0f}s, fallback to local translate",
+        flush=True,
+    )
+    fallback_err = ""
+    try:
+        from auditor.translator.core import translate, get_llm_config
+        cfg = get_llm_config()
+        result = translate(user_query, config=cfg, is_ui_test=False, round_id=round_id)
+        # 复用 publish 流水线（写 cache + set Event + 唤醒同时在 wait 的其它请求）
+        _turn_ir_publish_translation(user_query, result or {})
+        with _TURN_IR_LOCK:
+            entry = _TURN_IR_CACHE.get(norm_key)
+        if entry:
+            print(
+                f"[turn-ir] FALLBACK translate OK key={norm_key[:40]!r} "
+                f"allowed_tools={entry.get('allowed_tools', [])}",
+                flush=True,
+            )
+            return _make_response_from_entry(entry, cached=False)
+    except Exception as e:
+        fallback_err = f"{type(e).__name__}: {e}"
+        print(f"[turn-ir] FALLBACK translate FAILED: {fallback_err}", flush=True)
+
+    # 5) fallback 也失败：上报 ir_timeout 拦截事件，返回 pending
+    try:
+        _record_turn_ir_timeout_event(
+            turn_key=turn_key,
+            user_query=user_query,
+            round_id=round_id,
+            wait_ms=wait_ms,
+            fallback_err=fallback_err,
+        )
+    except Exception as e:
+        print(f"[turn-ir] timeout event report failed: {e}", flush=True)
+    return _make_response_from_entry({}, cached=False, pending=True)
+
+
+def _record_turn_ir_timeout_event(
+    turn_key: str,
+    user_query: str,
+    round_id: str,
+    wait_ms: int,
+    fallback_err: str = "",
+) -> None:
+    """超时且 fallback translate 也失败时，向 intercept_events 写一条 'ir_timeout' 事件。
+
+    note 字段记录人类可读的说明（前端 SecurityPage 备注列直接展示）。
+    """
+    try:
+        conn = db.get_conn()
+        note_parts = [
+            f"IR 长轮询超时（{wait_ms/1000:.0f}s）且 fallback translate 失败",
+            "可能原因：watcher 未触发 round_start / user_query 抓取失败 / LLM 不可用",
+        ]
+        if fallback_err:
+            note_parts.append(f"fallback 错误：{fallback_err[:300]}")
+        note = "；".join(note_parts)
+        extra = {
+            "round_id": round_id,
+            "wait_ms": wait_ms,
+            "reason": "long_poll_timeout_and_fallback_failed",
+            "fallback_err": fallback_err,
+        }
+        conn.execute(
+            "INSERT INTO intercept_events (event_type, protocol, turn_key, user_query, "
+            "violations_json, allowed_tools_json, source, extra_json, note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "ir_timeout",
+                "",
+                turn_key,
+                (user_query or "")[:4000],
+                json.dumps([], ensure_ascii=False),
+                json.dumps([], ensure_ascii=False),
+                "clawavc-long-poll",
+                json.dumps(extra, ensure_ascii=False),
+                note,
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT id, received_at, event_type, protocol, turn_key, user_query, "
+            "violations_json, allowed_tools_json, source, extra_json, note "
+            "FROM intercept_events ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if row:
+            payload = _row_to_intercept_event(row)
+            try:
+                socketio.emit("intercept_event", payload)
+            except Exception:
+                pass
+            try:
+                socketio.emit(
+                    "push",
+                    {"push_type": "intercept_event",
+                     "push_time": payload.get("received_at"),
+                     "data": payload},
+                    namespace="/wss/monitor",
+                )
+            except Exception:
+                pass
+            print(f"[turn-ir.timeout] event recorded id={row['id']}", flush=True)
+    except Exception as e:
+        print(f"[turn-ir.timeout] record failed: {e}", flush=True)
+
+
+def _backfill_round_ir(
+    user_query: str,
+    ir_result: Dict[str, Any],
+    turn_key: str = "",
+) -> None:
+    """把 portkey 触发的 IR 翻译结果，回填到对应的 round.ir_json 上。
+
+    匹配策略（按优先级）：
+      0) 若 turn_key 已与某个 round_id 绑定，且该 round 仍处于"未填 IR"状态，
+         直接命中该 round（避免错误关联到别的 round）。
+      1) user_query 精确匹配最近 30 分钟内、ir_json 仍为空/占位/__loading__ 的最新 round；
+      2) 都没匹配上则退化：取最近 30 分钟内、ir_json 仍为空/占位/__loading__ 的最新 round
+         （portkey 调 turn-ir 时 round.user_query 通常还没写入，需要这一层兜底）；
+      3) 仍未命中：什么都不做，等下一次 turn-ir 调用再试。
+
+    成功回填后：
+      - UPDATE rounds.ir_json
+      - 记住 turn_key -> round_id 绑定，便于后续 turn（命中缓存）二次确认
+      - socketio emit "new_round_info" + "push{round_ir_ready}"，前端实时刷新
+    """
+    ir_json_str = json.dumps(ir_result, ensure_ascii=False)
+    loading = "__loading__"
+
+    conn = db.get_conn()
+    try:
+        row = None
+        match_strategy = ""
+        # 0) 已绑定 turn_key → round_id：优先复用
+        bound_round_id = _TURN_IR_ROUND_BIND.get(turn_key) if turn_key else None
+        if bound_round_id:
+            row = conn.execute(
+                """
+                SELECT round_id FROM rounds
+                WHERE round_id = ?
+                  AND (ir_json IS NULL OR ir_json = '' OR ir_json = '{}' OR ir_json = ?)
+                """,
+                (bound_round_id, loading),
+            ).fetchone()
+            if row:
+                match_strategy = f"bound({bound_round_id})"
+
+        # 1) user_query 精确匹配（仅在 user_query 非空时尝试）
+        if not row and user_query:
+            row = conn.execute(
+                """
+                SELECT round_id FROM rounds
+                WHERE user_query = ?
+                  AND (ir_json IS NULL OR ir_json = '' OR ir_json = '{}' OR ir_json = ?)
+                  AND created_at >= datetime('now', '-30 minutes')
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (user_query, loading),
+            ).fetchone()
+            if row:
+                match_strategy = "user_query_exact"
+
+        # 2) 兜底：最近 30 分钟 ir_json 还没填的最新 round
+        #    （portkey 调 turn-ir 早于 round_end 写入 user_query 时走这里）
+        if not row:
+            row = conn.execute(
+                """
+                SELECT round_id FROM rounds
+                WHERE (ir_json IS NULL OR ir_json = '' OR ir_json = '{}' OR ir_json = ?)
+                  AND created_at >= datetime('now', '-30 minutes')
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (loading,),
+            ).fetchone()
+            if row:
+                match_strategy = "fallback_latest_empty"
+
+        if not row:
+            # 进一步诊断：看看最近的 rounds 都长什么样
+            diag = conn.execute(
+                """
+                SELECT round_id, substr(user_query,1,40) as uq,
+                       substr(ir_json,1,30) as ir, created_at
+                FROM rounds
+                ORDER BY id DESC LIMIT 3
+                """
+            ).fetchall()
+            diag_str = "; ".join(
+                f"{r['round_id'][:16]}|uq={r['uq']!r}|ir={r['ir']!r}|ct={r['created_at']}"
+                for r in diag
+            ) if diag else "(empty rounds table)"
+            print(
+                f"[turn-ir] backfill SKIP: no round to update "
+                f"(uq_len={len(user_query) if user_query else 0}, "
+                f"turn_key={turn_key[:12]}...) recent_rounds=[{diag_str}]",
+                flush=True,
+            )
+            return
+        round_id = row["round_id"]
+        cursor = conn.execute(
+            "UPDATE rounds SET ir_json = ? WHERE round_id = ?",
+            (ir_json_str, round_id),
+        )
+        conn.commit()
+        print(
+            f"[turn-ir] backfill UPDATE strategy={match_strategy} "
+            f"round_id={round_id} affected={cursor.rowcount} "
+            f"ir_len={len(ir_json_str)}",
+            flush=True,
+        )
+    finally:
+        conn.close()
+
+    # 绑定 turn_key → round_id，方便后续 turn 命中缓存时直接定位
+    if turn_key:
+        _TURN_IR_ROUND_BIND[turn_key] = round_id
+        # 防膨胀：超出阈值清理一半
+        if len(_TURN_IR_ROUND_BIND) > _TURN_IR_MAX_ENTRIES * 2:
+            try:
+                keys = list(_TURN_IR_ROUND_BIND.keys())
+                for k in keys[: len(keys) // 2]:
+                    _TURN_IR_ROUND_BIND.pop(k, None)
+            except Exception:
+                pass
+
+    # 推送给前端实时刷新（运行日志页订阅了 new_round_info）
+    try:
+        record = db.get_round_by_id(round_id)
+        if record:
+            socketio.emit("new_round_info", record)
+            socketio.emit(
+                "push",
+                {
+                    "push_type": "round_ir_ready",
+                    "round_id": round_id,
+                    "ir_json": ir_json_str,
+                    "push_time": record.get("time_end") or record.get("time_start", ""),
+                },
+                namespace="/wss/monitor",
+            )
+            print(
+                f"[turn-ir] socketio emit new_round_info + round_ir_ready: round_id={round_id}",
+                flush=True,
+            )
+    except Exception as e:
+        print(f"[turn-ir] socketio emit failed: {e}", flush=True)
+
+
+# ─── Intercept Events (portkey 网关上报 / 前端查询 / 实时推送) ─────────────
+# portkey 网关在命中 IR 重写时通过 POST /api/intercept/events 上报，
+# 前端"安全拦截"页通过 GET 拉取列表 + 监听 socketio "intercept_event" 实时刷新。
+@api_doc(summary="网关上报一次拦截事件", category="安全拦截",
+         description="portkey 网关在命中 IR 重写后调用，记录被拒绝的工具调用，便于审计与前端可视化。",
+         params=[
+             {"name": "event_type", "type": "body", "desc": "事件类型，默认 ir_tool_block"},
+             {"name": "protocol", "type": "body", "desc": "openai | anthropic"},
+             {"name": "turn_key", "type": "body", "desc": "网关计算的 turn 标识"},
+             {"name": "user_query", "type": "body", "desc": "本轮 user_query 摘要"},
+             {"name": "violations", "type": "body", "desc": "被拦截的 tool 名称数组"},
+             {"name": "allowed_tools", "type": "body", "desc": "本轮 IR 白名单"},
+             {"name": "source", "type": "body", "desc": "上报来源，例如 portkey-gateway"},
+             {"name": "extra", "type": "body", "desc": "附加 JSON，可放上游 model、url 等"},
+         ],
+         response={"ok": True, "data": {"id": 1}},
+         public=True)
+@app.route("/api/intercept/events", methods=["POST"])
+def post_intercept_event():
+    data = request.get_json(force=True) or {}
+    event_type = (data.get("event_type") or "ir_tool_block").strip() or "ir_tool_block"
+    protocol = (data.get("protocol") or "").strip()
+    turn_key = (data.get("turn_key") or "").strip()
+    user_query = data.get("user_query") or ""
+    if isinstance(user_query, str) and len(user_query) > 4000:
+        user_query = user_query[:4000]
+    violations = data.get("violations") or []
+    allowed_tools = data.get("allowed_tools") or []
+    source = (data.get("source") or "portkey-gateway").strip()
+    extra = data.get("extra") or {}
+    note = data.get("note") or ""
+    if isinstance(note, str) and len(note) > 2000:
+        note = note[:2000]
+
+    # 去重：portkey 在同一 user_query 下因 Agent 重试会多次触发拦截上报。
+    # 即便 turn_key 已稳定（基于 user_query 内容），同 turn_key + 同 violations
+    # 集合 + 短时间窗口内的事件视为同一个"逻辑事件"，不重复入库，避免前端
+    # 拦截事件列表被刷屏（典型表现：同一 user_query 30 秒内出现 N 条相同条目）。
+    # 窗口设为 120 秒，足够覆盖 Agent 多轮 retry；超过窗口的新事件视为"用户又一次
+    # 触发同样的违规调用"，允许独立记录。
+    DEDUP_WINDOW_SECONDS = 120
+    violations_canon = json.dumps(
+        sorted([str(v) for v in violations]),
+        ensure_ascii=False,
+    )
+
+    try:
+        conn = db.get_conn()
+        # 先查最近窗口内有没有"同 turn_key + 同 violations 集合"的事件
+        dedup_row = None
+        if turn_key:
+            dedup_row = conn.execute(
+                """
+                SELECT id, received_at FROM intercept_events
+                WHERE turn_key = ?
+                  AND event_type = ?
+                  AND received_at >= datetime('now', ?)
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (turn_key, event_type, f"-{DEDUP_WINDOW_SECONDS} seconds"),
+            ).fetchone()
+
+        if dedup_row:
+            # 比对 violations 集合是否一致：完全相同才认定为重复
+            existing = conn.execute(
+                "SELECT violations_json FROM intercept_events WHERE id = ?",
+                (dedup_row["id"],),
+            ).fetchone()
+            existing_canon = ""
+            if existing and existing["violations_json"]:
+                try:
+                    existing_canon = json.dumps(
+                        sorted([str(v) for v in json.loads(existing["violations_json"])]),
+                        ensure_ascii=False,
+                    )
+                except Exception:
+                    existing_canon = ""
+
+            if existing_canon == violations_canon:
+                conn.close()
+                print(
+                    f"[intercept] DEDUP hit: turn_key={turn_key[:12]}... "
+                    f"violations={violations_canon} -> reuse id={dedup_row['id']}",
+                    flush=True,
+                )
+                # 复用已有行作为返回，前端的本地去重（按 id）自然不会重复展示
+                conn = db.get_conn()
+                row = conn.execute(
+                    "SELECT id, received_at, event_type, protocol, turn_key, user_query, "
+                    "violations_json, allowed_tools_json, source, extra_json, note "
+                    "FROM intercept_events WHERE id = ?",
+                    (dedup_row["id"],),
+                ).fetchone()
+                conn.close()
+                payload = _row_to_intercept_event(row) if row else {"id": dedup_row["id"]}
+                # 不再 emit socketio 事件（前端已有该 id），仅返回
+                return jsonify({"ok": True, "data": payload, "dedup": True})
+
+        cur = conn.execute(
+            "INSERT INTO intercept_events (event_type, protocol, turn_key, user_query, "
+            "violations_json, allowed_tools_json, source, extra_json, note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                event_type,
+                protocol,
+                turn_key,
+                user_query,
+                json.dumps(violations, ensure_ascii=False),
+                json.dumps(allowed_tools, ensure_ascii=False),
+                source,
+                json.dumps(extra, ensure_ascii=False),
+                note,
+            ),
+        )
+        event_id = cur.lastrowid
+        conn.commit()
+        row = conn.execute(
+            "SELECT id, received_at, event_type, protocol, turn_key, user_query, "
+            "violations_json, allowed_tools_json, source, extra_json, note "
+            "FROM intercept_events WHERE id = ?",
+            (event_id,),
+        ).fetchone()
+        conn.close()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"db insert failed: {e}"}), 500
+
+    payload = _row_to_intercept_event(row) if row else {"id": event_id}
+    # 同时向根 namespace（前端默认订阅）和 /wss/monitor（对外 push）推送
+    try:
+        socketio.emit("intercept_event", payload)
+    except Exception:
+        pass
+    try:
+        socketio.emit(
+            "push",
+            {"push_type": "intercept_event", "push_time": payload.get("received_at"), "data": payload},
+            namespace="/wss/monitor",
+        )
+    except Exception:
+        pass
+    return jsonify({"ok": True, "data": payload})
+
+
+def _row_to_intercept_event(row) -> Dict[str, Any]:
+    """统一把一行 intercept_events 行转成前端友好结构。"""
+    def _loads(s):
+        if not s:
+            return None
+        try:
+            return json.loads(s)
+        except Exception:
+            return s
+    # 兼容旧库：sqlite3.Row 没有 .get，但 keys() 可用
+    try:
+        keys = row.keys()
+    except Exception:
+        keys = []
+    note_val = row["note"] if "note" in keys else ""
+    return {
+        "id": row["id"],
+        "received_at": row["received_at"],
+        "event_type": row["event_type"],
+        "protocol": row["protocol"],
+        "turn_key": row["turn_key"],
+        "user_query": row["user_query"],
+        "violations": _loads(row["violations_json"]) or [],
+        "allowed_tools": _loads(row["allowed_tools_json"]) or [],
+        "source": row["source"],
+        "extra": _loads(row["extra_json"]) or {},
+        "note": note_val or "",
+    }
+
+
+@api_doc(summary="拉取拦截事件列表", category="安全拦截",
+         params=[
+             {"name": "limit", "type": "query", "desc": "返回条数上限，默认 100，最大 500"},
+             {"name": "offset", "type": "query", "desc": "偏移，默认 0"},
+             {"name": "event_type", "type": "query", "desc": "按类型过滤"},
+         ],
+         response={"ok": True, "data": {"items": [], "total": 0}},
+         public=False)
+@app.route("/api/intercept/events", methods=["GET"])
+def list_intercept_events():
+    try:
+        limit = int(request.args.get("limit", 100))
+    except Exception:
+        limit = 100
+    limit = max(1, min(limit, 500))
+    try:
+        offset = int(request.args.get("offset", 0))
+    except Exception:
+        offset = 0
+    offset = max(0, offset)
+    event_type = (request.args.get("event_type") or "").strip()
+
+    conn = db.get_conn()
+    where = ""
+    params: List[Any] = []
+    if event_type:
+        where = "WHERE event_type = ?"
+        params.append(event_type)
+    total = conn.execute(
+        f"SELECT COUNT(*) AS c FROM intercept_events {where}", params
+    ).fetchone()["c"]
+    rows = conn.execute(
+        f"SELECT id, received_at, event_type, protocol, turn_key, user_query, "
+        f"violations_json, allowed_tools_json, source, extra_json, note "
+        f"FROM intercept_events {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+        params + [limit, offset],
+    ).fetchall()
+    conn.close()
+    items = [_row_to_intercept_event(r) for r in rows]
+    return jsonify({"ok": True, "data": {"items": items, "total": total}})
+
+
+@api_doc(summary="清空拦截事件", category="安全拦截",
+         description="特权操作，清空 intercept_events 表。",
+         public=False)
+@app.route("/api/intercept/events", methods=["DELETE"])
+def clear_intercept_events():
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    conn = db.get_conn()
+    conn.execute("DELETE FROM intercept_events")
+    conn.commit()
+    conn.close()
     return jsonify({"ok": True})
 
 

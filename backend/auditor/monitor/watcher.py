@@ -985,9 +985,22 @@ def report_to_clawavc(data: dict) -> None:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            urllib.request.urlopen(req, timeout=5)
-        except Exception:
-            pass
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                code = resp.getcode()
+                if code >= 400:
+                    print(
+                        f"[report_to_clawavc] HTTP {code} event={data.get('event')} "
+                        f"round_id={data.get('round_id')}",
+                        flush=True,
+                    )
+        except Exception as e:
+            # 打出失败原因，便于排查"IR 没回填"等链路问题
+            print(
+                f"[report_to_clawavc] POST failed event={data.get('event')} "
+                f"round_id={data.get('round_id')} ir_len="
+                f"{len(data.get('ir_json','') or '')} err={e}",
+                flush=True,
+            )
     threading.Thread(target=_do_post, daemon=True).start()
 
 
@@ -1470,36 +1483,47 @@ class MonitorOrchestrator:
         flat = flatten_dict(obj)
         
         # 提取 tool 信息
+        # 关键：tool_call_id 必须使用真正的工具调用 ID（OpenAI 协议下的 call_xxx），
+        # 这样 before/after 两个阶段才能配对。绝不能回退到外层 `id`（那是日志行 ID，
+        # 短 hex 形如 "34682b2a"，与工具调用无关），否则会出现 before/after 不一致。
+        #
+        # 取值优先级：
+        #   1) message.toolCallId / message.tool_call_id  —— after 阶段 toolResult 的常见位置
+        #   2) message.content[].toolCall.id              —— before 阶段 (Anthropic 风格)
+        #   3) message.content[].tool_calls[].id          —— before 阶段 (OpenAI 风格)
         tool_name = flat.get("message.toolName") or flat.get("message.tool_name") or ""
-        tool_call_id = flat.get("message.toolCallId") or flat.get("message.tool_call_id") or flat.get("id") or ""
-        
-        # 如果没有 toolName，尝试从 content 中提取（tool_calls 或 content 数组）
-        if not tool_name:
-            msg = obj.get("message", {})
-            if isinstance(msg, dict):
-                content = msg.get("content", [])
-                if isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict):
-                            item_type = item.get("type")
-                            if item_type == "toolCall":
-                                tool_name = item.get("name", "")
+        tool_call_id = flat.get("message.toolCallId") or flat.get("message.tool_call_id") or ""
+
+        # 始终扫描一次 content：补全 toolName，并在 tool_call_id 缺失时从 content 里取
+        msg = obj.get("message", {})
+        if isinstance(msg, dict):
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                for item in content:
+                    if not isinstance(item, dict):
+                        continue
+                    item_type = item.get("type")
+                    if item_type == "toolCall":
+                        if not tool_name:
+                            tool_name = item.get("name", "") or tool_name
+                        if not tool_call_id:
+                            tool_call_id = item.get("id", "") or tool_call_id
+                        if tool_name and tool_call_id:
+                            break
+                    elif item_type == "tool_calls":
+                        # tool_calls 是一个数组
+                        tool_calls = item.get("tool_calls", [])
+                        if isinstance(tool_calls, list) and len(tool_calls) > 0:
+                            first_call = tool_calls[0]
+                            if isinstance(first_call, dict):
+                                function = first_call.get("function", {})
+                                if isinstance(function, dict) and not tool_name:
+                                    tool_name = function.get("name", "") or tool_name
                                 if not tool_call_id:
-                                    tool_call_id = item.get("id", "")
-                                break
-                            elif item_type == "tool_calls":
-                                # tool_calls 是一个数组
-                                tool_calls = item.get("tool_calls", [])
-                                if isinstance(tool_calls, list) and len(tool_calls) > 0:
-                                    first_call = tool_calls[0]
-                                    if isinstance(first_call, dict):
-                                        function = first_call.get("function", {})
-                                        if isinstance(function, dict):
-                                            tool_name = function.get("name", "")
-                                        if not tool_call_id:
-                                            tool_call_id = first_call.get("id", "")
-                                        break
-        
+                                    tool_call_id = first_call.get("id", "") or tool_call_id
+                        if tool_name and tool_call_id:
+                            break
+
         if not tool_name:
             print(f"[monitor] No tool_name found, skipping write", flush=True)
             return
@@ -1602,6 +1626,14 @@ class MonitorOrchestrator:
     def _on_round_start(self, r: RoundLedger) -> None:
         self._round_start_times[r.round_id] = r.started_at
         print(f"[monitor] ROUND_STARTED round_id={r.round_id} session={r.session_key} time={format_bj_time()}", flush=True)
+
+        # 通知 clawAVC turn-ir long-poll 层：新一轮开始，清掉上一轮残留的 pending Event，
+        # 避免上一轮卡死的长轮询线程占着 wait 直到 5 分钟超时。
+        try:
+            from app import _turn_ir_reset_for_new_round  # type: ignore
+            _turn_ir_reset_for_new_round()
+        except Exception as e:
+            print(f"[monitor] turn-ir reset on round_start failed: {e}", flush=True)
 
         session_key = r.session_key if r.session_key != "unknown" else ""
         session_id = r.ids.get("session_id") or r.ids.get("sessionId") or ""
@@ -1737,6 +1769,15 @@ class MonitorOrchestrator:
         ir_data = self._round_ir_results.get(round_id, {})
         report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "history": json.dumps(history, ensure_ascii=False) if history else "", "action_json": "[]", "ir_json": json.dumps(ir_data, ensure_ascii=False) if ir_data else "", "judge_result": "", "is_abnormal": False, "overall_score": -1.0})
         print(f"[monitor] IR ready for {round_id}", flush=True)
+
+        # 发布到 clawAVC turn-ir long-poll 缓存：唤醒所有正在 wait 的 portkey 长轮询线程。
+        # 此处必须用与 portkey/clawAVC 同款 normalize 规则做 cache key，
+        # 由 _turn_ir_publish_translation 内部 _normalize_user_query 完成。
+        try:
+            from app import _turn_ir_publish_translation  # type: ignore
+            _turn_ir_publish_translation(user_query, ir_data or {})
+        except Exception as e:
+            print(f"[monitor] turn-ir publish failed for {round_id}: {e}", flush=True)
 
     def _on_round_end(self, r: RoundLedger) -> None:
         print(f"[monitor] ROUND_ENDED round_id={r.round_id} session={r.session_key} time={format_bj_time()}", flush=True)
