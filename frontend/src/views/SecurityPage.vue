@@ -189,13 +189,15 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue"
-import { MessagePlugin } from "tdesign-vue-next"
+import { MessagePlugin, DialogPlugin } from "tdesign-vue-next"
 import PrivilegeDialog from "../components/PrivilegeDialog.vue"
 import PrivilegeStatus from "../components/PrivilegeStatus.vue"
 import { socket } from "../utils/socket.js"
 
 // ─── 开关 ───────────────────────────────────────────────
 const interceptEnabled = ref(false)
+// 监控数据源是否为"从网关获取"（拦截 IR 外工具依赖此条件）
+const useGatewayDataSource = ref(false)
 // 死循环熔断
 const loopBreakerEnabled = ref(true)
 const loopBreakerThreshold = ref(3)
@@ -227,7 +229,31 @@ async function loadSwitch() {
   } catch (e) { console.error("加载开关状态失败:", e) }
 }
 
+async function loadDataSource() {
+  try {
+    const r = await fetch("/api/monitor/config")
+    const j = await r.json()
+    if (j.ok) {
+      useGatewayDataSource.value = j.data?.use_gateway === "true"
+    }
+  } catch (e) { console.error("加载监控数据源失败:", e) }
+}
+
 async function saveInterceptSwitch() {
+  // 开启拦截前刷新一次数据源状态；若非"从网关获取"则提示但不阻断
+  if (interceptEnabled.value) {
+    await loadDataSource()
+    if (!useGatewayDataSource.value) {
+      const dlg = DialogPlugin.alert({
+        header: "提示：拦截依赖网关数据源",
+        body: '当前"交互数据来源"未选择"从网关获取"，IR 外工具拦截功能依赖 portkey 网关链路才能生效。\n\n开关仍可启用，但实际不会拦截任何工具调用。建议前往「运行监控 → 配置」将数据源切换为"从网关获取"后再启用。',
+        confirmBtn: "我知道了",
+        theme: "warning",
+        onConfirm: () => { dlg.destroy() },
+        onClose: () => { dlg.destroy() },
+      })
+    }
+  }
   try {
     const res = await fetch("/api/config/intercept_non_ir_tools", {
       method: "PUT",
@@ -476,6 +502,7 @@ onMounted(() => {
   loadSwitch()
   loadLoopBreaker()
   loadTurnIrWaitMs()
+  loadDataSource()
   fetchEvents()
   socket.on("intercept_event", onInterceptEvent)
 })
