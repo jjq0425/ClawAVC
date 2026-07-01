@@ -601,16 +601,38 @@ def test_translator():
 @api_doc(summary="IR 翻译", category="策略翻译", description="将用户自然语言意图翻译为结构化权限策略", params=[{"name":"query","type":"str","desc":"用户查询文本 (body JSON)"}], public=True)
 @app.route("/api/translator/translate", methods=["POST"])
 def run_translate():
-    """Internal translate endpoint for monitor. Not UI test."""
+    """Internal translate endpoint for monitor. Not UI test.
+    
+    Flow:
+    1. Insert pending record immediately when request arrives
+    2. After level1 completes, update level1_json
+    3. After level2 completes, update level2_json and validation
+    """
     data = request.get_json(force=True)
     query = data.get("query", "").strip()
     round_id = data.get("round_id", "")
     if not query:
         return jsonify({"ok": False, "error": "query is required"}), 400
+    
     try:
         from auditor.translator.core import translate, get_llm_config
+        import db
+        
+        # Step 1: 立即插入 pending 记录
+        if round_id:
+            db.insert_translation_log_pending(round_id=round_id, query=query, is_ui_test=False)
+            print(f"[api] Translation log pending inserted for round_id={round_id}", flush=True)
+        
+        # Step 2: 定义 level1 完成回调
+        def on_level1_done(rid, scenes, meta):
+            if rid:
+                db.update_translation_log_level1(round_id=rid, scenes=scenes, meta=meta)
+                print(f"[api] Translation log level1 updated for round_id={rid}", flush=True)
+        
+        # Step 3: 执行翻译（传入回调）
         config = get_llm_config()
-        result = translate(query, config=config, is_ui_test=False, round_id=round_id)
+        result = translate(query, config=config, is_ui_test=False, round_id=round_id, on_level1_done=on_level1_done)
+        
         return jsonify({"ok": True, "data": result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

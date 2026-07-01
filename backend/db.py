@@ -1028,6 +1028,115 @@ def insert_translation_log(result: Dict[str, Any], is_ui_test: bool = False, rou
         conn.close()
 
 
+def insert_or_update_translation_log(result: Dict[str, Any], is_ui_test: bool = False, round_id: Optional[str] = None) -> bool:
+    """Insert or update translation log. If round_id exists, update; otherwise insert."""
+    conn = get_conn()
+    try:
+        if round_id:
+            # Check if record exists
+            existing = conn.execute(
+                "SELECT id FROM translation_log WHERE round_id = ?", (round_id,)
+            ).fetchone()
+            
+            if existing:
+                # Update existing record
+                conn.execute("""
+                    UPDATE translation_log 
+                    SET query = ?, level1_json = ?, level2_json = ?, 
+                        validation_json = ?, meta_json = ?
+                    WHERE round_id = ?
+                """, (
+                    result.get("query", ""),
+                    json.dumps(result.get("level1", []), ensure_ascii=False),
+                    json.dumps(result.get("level2", {}), ensure_ascii=False),
+                    json.dumps(result.get("validation", {}), ensure_ascii=False),
+                    json.dumps(result.get("meta", {}), ensure_ascii=False),
+                    round_id,
+                ))
+            else:
+                # Insert new record
+                conn.execute("""
+                    INSERT INTO translation_log (round_id, query, level1_json, level2_json, validation_json, meta_json, is_ui_test)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    round_id,
+                    result.get("query", ""),
+                    json.dumps(result.get("level1", []), ensure_ascii=False),
+                    json.dumps(result.get("level2", {}), ensure_ascii=False),
+                    json.dumps(result.get("validation", {}), ensure_ascii=False),
+                    json.dumps(result.get("meta", {}), ensure_ascii=False),
+                    1 if is_ui_test else 0,
+                ))
+        else:
+            # No round_id, just insert
+            conn.execute("""
+                INSERT INTO translation_log (round_id, query, level1_json, level2_json, validation_json, meta_json, is_ui_test)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                round_id,
+                result.get("query", ""),
+                json.dumps(result.get("level1", []), ensure_ascii=False),
+                json.dumps(result.get("level2", {}), ensure_ascii=False),
+                json.dumps(result.get("validation", {}), ensure_ascii=False),
+                json.dumps(result.get("meta", {}), ensure_ascii=False),
+                1 if is_ui_test else 0,
+            ))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[db] insert_or_update_translation_log error: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def insert_translation_log_pending(round_id: str, query: str, is_ui_test: bool = False) -> bool:
+    """Insert a pending translation log entry when translation starts."""
+    conn = get_conn()
+    try:
+        conn.execute("""
+            INSERT OR IGNORE INTO translation_log (round_id, query, level1_json, level2_json, validation_json, meta_json, is_ui_test)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            round_id,
+            query,
+            "[]",  # empty level1
+            "{}",  # empty level2
+            "{}",  # empty validation
+            "{}",  # empty meta
+            1 if is_ui_test else 0,
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[db] insert_translation_log_pending error: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def update_translation_log_level1(round_id: str, scenes: List[str], meta: Dict[str, Any]) -> bool:
+    """Update translation log with level1 result."""
+    conn = get_conn()
+    try:
+        conn.execute("""
+            UPDATE translation_log 
+            SET level1_json = ?, meta_json = json_set(meta_json, '$.level1', json(?))
+            WHERE round_id = ?
+        """, (
+            json.dumps(scenes, ensure_ascii=False),
+            json.dumps(meta, ensure_ascii=False),
+            round_id,
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[db] update_translation_log_level1 error: {e}")
+        return False
+    finally:
+        conn.close()
+
+
 def get_translation_logs(limit: int = 50, offset: int = 0, ui_only: bool = False) -> List[Dict]:
     conn = get_conn()
     where = "WHERE is_ui_test = 1" if ui_only else ""

@@ -62,12 +62,13 @@
     ]
   },
   "process_control": {
-    "desc": "查看与控制本地或容器进程：列出、查询、停止、重启或调整进程优先级；需要谨慎操作以避免中断关键服务。",
+    "desc": "查看与控制本地或容器进程：列出、查询、停止、重启或调整进程优先级；需要谨慎操作以避免中断关键服务。或者是完成一些系统探针相关的操作",
     "functions": [
       "exec",
       "process",
       "port_check__check",
-      "port_check__scan_range"
+      "port_check__scan_range",
+      "sys_probe__run_probe"
     ]
   },
   "runtime_exec": {

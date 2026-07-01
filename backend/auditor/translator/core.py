@@ -551,12 +551,27 @@ def validate_ir(ir: Dict[str, Any]) -> ValidationReport:
 # ---------------------------------------------------------------------------
 # End-to-end
 # ---------------------------------------------------------------------------
-def translate(query: str, config: Optional[Dict[str, Any]] = None, is_ui_test: bool = False, round_id: str = "") -> Dict[str, Any]:
-    """Full pipeline: query -> level1 -> level2 -> normalize -> validate -> store."""
+def translate(query: str, config: Optional[Dict[str, Any]] = None, is_ui_test: bool = False, round_id: str = "", on_level1_done: Optional[callable] = None) -> Dict[str, Any]:
+    """Full pipeline: query -> level1 -> level2 -> normalize -> validate -> store.
+    
+    Args:
+        query: The user query text.
+        config: LLM config dict.
+        is_ui_test: Whether this is from UI test page.
+        round_id: The round identifier.
+        on_level1_done: Optional callback(level1_scenes, meta1) called after level1 completes.
+    """
     cfg = config or get_llm_config()
 
     # Level 1
     scenes, meta1 = level1_classify(query, config=cfg)
+    
+    # Level1 完成后立即回调更新数据库
+    if on_level1_done and round_id:
+        try:
+            on_level1_done(round_id, scenes, meta1)
+        except Exception as e:
+            print(f"[translator] on_level1_done callback error: {e}", flush=True)
 
     # Level 2
     if scenes:
@@ -579,12 +594,12 @@ def translate(query: str, config: Optional[Dict[str, Any]] = None, is_ui_test: b
         "meta": {"level1": meta1, "level2": meta2},
     }
 
-    # Store to translation log
+    # Store to translation log (update if already inserted by callback)
     try:
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
         import db
-        db.insert_translation_log(result, is_ui_test=is_ui_test, round_id=round_id)
+        db.insert_or_update_translation_log(result, is_ui_test=is_ui_test, round_id=round_id)
     except Exception:
         pass
 

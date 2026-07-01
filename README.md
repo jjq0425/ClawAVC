@@ -859,6 +859,42 @@ IR 翻译器采用两阶段 LLM 管线：
 1. **Level-1 场景分类**：将用户 query 分类为最小必要场景集合（如 `file_ops`、`shell_exec`、`search`）
 2. **Level-2 策略生成**：基于选中场景的函数定义，生成结构化 `subject/objects` 权限策略
 
+#### 分阶段数据库更新
+
+翻译结果采用**分阶段写入** `translation_log` 表，确保前端能实时看到翻译进度：
+
+```
+round_start 触发
+    ↓
+_on_round_start() 被调用
+    ↓
+1. 立即插入 pending 记录到 translation_log（level1/level2 为空）
+    ↓
+2. 启动 _query_and_ir_worker 线程（异步）
+    ↓
+_query_and_ir_worker 中：
+  1. 等待 user_query 出现（从 gateway 或 session 文件）
+  2. 找到 user_query 后，调用 ir_translate（同步）
+     ↓
+     ir_translate 内部：
+     1. 立即插入 pending 记录到 translation_log
+     2. 执行 Level1 → 完成后更新 translation_log 的 level1_json
+     3. 执行 Level2 → 完成后更新 translation_log 的 level2_json 和 validation
+  3. 结果存到 self._round_ir_results
+    ↓
+round_end 触发
+    ↓
+_on_round_end() 被调用
+    ↓
+从 self._round_ir_results 获取 ir_result
+```
+
+**特点**：
+- 翻译开始时立即创建数据库记录（前端可见"翻译中"状态）
+- Level1 完成后立即更新，前端可看到场景分类结果
+- Level2 完成后更新最终 IR 策略
+- 即使两个阶段都很快，数据库也会有 3 次更新，前端不会漏掉任何进度
+
 #### 策略验证
 
 翻译结果会自动经过 `validate_ir()` 函数验证，检查：

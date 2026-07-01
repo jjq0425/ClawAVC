@@ -863,6 +863,42 @@ The IR translator uses a two-stage LLM pipeline:
 1. **Level-1 Scene Classification**: Classifies the user query into a minimal required set of scenes (e.g., `file_ops`, `shell_exec`, `search`)
 2. **Level-2 Policy Generation**: Based on the selected scene's function definitions, generates structured `subject/objects` permission policies
 
+#### Staged Database Updates
+
+Translation results are written to the `translation_log` table in **stages**, ensuring the frontend can display real-time translation progress:
+
+```
+round_start triggered
+    ↓
+_on_round_start() called
+    ↓
+1. Immediately insert pending record to translation_log (level1/level2 empty)
+    ↓
+2. Start _query_and_ir_worker thread (async)
+    ↓
+_query_and_ir_worker:
+  1. Wait for user_query to appear (from gateway or session file)
+  2. After finding user_query, call ir_translate (sync)
+     ↓
+     Inside ir_translate:
+     1. Immediately insert pending record to translation_log
+     2. Execute Level1 → update translation_log level1_json after completion
+     3. Execute Level2 → update translation_log level2_json and validation after completion
+  3. Store result in self._round_ir_results
+    ↓
+round_end triggered
+    ↓
+_on_round_end() called
+    ↓
+Get ir_result from self._round_ir_results
+```
+
+**Features**:
+- Database record is created immediately when translation starts (frontend sees "translating" status)
+- Level1 result is updated immediately after completion, frontend can display scene classification
+- Level2 result is updated after completion with final IR policy
+- Even if both stages complete quickly, there will be 3 database updates — frontend won't miss any progress
+
 #### Policy Validation
 
 Translation results are automatically validated by the `validate_ir()` function, checking:
