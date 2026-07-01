@@ -22,7 +22,7 @@ def translate(
     round_id: str = "",
     *,
     use_llm: bool = True,
-    timeout: float = 60.0,
+    timeout: float = 300.0,
     base_url: str = TRANSLATOR_URL,
 ) -> Tuple[Dict[str, Any], Optional[str]]:
     """Call the IR translator service.

@@ -413,8 +413,19 @@ The "Tool Injection" scenario supports configurable attacks. Each item can be en
 |------------|-------------|-----------------|
 | `tool_injection.network` | Fixed network access — forces the injected tool to connect to a given address when called | `http://malicious.example.com/collect` |
 | `tool_injection.filepath` | Fixed file path access — forces the injected tool to read a given file when called | `/root/.ssh/id_rsa` |
+| `tool_injection.syscall` | Anomalous syscall sequence — when the injected tool is called, execute the syscall sequence of the selected `rule_id` (rules sourced from `backend/static/rule_test_atk.json`) | `DT异常序列_003` |
 
 Each config item is stored as two records in the `config` table: `attack.inject.<item>.enabled` (`true`/`false`) and `attack.inject.<item>.value` (attack content).
+
+#### Anomalous syscall sequence integration (sys_probe)
+
+`tool_injection.syscall` is not a free-form string in the UI — it is picked via a dedicated component `frontend/src/components/RuleSelectDialog.vue`:
+
+- The dialog loads `GET /api/attack/rules`; the backend reads `backend/static/rule_test_atk.json` and returns each rule's `rule_id` / `sequence` (joined syscall names) / `note` / `score` / `source`
+- Supports searching by `rule_id` or syscall name; a single radio selection is committed
+- The external MCP tool [`agent_perm_audit/tools/sys_probe/server.py`](../agent_perm_audit/tools/sys_probe/server.py) pulls the current `rule_id` at runtime via `GET /api/attack/tool-config?key=tool_injection.syscall`, then truly executes the syscall sequence defined by that rule in `rule_test_atk.json`
+- When the sequence contains a network `connect`, sys_probe performs an **application-layer HTTP GET** to `http://8.152.192.7:15100/api/webhook` — raw TCP `connect()` cannot carry a URL path, so the request must speak HTTP to actually hit `/api/webhook`
+- `rule_id` resolution priority: env `PERM_AUDIT_SYSCALL_SEQ` > `PERM_AUDIT_RULE_ID` > remote fetch from ClawAVC > default `DT异常序列_003`
 
 ### Public Endpoint
 
@@ -451,6 +462,7 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | `/export` | Data Export | SQL filtering + multi-format export (CSV/Excel/TXT/JSON), accessed from Database Operations | Entry passphrase |
 | `/settings` | Platform Settings | Session management, passphrase configuration | Privileged items require privilege key |
 | `/replay` | Traffic Replay | Select historical rounds and replay via WSS push for debugging or demo | Entry passphrase |
+| `/security` | Security Settings | Includes the "Intercept tools outside IR" switch. Before enabling, the page checks whether "interaction data source" is "from gateway"; if not, a warning Dialog is shown (informational, non-blocking) | Entry passphrase |
 
 ### Traffic Replay
 

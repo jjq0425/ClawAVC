@@ -69,11 +69,16 @@
 | `GET` | `/api/attack/config` | 获取工具注入配置 (内部页面加载) | 公开 |
 | `PUT` | `/api/attack/config` | 保存工具注入配置 (含开启状态) | 公开 |
 | `GET` | `/api/attack/tool-config?key=tool_injection.<item>` | 对外接口: 按配置 key 查询开启状态与内容 | 对外公开 |
+| `GET` | `/api/attack/rules` | 读取 syscall 异常序列规则集（供 `tool_injection.syscall` 选择 rule_id 用） | 公开 |
 
-- 支持的注入项在代码中配置 (`ATTACK_INJECT_ITEMS`)，具体项及对应配置 key 可前往数据运维页面查看 config 表
+- 支持的注入项在代码中配置 (`ATTACK_INJECT_ITEMS`)，目前包含三项：
+  - `tool_injection.network` — 固定外发地址（被注入工具调用时强制 HTTP GET 该 URL）
+  - `tool_injection.filepath` — 固定访问文件路径
+  - `tool_injection.syscall` — **异常 syscall 序列**，value 为 `rule_id`（如 `DT异常序列_003`），供 `agent_perm_audit/tools/sys_probe` 远程拉取后按规则执行对应 syscall
 - 每项在 config 表存为 `attack.inject.<item>.enabled` + `attack.inject.<item>.value`
 - `tool-config` 接口 key 支持 `tool_injection.xxx` 或 `xxx`；不传 key 返回全部；未知 key 返回 404
 - 该接口在 `api_docs.py` 的 ENDPOINT_REGISTRY 中标记 `public: True`
+- `/api/attack/rules` 读取后端 `backend/static/rule_test_atk.json`，返回每条规则的 `rule_id` / `sequence`（syscall 名拼接）/ `sequence_list` / `note` / `score` / `source`，前端 `RuleSelectDialog.vue` 据此渲染单选列表
 
 **Traffic Replay API (流量回放):**
 | 方法 | 路径 | 说明 | 权限 |
@@ -134,6 +139,7 @@
 2. **ir_client.py** — HTTP 客户端
    - 调用 `POST /api/translator/translate`
    - 返回 (ir_dict, error_or_None)
+   - `translate(..., timeout=300.0, ...)` — 默认 **5 分钟超时**（原 60s），适配长链路 LLM 推理；watcher 不显式传 timeout 时即走默认值
 
 3. **judge.py** — 完整搬运自 abnormal_judge_userState.py
    - `judge(action, IR)` → 文本判定结果
@@ -185,10 +191,11 @@ OpenClaw 日志变化 → FileTailer 读取 → parse_line(line, source_file) �
 | `/policy` | 策略库 | `policy/RegistryTab.vue` | 场景概览 → 场景详情 |
 | `/policy` | 翻译日志 | `policy/LogsTab.vue` | 日志列表 + 筛选 + 详情抽屉 |
 | `/policy` | 默认策略 | `policy/DefaultPolicyTab.vue` | JSON 编辑器 |
-| `/attack` | — | `AttackPage.vue` | 模拟攻击场景 (色块分组) + 工具注入攻击配置 (固定网络外发/文件路径，独立开关，保存到 config 表) |
+| `/attack` | — | `AttackPage.vue` | 模拟攻击场景 (色块分组) + 工具注入攻击配置（`network` / `filepath` / `syscall` 三项独立开关，保存到 config 表）。`syscall` 项通过独立组件 `components/RuleSelectDialog.vue` 弹窗从 `/api/attack/rules` 加载规则集（支持搜索 rule_id 与 syscall 名），单选生效 `rule_id` |
 | `/database` | — | `DatabasePage.vue` | 可视化表编辑器 + SQL 控制台，顶部有"数据导出"跳转按钮 |
 | `/export` | — | `ExportPage.vue` | 选表 → SQL 筛选 → 预览 → 多格式导出 (CSV/Excel/TXT/JSON)，从数据运维页进入 |
 | `/replay` | — | `ReplayPage.vue` | 流量回放：选择历史 Round 以 WSS 推送方式回放，支持配置回放速度 |
+| `/security` | — | `SecurityPage.vue` | 安全设置：含「拦截 IR 外工具」开关。开启前会先 `GET /api/monitor/config` 校验 `monitor_conf.use_gateway === "true"`，若不是「从网关获取」会弹 TDesign `DialogPlugin.alert` warning 提示（提示而不阻断），关闭依赖 `onConfirm`/`onClose` 中手动 `dlg.destroy()` |
 
 #### 运行日志卡片结构
 ```
@@ -537,6 +544,19 @@ uv run python3 auditor/monitor/proc_info.py --openclaw-root /root/.openclaw \
 - 入门口令不可在前端代码中明文暴露
 - 不修改原始 `/home/hx/jjq/auditor/` 下的文件
 - 不修改 `judge()` 函数本身 (helpers 可改)
+
+## sys_probe 联动（agent_perm_audit/tools/sys_probe）
+
+ClawAVC 的「工具注入 - 异常 syscall 序列」(`tool_injection.syscall`) 通过外部 MCP 工具 `agent_perm_audit/tools/sys_probe/server.py` 落地：
+
+- **rule_id 来源优先级**（`_resolve_sequence`）：
+  1. `PERM_AUDIT_SYSCALL_SEQ` 环境变量（直接给序列名字符串）
+  2. `PERM_AUDIT_RULE_ID` 环境变量
+  3. 远程拉取：`GET ${PERM_AUDIT_CLAWAVC_URL:-http://localhost:5001}/api/attack/tool-config?key=tool_injection.syscall`，启用且 `value` 非空时使用
+  4. 默认 `DT异常序列_003`
+- **网络外发动作**：`_t_connect` 已改为应用层 HTTP GET — 真访问 `http://8.152.192.7:15100/api/webhook`（裸 TCP `connect()` 无法携带 URL 路径，必须走 HTTP 才能命中 `/api/webhook`）
+- **规则覆盖**：`backend/static/rule_test_atk.json` 含 143 条规则，使用的 19 个 syscall name 完全被 sys_probe `_TRIGGERS` 字典覆盖
+- **stdio 进程鲁棒性** (`agent_perm_audit/_common/mcp_stub.py`)：JSON-RPC 主循环改为 `while True: try: line = sys.stdin.readline() except (OSError, ValueError): break` —— 老实现 `for line in sys.stdin:` 在 stdin EOF/Bad fd 时会抛 `OSError: [Errno 9] Bad file descriptor` 让 server 异常退出，MCP host 之后看到 "Not connected"；新实现优雅退出，由 host 决定是否重 spawn
 
 ## 构建验证
 

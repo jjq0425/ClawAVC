@@ -1,0 +1,4973 @@
+[
+  {
+    "rule_id": "DT异常序列_001",
+    "sequence": [
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "pipe"
+      },
+      {
+        "name": "close"
+      },
+      {
+        "name": "write"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        4,
+        22,
+        3,
+        1,
+        6
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_002",
+    "sequence": [
+      {
+        "name": "pipe"
+      },
+      {
+        "name": "close"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        22,
+        3,
+        6,
+        10,
+        4
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_003",
+    "sequence": [
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "pipe"
+      },
+      {
+        "name": "close"
+      },
+      {
+        "name": "write"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        10,
+        4,
+        22,
+        3,
+        1
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_004",
+    "sequence": [
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "munmap"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        6,
+        10,
+        11,
+        10,
+        4
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_005",
+    "sequence": [
+      {
+        "name": "munmap"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "adjtimex"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        11,
+        10,
+        4,
+        10,
+        159
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_006",
+    "sequence": [
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "pipe"
+      },
+      {
+        "name": "close"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        6,
+        10,
+        4,
+        22,
+        3
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_007",
+    "sequence": [
+      {
+        "name": "write"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "munmap"
+      },
+      {
+        "name": "mprotect"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        1,
+        6,
+        10,
+        11,
+        10
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_008",
+    "sequence": [
+      {
+        "name": "exit"
+      },
+      {
+        "name": "rt_sigaction"
+      },
+      {
+        "name": "pipe"
+      },
+      {
+        "name": "close"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        60,
+        13,
+        22,
+        3,
+        6
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_009",
+    "sequence": [
+      {
+        "name": "pipe"
+      },
+      {
+        "name": "close"
+      },
+      {
+        "name": "write"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "mprotect"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        22,
+        3,
+        1,
+        6,
+        10
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_010",
+    "sequence": [
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "munmap"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "mprotect"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        10,
+        11,
+        10,
+        4,
+        10
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_011",
+    "sequence": [
+      {
+        "name": "close"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "pipe"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        3,
+        6,
+        10,
+        4,
+        22
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_012",
+    "sequence": [
+      {
+        "name": "rt_sigaction"
+      },
+      {
+        "name": "pipe"
+      },
+      {
+        "name": "close"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "mprotect"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        13,
+        22,
+        3,
+        6,
+        10
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_013",
+    "sequence": [
+      {
+        "name": "close"
+      },
+      {
+        "name": "write"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "munmap"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        3,
+        1,
+        6,
+        10,
+        11
+      ],
+      "abnormal_count": 285,
+      "normal_count": 0,
+      "abnormal_rate": 0.446009,
+      "normal_rate": 0.0,
+      "lift": 446009390.671,
+      "score": 0.446009,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_014",
+    "sequence": [
+      {
+        "name": "adjtimex"
+      },
+      {
+        "name": "munmap"
+      },
+      {
+        "name": "brk"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        159,
+        11,
+        12,
+        10,
+        258
+      ],
+      "abnormal_count": 184,
+      "normal_count": 0,
+      "abnormal_rate": 0.28795,
+      "normal_rate": 0.0,
+      "lift": 287949922.753,
+      "score": 0.28795,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_015",
+    "sequence": [
+      {
+        "name": "adjtimex"
+      },
+      {
+        "name": "munmap"
+      },
+      {
+        "name": "brk"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "connect"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        159,
+        11,
+        12,
+        10,
+        42
+      ],
+      "abnormal_count": 110,
+      "normal_count": 0,
+      "abnormal_rate": 0.172144,
+      "normal_rate": 0.0,
+      "lift": 172143975.961,
+      "score": 0.172144,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_016",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        158,
+        110
+      ],
+      "abnormal_count": 108,
+      "normal_count": 0,
+      "abnormal_rate": 0.169014,
+      "normal_rate": 0.0,
+      "lift": 169014085.507,
+      "score": 0.169014,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_017",
+    "sequence": [
+      {
+        "name": "munmap"
+      },
+      {
+        "name": "brk"
+      },
+      {
+        "name": "mprotect"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "epoll_wait"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        11,
+        12,
+        10,
+        258,
+        232
+      ],
+      "abnormal_count": 108,
+      "normal_count": 0,
+      "abnormal_rate": 0.169014,
+      "normal_rate": 0.0,
+      "lift": 169014085.507,
+      "score": 0.169014,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_018",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        62,
+        110
+      ],
+      "abnormal_count": 90,
+      "normal_count": 0,
+      "abnormal_rate": 0.140845,
+      "normal_rate": 0.0,
+      "lift": 140845071.423,
+      "score": 0.140845,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_019",
+    "sequence": [
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        57,
+        62,
+        158
+      ],
+      "abnormal_count": 90,
+      "normal_count": 0,
+      "abnormal_rate": 0.140845,
+      "normal_rate": 0.0,
+      "lift": 140845071.423,
+      "score": 0.140845,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_020",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        4,
+        231
+      ],
+      "abnormal_count": 89,
+      "normal_count": 0,
+      "abnormal_rate": 0.13928,
+      "normal_rate": 0.0,
+      "lift": 139280126.196,
+      "score": 0.13928,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_021",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        4
+      ],
+      "abnormal_count": 89,
+      "normal_count": 0,
+      "abnormal_rate": 0.13928,
+      "normal_rate": 0.0,
+      "lift": 139280126.196,
+      "score": 0.13928,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_022",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        2,
+        4
+      ],
+      "abnormal_count": 89,
+      "normal_count": 0,
+      "abnormal_rate": 0.13928,
+      "normal_rate": 0.0,
+      "lift": 139280126.196,
+      "score": 0.13928,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_023",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        110,
+        62
+      ],
+      "abnormal_count": 89,
+      "normal_count": 0,
+      "abnormal_rate": 0.13928,
+      "normal_rate": 0.0,
+      "lift": 139280126.196,
+      "score": 0.13928,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_024",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        258,
+        2
+      ],
+      "abnormal_count": 89,
+      "normal_count": 0,
+      "abnormal_rate": 0.13928,
+      "normal_rate": 0.0,
+      "lift": 139280126.196,
+      "score": 0.13928,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_025",
+    "sequence": [
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        232,
+        231,
+        62
+      ],
+      "abnormal_count": 89,
+      "normal_count": 0,
+      "abnormal_rate": 0.13928,
+      "normal_rate": 0.0,
+      "lift": 139280126.196,
+      "score": 0.13928,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_026",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        62,
+        2
+      ],
+      "abnormal_count": 89,
+      "normal_count": 0,
+      "abnormal_rate": 0.13928,
+      "normal_rate": 0.0,
+      "lift": 139280126.196,
+      "score": 0.13928,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_027",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "connect"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        2,
+        4,
+        42
+      ],
+      "abnormal_count": 89,
+      "normal_count": 0,
+      "abnormal_rate": 0.13928,
+      "normal_rate": 0.0,
+      "lift": 139280126.196,
+      "score": 0.13928,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_028",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        232,
+        62
+      ],
+      "abnormal_count": 88,
+      "normal_count": 0,
+      "abnormal_rate": 0.137715,
+      "normal_rate": 0.0,
+      "lift": 137715180.969,
+      "score": 0.137715,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_029",
+    "sequence": [
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        4,
+        62,
+        231
+      ],
+      "abnormal_count": 88,
+      "normal_count": 0,
+      "abnormal_rate": 0.137715,
+      "normal_rate": 0.0,
+      "lift": 137715180.969,
+      "score": 0.137715,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_030",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        110,
+        258
+      ],
+      "abnormal_count": 88,
+      "normal_count": 0,
+      "abnormal_rate": 0.137715,
+      "normal_rate": 0.0,
+      "lift": 137715180.969,
+      "score": 0.137715,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_031",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        4,
+        62
+      ],
+      "abnormal_count": 88,
+      "normal_count": 0,
+      "abnormal_rate": 0.137715,
+      "normal_rate": 0.0,
+      "lift": 137715180.969,
+      "score": 0.137715,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_032",
+    "sequence": [
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        2,
+        4,
+        62
+      ],
+      "abnormal_count": 88,
+      "normal_count": 0,
+      "abnormal_rate": 0.137715,
+      "normal_rate": 0.0,
+      "lift": 137715180.969,
+      "score": 0.137715,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_033",
+    "sequence": [
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        232,
+        62,
+        231,
+        62
+      ],
+      "abnormal_count": 88,
+      "normal_count": 0,
+      "abnormal_rate": 0.137715,
+      "normal_rate": 0.0,
+      "lift": 137715180.969,
+      "score": 0.137715,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_034",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        258,
+        62
+      ],
+      "abnormal_count": 87,
+      "normal_count": 0,
+      "abnormal_rate": 0.13615,
+      "normal_rate": 0.0,
+      "lift": 136150235.742,
+      "score": 0.13615,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_035",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "arch_prctl"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        158
+      ],
+      "abnormal_count": 87,
+      "normal_count": 0,
+      "abnormal_rate": 0.13615,
+      "normal_rate": 0.0,
+      "lift": 136150235.742,
+      "score": 0.13615,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_036",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        110,
+        258
+      ],
+      "abnormal_count": 87,
+      "normal_count": 0,
+      "abnormal_rate": 0.13615,
+      "normal_rate": 0.0,
+      "lift": 136150235.742,
+      "score": 0.13615,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_037",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        62,
+        231
+      ],
+      "abnormal_count": 87,
+      "normal_count": 0,
+      "abnormal_rate": 0.13615,
+      "normal_rate": 0.0,
+      "lift": 136150235.742,
+      "score": 0.13615,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_038",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        110
+      ],
+      "abnormal_count": 87,
+      "normal_count": 0,
+      "abnormal_rate": 0.13615,
+      "normal_rate": 0.0,
+      "lift": 136150235.742,
+      "score": 0.13615,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_039",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        158,
+        231,
+        110
+      ],
+      "abnormal_count": 87,
+      "normal_count": 0,
+      "abnormal_rate": 0.13615,
+      "normal_rate": 0.0,
+      "lift": 136150235.742,
+      "score": 0.13615,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_040",
+    "sequence": [
+      {
+        "name": "openat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        2,
+        62,
+        4,
+        231
+      ],
+      "abnormal_count": 87,
+      "normal_count": 0,
+      "abnormal_rate": 0.13615,
+      "normal_rate": 0.0,
+      "lift": 136150235.742,
+      "score": 0.13615,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_041",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        62,
+        110,
+        231,
+        258
+      ],
+      "abnormal_count": 87,
+      "normal_count": 0,
+      "abnormal_rate": 0.13615,
+      "normal_rate": 0.0,
+      "lift": 136150235.742,
+      "score": 0.13615,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_042",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        62,
+        2,
+        231,
+        4
+      ],
+      "abnormal_count": 87,
+      "normal_count": 0,
+      "abnormal_rate": 0.13615,
+      "normal_rate": 0.0,
+      "lift": 136150235.742,
+      "score": 0.13615,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_043",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        62,
+        231
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_044",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        258,
+        62
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_045",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        258,
+        2
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_046",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        258,
+        2,
+        62
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_047",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        232,
+        62
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_048",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        62,
+        57,
+        158,
+        62
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_049",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        110,
+        231,
+        258,
+        2
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_050",
+    "sequence": [
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        232,
+        231,
+        62,
+        57,
+        158
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_051",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        231,
+        258,
+        2,
+        4
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_052",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        232,
+        231,
+        62,
+        57
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_053",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        62,
+        258,
+        231,
+        2
+      ],
+      "abnormal_count": 86,
+      "normal_count": 0,
+      "abnormal_rate": 0.134585,
+      "normal_rate": 0.0,
+      "lift": 134585290.515,
+      "score": 0.134585,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_054",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        110,
+        62
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_055",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        2,
+        4,
+        62
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_056",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        110,
+        258
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_057",
+    "sequence": [
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        2,
+        4,
+        62,
+        231
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_058",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        158,
+        110
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_059",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        232,
+        62,
+        57,
+        62
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_060",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        57,
+        158,
+        62,
+        110
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_061",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        62,
+        57,
+        62,
+        158
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_062",
+    "sequence": [
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        232,
+        62,
+        57,
+        158,
+        62
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_063",
+    "sequence": [
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        57,
+        158,
+        62,
+        110,
+        231
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_064",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        57,
+        62,
+        158,
+        231
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_065",
+    "sequence": [
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        232,
+        62,
+        57,
+        62,
+        158
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_066",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        62,
+        57,
+        158
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_067",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        158,
+        231,
+        110,
+        258
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_068",
+    "sequence": [
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        232,
+        62,
+        231,
+        62,
+        57
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_069",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        258,
+        62,
+        2,
+        231
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_070",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        258,
+        231,
+        2,
+        4
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_071",
+    "sequence": [
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        57,
+        62,
+        158,
+        231,
+        110
+      ],
+      "abnormal_count": 85,
+      "normal_count": 0,
+      "abnormal_rate": 0.13302,
+      "normal_rate": 0.0,
+      "lift": 133020345.288,
+      "score": 0.13302,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_072",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        2,
+        4,
+        62
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_073",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        2,
+        62,
+        231
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_074",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        110,
+        62,
+        258
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_075",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        62,
+        231
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_076",
+    "sequence": [
+      {
+        "name": "openat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        2,
+        62,
+        231,
+        4
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_077",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "arch_prctl"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        57,
+        62,
+        231,
+        158
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_078",
+    "sequence": [
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        232,
+        231,
+        62,
+        57,
+        62
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_079",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        110,
+        62,
+        231,
+        258
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_080",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        2,
+        62,
+        4,
+        231
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_081",
+    "sequence": [
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        57,
+        158,
+        62,
+        231,
+        110
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_082",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        57,
+        158,
+        62,
+        231
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_083",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        62,
+        231,
+        258,
+        2
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_084",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        110,
+        258,
+        2,
+        4
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_085",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        231,
+        258,
+        2,
+        62
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_086",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        62,
+        57,
+        62
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_087",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        258,
+        2,
+        62,
+        4
+      ],
+      "abnormal_count": 84,
+      "normal_count": 0,
+      "abnormal_rate": 0.131455,
+      "normal_rate": 0.0,
+      "lift": 131455400.061,
+      "score": 0.131455,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_088",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        2,
+        4
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_089",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        231,
+        258,
+        62
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_090",
+    "sequence": [
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        57,
+        62,
+        158,
+        110
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_091",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        231,
+        110,
+        258,
+        2
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_092",
+    "sequence": [
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        57,
+        62,
+        231,
+        158,
+        110
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_093",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        110,
+        258,
+        62,
+        2
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_094",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        110,
+        258,
+        2,
+        4
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_095",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        62,
+        231,
+        110,
+        258
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_096",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        62,
+        231,
+        2,
+        4
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_097",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        232,
+        62,
+        231,
+        62
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_098",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        62,
+        57,
+        158,
+        110
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_099",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        62,
+        57,
+        62,
+        231
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_100",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        232,
+        62,
+        57
+      ],
+      "abnormal_count": 83,
+      "normal_count": 0,
+      "abnormal_rate": 0.12989,
+      "normal_rate": 0.0,
+      "lift": 129890454.834,
+      "score": 0.12989,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_101",
+    "sequence": [
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        2,
+        4,
+        231
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_102",
+    "sequence": [
+      {
+        "name": "openat"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        2,
+        231,
+        4,
+        62
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_103",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        4,
+        62
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_104",
+    "sequence": [
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        232,
+        62,
+        57,
+        158,
+        110
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_105",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        110,
+        258,
+        62,
+        2
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_106",
+    "sequence": [
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        57,
+        158,
+        110,
+        62,
+        258
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_107",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        158,
+        110,
+        258
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_108",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        258,
+        62,
+        2,
+        231
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_109",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        232,
+        62,
+        57,
+        158
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_110",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        158,
+        110,
+        62
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_111",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        231,
+        110,
+        258,
+        62
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_112",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        158,
+        110,
+        258,
+        2
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_113",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        232,
+        62,
+        231
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_114",
+    "sequence": [
+      {
+        "name": "epoll_wait"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        232,
+        62,
+        57,
+        62,
+        231
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_115",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        57,
+        158,
+        110,
+        62
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_116",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        57,
+        158,
+        110,
+        258
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_117",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        258,
+        2,
+        62,
+        4
+      ],
+      "abnormal_count": 82,
+      "normal_count": 0,
+      "abnormal_rate": 0.128326,
+      "normal_rate": 0.0,
+      "lift": 128325509.607,
+      "score": 0.128326,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_118",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        62,
+        2,
+        4
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_119",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        62,
+        231,
+        62
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_120",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        4,
+        62,
+        231
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_121",
+    "sequence": [
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        57,
+        158,
+        110,
+        258,
+        62
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_122",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        62,
+        110,
+        258,
+        231
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_123",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        110,
+        258,
+        2
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_124",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        110,
+        231,
+        258,
+        62
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_125",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        110,
+        62,
+        258,
+        2
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_126",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        258,
+        2,
+        4,
+        62
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_127",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        110,
+        258,
+        231,
+        2
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_128",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        2,
+        4,
+        62,
+        231
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_129",
+    "sequence": [
+      {
+        "name": "clone"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        57,
+        158,
+        62,
+        110,
+        258
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_130",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "newfstatat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        2,
+        62,
+        231,
+        4
+      ],
+      "abnormal_count": 81,
+      "normal_count": 0,
+      "abnormal_rate": 0.126761,
+      "normal_rate": 0.0,
+      "lift": 126760564.38,
+      "score": 0.126761,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_131",
+    "sequence": [
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        258,
+        2,
+        231
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_132",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        158,
+        110,
+        231
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_133",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        110,
+        62,
+        231
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_134",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        110,
+        62
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_135",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        231,
+        158,
+        62
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_136",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        158,
+        62,
+        231
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_137",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        110,
+        258,
+        62,
+        231
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_138",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        231,
+        258,
+        62,
+        2
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_139",
+    "sequence": [
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        231,
+        258,
+        2,
+        4,
+        62
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_140",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "openat"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "newfstatat"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        2,
+        231,
+        4,
+        62
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_141",
+    "sequence": [
+      {
+        "name": "kill"
+      },
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        62,
+        158,
+        231,
+        110,
+        62
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_142",
+    "sequence": [
+      {
+        "name": "arch_prctl"
+      },
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "exit_group"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        158,
+        110,
+        62,
+        258,
+        231
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  },
+  {
+    "rule_id": "DT异常序列_143",
+    "sequence": [
+      {
+        "name": "getppid"
+      },
+      {
+        "name": "mkdirat"
+      },
+      {
+        "name": "kill"
+      },
+      {
+        "name": "exit_group"
+      },
+      {
+        "name": "openat"
+      }
+    ],
+    "meta": {
+      "source": "DT-Abnormal.npz",
+      "syscall_numbers": [
+        110,
+        258,
+        62,
+        231,
+        2
+      ],
+      "abnormal_count": 80,
+      "normal_count": 0,
+      "abnormal_rate": 0.125196,
+      "normal_rate": 0.0,
+      "lift": 125195619.153,
+      "score": 0.125196,
+      "note": "Sequence-only mined candidate; add args/ret_cond manually if raw traces provide them."
+    }
+  }
+]

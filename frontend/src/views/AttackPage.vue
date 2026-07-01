@@ -437,6 +437,32 @@
                   />
                 </div>
               </div>
+
+              <div class="cfg-item" :class="{ on: injectConfig.syscall.enabled }">
+                <div class="cfg-row">
+                  <div class="cfg-info">
+                    <div class="cfg-name">异常 syscall 序列</div>
+                    <code class="cfg-key">tool_injection.syscall</code>
+                    <div class="cfg-desc">sys_probe 工具被调用时执行所选 syscall 异常序列（来自 rule_test_atk.json）</div>
+                  </div>
+                  <t-switch v-model="injectConfig.syscall.enabled" />
+                </div>
+                <div v-if="injectConfig.syscall.enabled" class="cfg-input">
+                  <div class="syscall-pick">
+                    <div class="syscall-pick-info">
+                      <div v-if="injectConfig.syscall.value" class="syscall-current">
+                        <span class="syscall-rid">{{ injectConfig.syscall.value }}</span>
+                        <span v-if="selectedRuleSeq" class="syscall-seq">{{ selectedRuleSeq }}</span>
+                      </div>
+                      <div v-else class="syscall-empty">尚未选择，将使用默认 DT异常序列_003</div>
+                    </div>
+                    <t-button size="small" theme="primary" variant="outline" @click="openRuleDialog">
+                      <template #icon><t-icon name="setting" /></template>
+                      选择序列
+                    </t-button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </transition>
@@ -664,12 +690,20 @@
         <span>审计：全程记录</span>
       </div>
     </div>
+
+    <!-- syscall 异常序列选择 Dialog（独立组件） -->
+    <RuleSelectDialog
+      v-model:visible="ruleDialogVisible"
+      v-model="injectConfig.syscall.value"
+      :api-base="API"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
+import RuleSelectDialog from '../components/RuleSelectDialog.vue'
 
 const API = '/api'
 const activeScenario = ref('')
@@ -677,8 +711,34 @@ const activeScenario = ref('')
 const injectConfig = ref({
   network: { enabled: false, value: '' },
   filepath: { enabled: false, value: '' },
+  syscall: { enabled: false, value: '' },
 })
 const injectSaving = ref(false)
+
+// ─── syscall 异常序列选择 Dialog（组件状态） ───────────
+const ruleDialogVisible = ref(false)
+// 卡片预览需要展示选中 rule_id 对应的 sequence 文本；本页轻量加载一次规则列表用于查表
+const allRules = ref([])
+
+const selectedRuleSeq = computed(() => {
+  const rid = injectConfig.value.syscall?.value
+  if (!rid) return ''
+  const hit = allRules.value.find((r) => r.rule_id === rid)
+  return hit ? hit.sequence : ''
+})
+
+async function loadSyscallRulesPreview() {
+  if (allRules.value.length > 0) return
+  try {
+    const res = await fetch(`${API}/attack/rules`)
+    const data = await res.json()
+    if (data.ok && Array.isArray(data.data)) allRules.value = data.data
+  } catch (e) { /* silent */ }
+}
+
+function openRuleDialog() {
+  ruleDialogVisible.value = true
+}
 
 // 攻击消息相关
 const attackMessages = ref([])
@@ -803,6 +863,7 @@ const enabledCount = computed(() => {
   let n = 0
   if (injectConfig.value.network.enabled) n++
   if (injectConfig.value.filepath.enabled) n++
+  if (injectConfig.value.syscall?.enabled) n++
   if (tamperConfig.value.replace.enabled) n++
   if (tamperConfig.value.insert.enabled) n++
   return String(n).padStart(2, '0')
@@ -821,6 +882,7 @@ onMounted(async () => {
       injectConfig.value = {
         network: { enabled: !!ti.network?.enabled, value: ti.network?.value || '' },
         filepath: { enabled: !!ti.filepath?.enabled, value: ti.filepath?.value || '' },
+        syscall: { enabled: !!ti.syscall?.enabled, value: ti.syscall?.value || '' },
       }
       const rt = data.data.runtime_tamper || {}
       tamperConfig.value = {
@@ -835,6 +897,9 @@ onMounted(async () => {
   // 加载攻击消息并启动轮询
   loadAttackMessages()
   attackMsgPolling.value = setInterval(loadAttackMessages, 5000)
+
+  // 预加载 syscall 规则列表，用于卡片选中预览显示 sequence 文本
+  loadSyscallRulesPreview()
 })
 
 onUnmounted(() => {
@@ -2256,4 +2321,24 @@ onUnmounted(() => {
   font-size: 13px;
   margin-bottom: 2px;
 }
+
+/* ─── syscall 异常序列：当前选择展示 + 选择按钮 ─── */
+.syscall-pick {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  background: #fafbfc; border: 1px dashed #d9d9d9; border-radius: 8px;
+}
+.syscall-pick-info { flex: 1; min-width: 0; }
+.syscall-current { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.syscall-rid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; font-weight: 600; color: #d54941;
+  padding: 2px 8px; background: #fff1f0; border-radius: 4px;
+}
+.syscall-seq {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; color: #666;
+  word-break: break-all;
+}
+.syscall-empty { font-size: 12px; color: #999; }
 </style>

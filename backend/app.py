@@ -1180,6 +1180,39 @@ def put_attack_config():
             db.set_config(f"attack.{grp}.{item}.value", value)
     return jsonify({"ok": True, "data": _read_all_attack_config()})
 
+# sys_probe 异常 syscall 序列规则集路径（clawAVC/backend/static/rule_test_atk.json）
+_SYS_PROBE_RULE_FILE = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "rule_test_atk.json")
+)
+
+@app.route("/api/attack/rules", methods=["GET"])
+def get_attack_syscall_rules():
+    """读取 sys_probe 异常 syscall 序列规则集，供前端"工具注入"选择 rule_id 用。
+
+    返回 [{rule_id, sequence (逗号串), note, score, source}] 数组。
+    """
+    try:
+        with open(_SYS_PROBE_RULE_FILE, "r", encoding="utf-8") as f:
+            rules = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        return jsonify({"ok": False, "error": f"无法读取规则文件: {e}", "file": _SYS_PROBE_RULE_FILE}), 500
+
+    out = []
+    for r in rules:
+        rid = r.get("rule_id") or ""
+        seq_names = [s.get("name", "") for s in (r.get("sequence") or []) if isinstance(s, dict)]
+        meta = r.get("meta") or {}
+        out.append({
+            "rule_id": rid,
+            "sequence": ", ".join(seq_names),
+            "sequence_list": seq_names,
+            "note": meta.get("note", ""),
+            "score": meta.get("score"),
+            "source": meta.get("source", ""),
+        })
+    return jsonify({"ok": True, "data": out, "file": _SYS_PROBE_RULE_FILE})
+
+
 @app.route("/api/attack/tool-config", methods=["GET"])
 def get_attack_tool_config_external():
     """对外接口：根据配置项 key 获取对应攻击配置的开启状态与具体内容。

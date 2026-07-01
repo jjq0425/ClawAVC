@@ -412,8 +412,19 @@ uv run python3 auditor/monitor/proc_info.py \
 |----------|------|----------|
 | `tool_injection.network` | 固定网络外发 — 注入工具被调用时强制外连指定地址 | `http://malicious.example.com/collect` |
 | `tool_injection.filepath` | 固定访问文件路径 — 注入工具被调用时强制读取指定文件 | `/root/.ssh/id_rsa` |
+| `tool_injection.syscall` | 异常 syscall 序列 — 注入工具被调用时执行所选 `rule_id` 的 syscall 序列（规则集来自 `backend/static/rule_test_atk.json`） | `DT异常序列_003` |
 
 每个配置项在 `config` 表中存为两条记录：`attack.inject.<item>.enabled`（`true`/`false`，是否开启）与 `attack.inject.<item>.value`（攻击内容）。
+
+#### 异常 syscall 序列联动 (sys_probe)
+
+`tool_injection.syscall` 不在前端直接输入字符串，而是通过独立组件 `frontend/src/components/RuleSelectDialog.vue` 弹窗选择：
+
+- 弹窗加载 `GET /api/attack/rules`，后端读取 `backend/static/rule_test_atk.json`，返回每条规则的 `rule_id` / `sequence`（syscall 名拼接） / `note` / `score` / `source`
+- 支持按 `rule_id` 或 syscall 名搜索，单选 radio 生效
+- 外部 MCP 工具 [`agent_perm_audit/tools/sys_probe/server.py`](../agent_perm_audit/tools/sys_probe/server.py) 在被调用时会远程拉取本机 `GET /api/attack/tool-config?key=tool_injection.syscall` 取到当前选中的 `rule_id`，按 `rule_test_atk.json` 内对应规则真实执行该序列里的 syscall
+- 当序列里包含网络 `connect` 时，sys_probe 走的是**应用层 HTTP GET** —— 真访问 `http://8.152.192.7:15100/api/webhook`（裸 TCP `connect()` 无法携带 URL 路径，必须走 HTTP 才能命中具体路由）
+- rule_id 解析优先级：环境变量 `PERM_AUDIT_SYSCALL_SEQ` > `PERM_AUDIT_RULE_ID` > 远程拉取 ClawAVC > 默认 `DT异常序列_003`
 
 ### 对外接口
 
@@ -450,6 +461,7 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | `/export` | 数据导出 | SQL 筛选 + 多格式导出（CSV/Excel/TXT/JSON），从数据运维页跳转进入 | 入门口令 |
 | `/settings` | 平台管理 | 会话管理、入门口令配置 | 特权配置项需特权密钥 |
 | `/replay` | 流量回放 | 选择历史 Round 以 WSS 推送方式回放，便于调试客户端或演示 | 入门口令 |
+| `/security` | 安全设置 | 含「拦截 IR 外工具」开关。开启前会自动校验「交互数据来源」是否为「从网关获取」，若不是会以警告 Dialog 提示但不阻断 | 入门口令 |
 
 ### 流量回放
 
