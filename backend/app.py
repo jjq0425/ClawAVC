@@ -367,12 +367,17 @@ def report_round():
             # portkey 早先回填的真实 IR，请求体那个版本反而是空的。
             ir_json = (record or {}).get("ir_json") or ""
             action_json = (record or {}).get("action_json") or "[]"
-            if ir_json and ir_json != "__loading__" and data.get("overall_score", -1) < 0:
-                # IR ready but not yet judged
+            
+            # 只有当请求体中明确包含 ir_json 字段时才推送 round_ir_ready
+            # 避免重复推送（_query_and_ir_worker 已经推送过一次）
+            request_ir_json = data.get("ir_json", "")
+            if request_ir_json and request_ir_json != "__loading__":
                 socketio.emit("push", {"push_type": "round_ir_ready", "round_id": round_id, "ir_json": ir_json, "push_time": data.get("time_end") or data.get("time_start", "")}, namespace="/wss/monitor")
-            elif data.get("overall_score", -1) >= 0:
-                # Full round end with judge
-                socketio.emit("push", {"push_type": "round_end", "round_id": round_id, "time_start": data.get("time_start", ""), "time_end": data.get("time_end", ""), "action_json": action_json, "ir_json": ir_json, "overall_score": data.get("overall_score", 1.0), "judge_result": data.get("judge_result", ""), "push_time": data.get("time_end", "")}, namespace="/wss/monitor")
+            
+            # round_end: 只要解析了 action 就推送，与 overall_score 无关
+            # action_json 从 DB 获取真实值，而非请求体
+            if action_json and action_json != "[]":
+                socketio.emit("push", {"push_type": "round_end", "round_id": round_id, "time_start": data.get("time_start", ""), "time_end": data.get("time_end", ""), "action_json": action_json, "push_time": data.get("time_end", "")}, namespace="/wss/monitor")
 
         return jsonify({"ok": True})
 

@@ -1766,7 +1766,7 @@ class MonitorOrchestrator:
             print(f"[monitor] Failed to extract history at query time for {round_id}: {e}", flush=True)
             history = self._round_histories.get(round_id, [])
 
-        report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "history": json.dumps(history, ensure_ascii=False) if history else "", "action_json": "[]", "ir_json": self.LOADING_MARKER, "judge_result": "", "is_abnormal": False, "overall_score": -1.0})
+        report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "history": json.dumps(history, ensure_ascii=False) if history else "", "action_json": "[]", "ir_json": self.LOADING_MARKER})
 
         try:
             ir_result, ir_error = ir_translate(query=user_query, round_id=round_id, use_llm=True)
@@ -1779,34 +1779,64 @@ class MonitorOrchestrator:
 
         ir_data = self._round_ir_results.get(round_id, {})
         
-        # 获取 actions 用于 judge
-        actions = self._round_actions.get(round_id, [])
-        if not actions:
-            # 尝试从 session 文件提取
+        # IR 翻译完成后，更新 ir_json 到数据库，触发 round_ir_ready 推送
+        if ir_data:
             try:
-                oc_data = extract_from_openclaw_session(self.openclaw_log_root, round_id, start_time)
-                actions = oc_data.get("actions", [])
-                self._round_actions[round_id] = actions
+                import json as _json
+                
+                from auditor.monitor.watcher import format_bj_time
+                payload = {
+                    "event": "end",
+                    "round_id": round_id,
+                    "time_end": format_bj_time(),
+                    "ir_json": _json.dumps(ir_data, ensure_ascii=False),
+                }
+                req = urllib.request.Request(
+                    CLAWAVC_ROUNDS_API,
+                    data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=5)
+                print(f"[monitor] IR updated for {round_id}", flush=True)
             except Exception as e:
-                print(f"[monitor] Failed to extract actions for {round_id}: {e}", flush=True)
+                print(f"[monitor] Failed to update IR for {round_id}: {e}", flush=True)
         
-        # 调用 judge 生成 judge_result
-        judge_result = ""
-        overall_score = 1.0
-        is_abnormal = False
+        # 调用 judge：检查 actions 和 ir_data 是否都有值
+        # Judge 结果只更新数据库，不广播
+        actions = self._round_actions.get(round_id, [])
         if actions and ir_data:
             try:
                 judge_result = judge(actions, ir_data)
                 import re as _re
                 score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
-                if score_match:
-                    overall_score = float(score_match.group(1))
-                is_abnormal = overall_score <= 0.5
-                print(f"[monitor] Judge result for {round_id}: score={overall_score} abnormal={is_abnormal}", flush=True)
+                judge_score = float(score_match.group(1)) if score_match else -1.0
+                
+                # 只更新数据库，不广播
+                from auditor.monitor.watcher import format_bj_time as _fmt_time
+                payload = {
+                    "event": "end",
+                    "round_id": round_id,
+                    "time_end": _fmt_time(),
+                    "judge_result": judge_result,
+                    "overall_score": judge_score,
+                }
+                import json as _json
+                req = urllib.request.Request(
+                    CLAWAVC_ROUNDS_API,
+                    data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=5)
+                print(f"[monitor] Judge result updated (worker) for {round_id}: score={judge_score}", flush=True)
             except Exception as e:
                 print(f"[monitor] Judge error for {round_id}: {e}", flush=True)
+        elif not actions:
+            print(f"[monitor] No actions for {round_id}, skipping judge in worker", flush=True)
+        elif not ir_data:
+            print(f"[monitor] No IR data for {round_id}, skipping judge in worker", flush=True)
         
-        report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "history": json.dumps(history, ensure_ascii=False) if history else "", "action_json": json.dumps(actions, ensure_ascii=False) if actions else "[]", "ir_json": json.dumps(ir_data, ensure_ascii=False) if ir_data else "", "judge_result": judge_result, "is_abnormal": is_abnormal, "overall_score": overall_score})
         print(f"[monitor] IR ready for {round_id}", flush=True)
 
         # 发布到 clawAVC turn-ir long-poll 缓存：唤醒所有正在 wait 的 portkey 长轮询线程。
@@ -1837,30 +1867,32 @@ class MonitorOrchestrator:
         use_gw = self._should_use_gateway()
         trajectory = []
         last_llm_msg = None
-        actions = []
-
-        if use_gw:
-            gw_dir = self._get_gateway_dir()
-            if gw_dir:
-                for obj in read_gateway_logs_since(gw_dir, start_dt):
-                    if not user_query:
-                        q = extract_user_query_from_obj(obj)
-                        if q:
-                            user_query = q
-                    messages = extract_messages_from_obj(obj)
-                    if messages:
-                        trajectory = build_current_round_trajectory(messages)
-                    msg = extract_last_llm_message(obj)
-                    if msg:
-                        last_llm_msg = msg
-            actions = build_actions_from_trajectory(trajectory) if trajectory else []
-        else:
-            # Extract from OpenClaw session log
-            oc_data = extract_from_openclaw_session(self.openclaw_log_root, r.round_id, start_time)
-            if not user_query:
-                user_query = oc_data.get("user_query")
-            actions = oc_data.get("actions", [])
-            last_llm_msg = oc_data.get("last_llm_msg")
+        # 优先使用 _query_and_ir_worker 中提取的 actions
+        actions = self._round_actions.get(r.round_id, [])
+        
+        if not actions:
+            if use_gw:
+                gw_dir = self._get_gateway_dir()
+                if gw_dir:
+                    for obj in read_gateway_logs_since(gw_dir, start_dt):
+                        if not user_query:
+                            q = extract_user_query_from_obj(obj)
+                            if q:
+                                user_query = q
+                        messages = extract_messages_from_obj(obj)
+                        if messages:
+                            trajectory = build_current_round_trajectory(messages)
+                        msg = extract_last_llm_message(obj)
+                        if msg:
+                            last_llm_msg = msg
+                    actions = build_actions_from_trajectory(trajectory) if trajectory else []
+            else:
+                # Extract from OpenClaw session log
+                oc_data = extract_from_openclaw_session(self.openclaw_log_root, r.round_id, start_time)
+                if not user_query:
+                    user_query = oc_data.get("user_query")
+                actions = oc_data.get("actions", [])
+                last_llm_msg = oc_data.get("last_llm_msg")
 
         # round_end 不再等待翻译完成，直接使用已有的 ir_result（可能为 None）
         # 翻译是异步进行的，round_end 只负责发送最终的 judge 结果
@@ -1869,26 +1901,18 @@ class MonitorOrchestrator:
             ir_result = {}
             print(f"[monitor] IR not ready for {r.round_id}, using empty result", flush=True)
 
-        # 存储 actions 供 _query_and_ir_worker 后续使用
+        # 存储 actions 供后续使用
         self._round_actions[r.round_id] = actions
 
         judge_result = ""
-        overall_score = 1.0
-        is_abnormal = False
-        if actions and ir_result:
-            try:
-                judge_result = judge(actions, ir_result)
-                import re as _re
-                score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
-                if score_match:
-                    overall_score = float(score_match.group(1))
-                is_abnormal = overall_score <= 0.5
-            except Exception as e:
-                print(f"[monitor] Judge error: {e}", flush=True)
-
+        judge_score = -1.0
+        
         session_key = r.session_key if r.session_key != "unknown" else ""
         session_id = r.ids.get("session_id") or r.ids.get("sessionId") or ""
 
+        # 检测到 agent turn 结束，立即发送 round_end
+        # round_end 只需要 action_json，其他字段保持原值
+        # 不包含 overall_score，因为 round_end 推送只与 action 有关
         out = {
             "event": "end",
             "round_id": r.round_id,
@@ -1900,14 +1924,62 @@ class MonitorOrchestrator:
             "last_llm_message": last_llm_msg or "",
             "history": json.dumps(history, ensure_ascii=False) if history else "",
             "action_json": json.dumps(actions, ensure_ascii=False),
-            "ir_json": json.dumps(ir_result, ensure_ascii=False) if ir_result else "",
-            "judge_result": judge_result,
-            "is_abnormal": is_abnormal,
-            "overall_score": overall_score,
         }
 
         report_to_clawavc(out)
-        print(f"[monitor] Reported: query={user_query or '(none)'} score={overall_score} abnormal={is_abnormal}", flush=True)
+        print(f"[monitor] Round ended: query={user_query or '(none)'} actions_count={len(actions)}", flush=True)
+
+        # 延迟 500ms 后调用 judge，等待 IR 翻译完成
+        # Judge 结果只更新数据库，不广播
+        def delayed_judge():
+            try:
+                # 等待 500ms，让 IR 翻译完成
+                time.sleep(0.5)
+                
+                # 获取最新的 actions 和 ir_data
+                current_actions = self._round_actions.get(r.round_id, [])
+                current_ir_data = self._round_ir_results.get(r.round_id, {})
+                
+                print(f"[monitor] Delayed judge check for {r.round_id}: actions_count={len(current_actions)} ir_data_count={len(current_ir_data)}", flush=True)
+                
+                if current_actions and current_ir_data:
+                    try:
+                        judge_result = judge(current_actions, current_ir_data)
+                        import re as _re
+                        score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
+                        judge_score = float(score_match.group(1)) if score_match else -1.0
+                        
+                        # 只更新数据库，不广播
+                        from auditor.monitor.watcher import format_bj_time as _fmt_time
+                        payload = {
+                            "event": "end",
+                            "round_id": r.round_id,
+                            "time_end": _fmt_time(),
+                            "judge_result": judge_result,
+                            "overall_score": judge_score,
+                        }
+                        import json as _json
+                        req = urllib.request.Request(
+                            CLAWAVC_ROUNDS_API,
+                            data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                            headers={"Content-Type": "application/json"},
+                            method="POST",
+                        )
+                        urllib.request.urlopen(req, timeout=5)
+                        print(f"[monitor] Judge result updated (end) for {r.round_id}: score={judge_score}", flush=True)
+                    except Exception as e:
+                        print(f"[monitor] Judge error for {r.round_id}: {e}", flush=True)
+                elif not current_actions:
+                    print(f"[monitor] No actions for {r.round_id}, skipping judge", flush=True)
+                elif not current_ir_data:
+                    print(f"[monitor] No IR data for {r.round_id}, skipping judge", flush=True)
+            except Exception as e:
+                print(f"[monitor] Delayed judge error for {r.round_id}: {e}", flush=True)
+        
+        # 启动延迟 judge 线程
+        judge_thread = threading.Thread(target=delayed_judge, daemon=True)
+        judge_thread.start()
+        print(f"[monitor] Started delayed judge thread for {r.round_id}", flush=True)
     def run(self) -> None:
         """Main blocking loop."""
         self.running = True

@@ -47,16 +47,16 @@
           
           <div class="option-item">
             <label>推送顺序</label>
-            <t-select v-model="pushOrder" style="width: 200px">
+            <t-select v-model="pushOrder" style="width: 260px">
               <t-option value="start_ir_end_kernel" label="start → ir → end → kernel" />
               <t-option value="start_end_ir_kernel" label="start → end → ir → kernel" />
               <t-option value="start_end_kernel_ir" label="start → end → kernel → ir" />
               <t-option value="start_ir_kernel_end" label="start → ir → kernel → end" />
-              <t-option value="start_kernel_end_ir" label="start → kernel → end → ir" />
               <t-option value="start_kernel_ir_end" label="start → kernel → ir → end" />
+              <t-option value="start_kernel_end_ir" label="start → kernel → end → ir" />
               <t-option value="random" label="随机顺序" />
             </t-select>
-            <span class="option-hint">start 一定最先，kernel 一定晚于 end，ir 和 end 顺序不确定</span>
+            <span class="option-hint">start 一定最先，ir/end/kernel 可自由排列</span>
           </div>
         </div>
 
@@ -358,29 +358,21 @@ async function startReplay() {
   const hasKernel = !!(round.kernel_syscall_seq || round.kernel_lsm_hook_result || round.kernel_resource_facts)
   
   // 根据推送顺序决定执行顺序
-  // start 一定最先，kernel 一定晚于 end，ir 和 end 顺序不确定
+  // start 一定最先，ir/end/kernel 可自由排列
   const pushOrderMap = {
     start_ir_end_kernel: ['start', 'ir', 'end', 'kernel'],
     start_end_ir_kernel: ['start', 'end', 'ir', 'kernel'],
     start_end_kernel_ir: ['start', 'end', 'kernel', 'ir'],
     start_ir_kernel_end: ['start', 'ir', 'kernel', 'end'],
-    start_kernel_end_ir: ['start', 'kernel', 'end', 'ir'],
     start_kernel_ir_end: ['start', 'kernel', 'ir', 'end'],
+    start_kernel_end_ir: ['start', 'kernel', 'end', 'ir'],
     random: null, // 随机顺序
   }
   
   let pushSequence
   if (order === 'random') {
-    // 随机顺序：start 一定最先，kernel 一定晚于 end
-    const all = ['start', 'ir', 'end', 'kernel']
-    // 先放 start
-    const result = ['start']
-    // kernel 必须晚于 end，所以 end 和 ir 可以随机
-    const middle = shuffle(['ir', 'end'])
-    result.push(...middle)
-    // kernel 放最后
-    result.push('kernel')
-    pushSequence = result
+    // 随机顺序：start 一定最先，ir/end/kernel 随机
+    pushSequence = ['start', ...shuffle(['ir', 'end', 'kernel'])]
   } else {
     pushSequence = pushOrderMap[order] || ['start', 'ir', 'end', 'kernel']
   }
