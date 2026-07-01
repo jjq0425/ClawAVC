@@ -308,6 +308,12 @@ def report_round():
     else:
         # ROUND_ENDED: update existing or insert full record
         # Try update first (if start was already inserted)
+        print(
+            f"[/api/rounds end] round_id={round_id} incoming_data_keys={list(data.keys())} "
+            f"time_end={data.get('time_end', 'N/A')[:30] if data.get('time_end') else 'N/A'} "
+            f"last_llm_msg_len={len(data.get('last_llm_message', ''))}",
+            flush=True,
+        )
         updated = db.update_round_end(round_id, data)
         ir_v = data.get("ir_json", "")
         ir_brief = ir_v if (isinstance(ir_v, str) and len(ir_v) <= 32) else (
@@ -2274,6 +2280,74 @@ def main():
     if stats["total"] == 0 and os.path.exists(JSONL_PATH):
         count = db.import_from_jsonl(JSONL_PATH)
         print(f"[init] Imported {count} historical rounds from JSONL")
+
+    # API 请求追踪中间件
+    @app.before_request
+    def _trace_request_start():
+        """记录请求开始时间"""
+        request._trace_start_time = __import__("time").time()
+        request._trace_path = request.path
+        request._trace_method = request.method
+        request._trace_query_string = str(request.query_string, 'utf-8') if request.query_string else ""
+        try:
+            # 限制请求体大小
+            data = request.get_data(as_text=True)
+            if len(data) > 2000:
+                data = data[:2000] + "...(truncated)"
+            request._trace_body = data
+        except Exception:
+            request._trace_body = ""
+        request._trace_ip = request.remote_addr or ""
+        request._trace_ua = request.headers.get("User-Agent", "")[:200]
+
+    @app.after_request
+    def _trace_request_end(response):
+        """记录请求结束，异步写入 api_trace 表"""
+        try:
+            duration_ms = (__import__("time").time() - request._trace_start_time) * 1000
+            
+            # 解析响应体（限制大小）
+            response_body = ""
+            try:
+                if response.get_data():
+                    resp_text = response.get_data(as_text=True)
+                    if len(resp_text) > 2000:
+                        resp_text = resp_text[:2000] + "...(truncated)"
+                    response_body = resp_text
+            except Exception:
+                pass
+            
+            db.insert_api_trace({
+                "received_at": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "+0800",
+                "method": request._trace_method,
+                "path": request._trace_path,
+                "query_string": request._trace_query_string,
+                "request_body": request._trace_body,
+                "response_body": response_body,
+                "status_code": response.status_code,
+                "duration_ms": duration_ms,
+                "source_ip": request._trace_ip,
+                "user_agent": request._trace_ua,
+                "error_message": "" if response.status_code < 400 else response_body[:500],
+            })
+        except Exception as e:
+            print(f"[api_trace] Error: {e}", flush=True)
+        return response
+
+    # API 请求追踪查询接口
+    @app.route("/api/trace", methods=["GET"])
+    def query_api_trace():
+        """查询 API 请求追踪记录。"""
+        path = request.args.get("path", "").strip()
+        limit = request.args.get("limit", 50, type=int)
+        result = db.get_api_trace(limit=limit, path=path)
+        return jsonify({"ok": True, **result})
+
+    @app.route("/api/trace/syscall", methods=["GET"])
+    def query_syscall_trace():
+        """查询 /api/rounds/detection/syscall 的调用记录。"""
+        result = db.get_api_trace(limit=100, path="/api/rounds/detection/syscall")
+        return jsonify({"ok": True, **result})
 
     print("[clawAVC] Starting backend on http://0.0.0.0:15100")
     socketio.run(app, host="0.0.0.0", port=15100, debug=False, allow_unsafe_werkzeug=True)

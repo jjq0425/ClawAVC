@@ -44,6 +44,20 @@
             <t-slider v-model="replaySpeed" :min="0.1" :max="2" :step="0.1" />
             <span class="option-value">{{ replaySpeed === 0.1 ? '最慢' : replaySpeed + 'x' }}</span>
           </div>
+          
+          <div class="option-item">
+            <label>推送顺序</label>
+            <t-select v-model="pushOrder" style="width: 200px">
+              <t-option value="start_ir_end_kernel" label="start → ir → end → kernel" />
+              <t-option value="start_end_ir_kernel" label="start → end → ir → kernel" />
+              <t-option value="start_end_kernel_ir" label="start → end → kernel → ir" />
+              <t-option value="start_ir_kernel_end" label="start → ir → kernel → end" />
+              <t-option value="start_kernel_end_ir" label="start → kernel → end → ir" />
+              <t-option value="start_kernel_ir_end" label="start → kernel → ir → end" />
+              <t-option value="random" label="随机顺序" />
+            </t-select>
+            <span class="option-hint">start 一定最先，kernel 一定晚于 end，ir 和 end 顺序不确定</span>
+          </div>
         </div>
 
         <div class="replay-actions">
@@ -221,6 +235,7 @@ const replaying = ref(false)
 const replaySpeed = ref(1)
 const replayProgress = ref(0)
 const currentStage = ref("")
+const pushOrder = ref("sequential")  // 推送顺序: sequential | random | ir_first | end_first
 
 const columns = [
   { colKey: "round_id", title: "Round ID", width: 180, ellipsis: true },
@@ -306,10 +321,9 @@ async function startReplay() {
   replayProgress.value = 0
   
   const round = selectedRound.value
-  const now = new Date()
-  const pushTime = now.toISOString().replace('T', ' ').slice(0, 26) + '+0800'
+  const order = pushOrder.value
   
-  console.log("开始回放", round.round_id)
+  console.log("开始回放", round.round_id, "推送顺序:", order)
   
   let delay_ir = 0
   let delay_end = 0
@@ -340,7 +354,84 @@ async function startReplay() {
     if (match) overall_score = parseFloat(match[1])
   }
   
-  // round_start
+  // 检查是否有 kernel 数据
+  const hasKernel = !!(round.kernel_syscall_seq || round.kernel_lsm_hook_result || round.kernel_resource_facts)
+  
+  // 根据推送顺序决定执行顺序
+  // start 一定最先，kernel 一定晚于 end，ir 和 end 顺序不确定
+  const pushOrderMap = {
+    start_ir_end_kernel: ['start', 'ir', 'end', 'kernel'],
+    start_end_ir_kernel: ['start', 'end', 'ir', 'kernel'],
+    start_end_kernel_ir: ['start', 'end', 'kernel', 'ir'],
+    start_ir_kernel_end: ['start', 'ir', 'kernel', 'end'],
+    start_kernel_end_ir: ['start', 'kernel', 'end', 'ir'],
+    start_kernel_ir_end: ['start', 'kernel', 'ir', 'end'],
+    random: null, // 随机顺序
+  }
+  
+  let pushSequence
+  if (order === 'random') {
+    // 随机顺序：start 一定最先，kernel 一定晚于 end
+    const all = ['start', 'ir', 'end', 'kernel']
+    // 先放 start
+    const result = ['start']
+    // kernel 必须晚于 end，所以 end 和 ir 可以随机
+    const middle = shuffle(['ir', 'end'])
+    result.push(...middle)
+    // kernel 放最后
+    result.push('kernel')
+    pushSequence = result
+  } else {
+    pushSequence = pushOrderMap[order] || ['start', 'ir', 'end', 'kernel']
+  }
+  
+  // 推送函数映射
+  const pushFunctions = {
+    start: () => pushRoundStart(round, action_json, ir_json, overall_score),
+    ir: () => pushRoundIrReady(round, action_json, ir_json, overall_score),
+    end: () => pushRoundEnd(round, action_json, ir_json, overall_score),
+    kernel: async () => {
+      currentStage.value = "round_kernel"
+      console.log("推送", "round_kernel")
+      
+      const kernel_syscall_seq = round.kernel_syscall_seq || ""
+      const kernel_lsm_hook_result = round.kernel_lsm_hook_result || ""
+      const kernel_resource_facts = round.kernel_resource_facts || ""
+      
+      await fetch("/api/monitor/send-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          push_type: "round_kernel",
+          round_id: round.round_id,
+          kernel_syscall_seq: kernel_syscall_seq,
+          kernel_lsm_hook_result: kernel_lsm_hook_result,
+          kernel_resource_facts: kernel_resource_facts,
+        })
+      })
+    },
+  }
+  
+  // 按顺序推送
+  for (const item of pushSequence) {
+    // 如果没有 kernel 数据，跳过 kernel
+    if (item === 'kernel' && !hasKernel) continue
+    
+    const fn = pushFunctions[item]
+    if (fn) {
+      await fn()
+    }
+  }
+  
+  replayProgress.value = 100
+  
+  currentStage.value = "完成"
+  console.log("回放完成", round.round_id)
+  replaying.value = false
+}
+
+// 推送 round_start
+async function pushRoundStart(round, action_json, ir_json, overall_score) {
   currentStage.value = "round_start"
   console.log("推送", "round_start")
   
@@ -355,10 +446,12 @@ async function startReplay() {
     })
   })
   
-  replayProgress.value = 33
-  await sleep(actual_delay_ir * 0.3)
-  
-  // round_ir_ready
+  replayProgress.value = 10
+  await sleep(0.5)
+}
+
+// 推送 round_ir_ready
+async function pushRoundIrReady(round, action_json, ir_json, overall_score) {
   currentStage.value = "round_ir_ready"
   console.log("推送", "round_ir_ready")
   
@@ -372,10 +465,12 @@ async function startReplay() {
     })
   })
   
-  replayProgress.value = 66
-  await sleep(actual_delay_ir * 0.7)
-  
-  // round_end
+  replayProgress.value = 50
+  await sleep(0.5)
+}
+
+// 推送 round_end
+async function pushRoundEnd(round, action_json, ir_json, overall_score) {
   currentStage.value = "round_end"
   console.log("推送", "round_end")
   
@@ -394,36 +489,18 @@ async function startReplay() {
     })
   })
   
-  replayProgress.value = 80
-  await sleep(actual_delay_end * 0.3)
-  
-  // round_kernel (如果存在内核态数据)
-  const kernel_syscall_seq = round.kernel_syscall_seq || ""
-  const kernel_lsm_hook_result = round.kernel_lsm_hook_result || ""
-  const kernel_resource_facts = round.kernel_resource_facts || ""
-  
-  if (kernel_syscall_seq || kernel_lsm_hook_result || kernel_resource_facts) {
-    currentStage.value = "round_kernel"
-    console.log("推送", "round_kernel")
-    
-    await fetch("/api/monitor/send-test", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        push_type: "round_kernel",
-        round_id: round.round_id,
-        kernel_syscall_seq: kernel_syscall_seq,
-        kernel_lsm_hook_result: kernel_lsm_hook_result,
-        kernel_resource_facts: kernel_resource_facts,
-      })
-    })
+  replayProgress.value = 90
+  await sleep(0.5)
+}
+
+// 随机打乱数组
+function shuffle(arr) {
+  const result = [...arr]
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]]
   }
-  
-  replayProgress.value = 100
-  
-  currentStage.value = "完成"
-  console.log("回放完成", round.round_id)
-  replaying.value = false
+  return result
 }
 
 function cancelReplay() {
@@ -640,6 +717,29 @@ function sleep(ms) {
   background: #f8f9fa;
   border-radius: 8px;
   margin-bottom: 20px;
+}
+
+.option-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.option-item:last-child {
+  margin-bottom: 0;
+}
+
+.option-item label {
+  min-width: 80px;
+  font-size: 13px;
+  color: #666;
+}
+
+.option-hint {
+  font-size: 11px;
+  color: #999;
+  margin-left: 8px;
 }
 
 .option-item {

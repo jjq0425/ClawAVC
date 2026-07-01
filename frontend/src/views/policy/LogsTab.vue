@@ -16,6 +16,8 @@
           <div class="log-header">
             <t-tag v-if="log.is_ui_test" theme="primary" variant="light" size="small">测试</t-tag>
             <t-tag v-else theme="success" variant="light" size="small">线上</t-tag>
+            <t-tag v-if="isComplete(log)" theme="success" variant="light" size="small">完整</t-tag>
+            <t-tag v-else theme="warning" variant="light" size="small">进行中</t-tag>
             <span class="log-query">{{ log.query }}</span>
             <span class="log-time">{{ log.created_at }}</span>
             <t-tag v-if="log.round_id" size="small" variant="outline">{{ log.round_id }}</t-tag>
@@ -59,6 +61,15 @@ const filtered = computed(() => logs.value.filter(l => {
 function parseScenes(j) { try { return JSON.parse(j || "[]") } catch { return [] } }
 function fmtJson(j) { try { return JSON.stringify(JSON.parse(j || "{}"), null, 2) } catch { return j || "" } }
 function openDetail(log) { detail.value = log; drawerVisible.value = true }
+function isComplete(log) {
+  // level1 为空算完整（可能是空场景）
+  // level2 非空才算完整
+  const level1 = parseScenes(log.level1_json)
+  const level2 = fmtJson(log.level2_json)
+  const level2Obj = log.level2_json ? (typeof log.level2_json === 'string' ? JSON.parse(log.level2_json) : log.level2_json) : null
+  // level1 为空（无场景）或有场景时，level2 有内容则算完整
+  return (level1.length === 0 || level1.length > 0) && level2Obj && Object.keys(level2Obj).length > 0 && level2Obj.policies && level2Obj.policies.length > 0
+}
 async function loadLogs() { try { const r = await fetch("/api/translator/logs?limit=100"); const j = await r.json(); if (j.ok) logs.value = j.data } catch {} }
 onMounted(loadLogs)
 </script>

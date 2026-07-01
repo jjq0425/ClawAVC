@@ -158,6 +158,26 @@ def init_db():
             print(f"[db] migrate intercept_events.note failed: {e}", flush=True)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_intercept_events_time ON intercept_events(received_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_intercept_events_turn ON intercept_events(turn_key)")
+    # API 请求追踪表
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_trace (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            method TEXT,
+            path TEXT,
+            query_string TEXT,
+            request_body TEXT,
+            response_body TEXT,
+            status_code INTEGER,
+            duration_ms REAL,
+            source_ip TEXT,
+            user_agent TEXT,
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_trace_time ON api_trace(received_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_trace_path ON api_trace(path)")
     # 初始化默认配置
     conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('round_update_time_limit_enabled', 'True')")
     conn.commit()
@@ -244,64 +264,107 @@ def insert_round_start(round_id: str, time_start: str, session_key: str, session
 def update_round_end(round_id: str, data: Dict[str, Any]) -> bool:
     """Update a round record at ROUND_END with full data.
 
-    重要：**ir_json / action_json / history 字段做"防覆盖"处理**——
-    portkey 网关在拦截路径上通过 `_backfill_round_ir` 把真实的 IR 翻译结果
-    写入 rounds.ir_json；与此同时 monitor/watcher 也会多次上报 ROUND_END
-    （如 LOADING_MARKER 占位、本地 ir_translate 失败时传空字符串等）。
-    若简单地 `SET ir_json = ?` 用上报值覆盖，**真实 IR 会被立刻擦掉**，
-    表现就是"运行监控页面 IR 闪现一下就消失"。
-
+    动态拼接 SET 子句，只更新 data 中有值的字段，避免 None/空字符串覆盖已有数据。
+    
     防覆盖规则：
-      - ir_json：若入参为 None / 空字符串 / `'{}'` / `'__loading__'`，
-        则在 UPDATE 中 **跳过该列**（保留 DB 当前值，可能已经由 portkey 回填）。
-      - action_json：若入参为 None / 空字符串 / `'[]'`（空数组占位），
-        跳过该列，避免覆盖真实 actions。
-      - history：若入参为 None / 空字符串，跳过。
-      - 其它字段：按原行为覆盖（user_query、time_end、judge_result、
-        is_abnormal、overall_score、last_llm_message）。
+      - 所有字段：若入参为 None 或空字符串，跳过。
+      - ir_json：额外保护——若入参为 `'{}'`/`'__loading__'` 且 DB 已有真实 IR，也跳过。
+      - 其它字段：只更新 data 中存在的、非空的字段。
     """
     conn = get_conn()
     try:
-        # 动态拼接 SET 子句，仅对"有意义"的字段做更新
         set_parts: list = []
         params: list = []
+        skipped: list = []
 
-        # 1) 必更字段（即使为空也允许覆盖，保持原行为）
-        set_parts.append("time_end = ?")
-        params.append(data.get("time_end", ""))
-        set_parts.append("user_query = ?")
-        params.append(data.get("user_query", ""))
-        set_parts.append("last_llm_message = ?")
-        params.append(data.get("last_llm_message", ""))
-        set_parts.append("judge_result = ?")
-        params.append(data.get("judge_result", ""))
-        set_parts.append("is_abnormal = ?")
-        params.append(1 if data.get("is_abnormal") else 0)
-        set_parts.append("overall_score = ?")
-        params.append(data.get("overall_score", 1.0))
-
-        # 2) 防覆盖字段：值为占位时跳过
-        history_in = data.get("history", "")
-        if history_in not in (None, ""):
-            set_parts.append("history = ?")
-            params.append(history_in)
-
-        action_in = data.get("action_json", "")
-        # '[]' 是 watcher 在 IR 路径上发的"actions 还没解析出来"的占位
-        if action_in not in (None, "", "[]"):
-            set_parts.append("action_json = ?")
-            params.append(action_in)
-
-        ir_in = data.get("ir_json", "")
-        ir_skip_values = (None, "", "{}", "__loading__")
-        ir_keep_reason = ""
-        if ir_in in ir_skip_values:
-            ir_keep_reason = "input_placeholder"
+        # user_query
+        v = data.get("user_query")
+        if v is not None and v != "":
+            set_parts.append("user_query = ?")
+            params.append(v)
         else:
-            # 二级保护：若 DB 当前 ir_json 已经是"真实 IR"（portkey 回填的），
-            # 而入参 ir_in 来自 watcher 本地翻译，可能两者内容不同；为了避免
-            # 前端展示来回跳变，**保持 DB 已有的真实 IR 不变**。
-            # 仅当 DB 当前为空/占位时，才接受入参覆盖。
+            skipped.append(f"user_query({v!r})")
+
+        # judge_result
+        v = data.get("judge_result")
+        if v is not None and v != "":
+            set_parts.append("judge_result = ?")
+            params.append(v)
+        else:
+            skipped.append(f"judge_result({v!r})")
+
+        # is_abnormal
+        v = data.get("is_abnormal")
+        if v is not None:
+            set_parts.append("is_abnormal = ?")
+            params.append(1 if v else 0)
+        else:
+            skipped.append(f"is_abnormal({v!r})")
+
+        # overall_score
+        v = data.get("overall_score")
+        if v is not None:
+            set_parts.append("overall_score = ?")
+            params.append(v)
+        else:
+            skipped.append(f"overall_score({v!r})")
+
+        # time_end
+        v = data.get("time_end")
+        if v is not None and v != "":
+            set_parts.append("time_end = ?")
+            params.append(v)
+        else:
+            skipped.append(f"time_end({v!r})")
+
+        # last_llm_message
+        v = data.get("last_llm_message")
+        if v is not None and v != "":
+            set_parts.append("last_llm_message = ?")
+            params.append(v)
+        else:
+            skipped.append(f"last_llm_message({v!r})")
+
+        # history
+        v = data.get("history")
+        if v is not None and v != "":
+            set_parts.append("history = ?")
+            params.append(v)
+        else:
+            skipped.append(f"history({v!r})")
+
+        # action_json: 拒绝 None、空字符串、'[]'占位值
+        # 如果 DB 中已有真实的 actions（非 '[]'），且入参是 '[]'，则跳过保护已有数据
+        v = data.get("action_json")
+        action_keep_reason = ""
+        if v is None or v == "":
+            action_keep_reason = "empty"
+        elif v == "[]":
+            # 入参是占位值，检查 DB 是否已有真实 actions
+            try:
+                cur_row = conn.execute(
+                    "SELECT action_json FROM rounds WHERE round_id = ?",
+                    (round_id,),
+                ).fetchone()
+                cur_actions = (cur_row[0] if cur_row else "") or ""
+                if cur_actions and cur_actions != "[]":
+                    action_keep_reason = f"placeholder_db_has_real(len={len(cur_actions)})"
+            except Exception:
+                pass
+
+        if not action_keep_reason:
+            set_parts.append("action_json = ?")
+            params.append(v)
+        else:
+            skipped.append(f"action_json[{action_keep_reason}]({v!r})")
+
+        # ir_json: 拒绝 None 和空字符串，且保护 DB 中已有真实 IR
+        v = data.get("ir_json")
+        ir_keep_reason = ""
+        if v is None or v == "":
+            ir_keep_reason = "empty"
+        elif v in ("{}", "__loading__"):
+            # 入参是占位值，检查 DB 是否已有真实 IR
             try:
                 cur_row = conn.execute(
                     "SELECT ir_json FROM rounds WHERE round_id = ?",
@@ -309,13 +372,19 @@ def update_round_end(round_id: str, data: Dict[str, Any]) -> bool:
                 ).fetchone()
                 cur_ir = (cur_row[0] if cur_row else "") or ""
                 if cur_ir and cur_ir not in ("{}", "__loading__"):
-                    ir_keep_reason = f"db_already_has_real_ir(len={len(cur_ir)})"
+                    ir_keep_reason = f"placeholder_db_has_real(len={len(cur_ir)})"
             except Exception:
                 pass
 
         if not ir_keep_reason:
             set_parts.append("ir_json = ?")
-            params.append(ir_in)
+            params.append(v)
+        else:
+            skipped.append(f"ir_json[{ir_keep_reason}]({v!r})")
+
+        if not set_parts:
+            print(f"[db.update_round_end] round_id={round_id} no fields to update, skipped={skipped}", flush=True)
+            return False
 
         params.append(round_id)
         sql = f"UPDATE rounds SET {', '.join(set_parts)} WHERE round_id = ?"
@@ -323,26 +392,9 @@ def update_round_end(round_id: str, data: Dict[str, Any]) -> bool:
         conn.commit()
         affected = cursor.rowcount
 
-        # 诊断日志：哪些字段被跳过了，方便排查"IR 消失/不更新"等问题
-        skipped: list = []
-        if history_in in (None, ""):
-            skipped.append(f"history({history_in!r})")
-        if action_in in (None, "", "[]"):
-            skipped.append(f"action_json({action_in!r})")
-        if ir_keep_reason:
-            # f-string 表达式部分不能用 if/else 三元，预先算好再插入
-            if isinstance(ir_in, str) and len(ir_in) <= 16:
-                ir_in_repr = repr(ir_in)
-            else:
-                ir_in_repr = type(ir_in).__name__
-            skipped.append(f"ir_json[{ir_keep_reason}]({ir_in_repr})")
-
-        ir_brief = ir_in if (isinstance(ir_in, str) and len(ir_in) <= 32) else (
-            (ir_in[:29] + "...") if isinstance(ir_in, str) else type(ir_in).__name__
-        )
         print(
             f"[db.update_round_end] round_id={round_id} affected={affected} "
-            f"ir_json_brief={ir_brief!r} skipped={skipped}",
+            f"updated={set_parts} skipped={skipped}",
             flush=True,
         )
         return affected > 0
@@ -946,6 +998,71 @@ def clear_attack_messages() -> int:
         return 0
     finally:
         conn.close()
+
+
+# ============================================================
+# API Trace
+# ============================================================
+
+def insert_api_trace(trace_data: Dict[str, Any]) -> None:
+    """异步写入 API 请求追踪记录。"""
+    import threading
+    
+    def _do_insert():
+        try:
+            conn = get_conn()
+            conn.execute("""
+                INSERT INTO api_trace 
+                (received_at, method, path, query_string, request_body, response_body,
+                 status_code, duration_ms, source_ip, user_agent, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                trace_data.get("received_at"),
+                trace_data.get("method"),
+                trace_data.get("path"),
+                trace_data.get("query_string"),
+                trace_data.get("request_body"),
+                trace_data.get("response_body"),
+                trace_data.get("status_code"),
+                trace_data.get("duration_ms"),
+                trace_data.get("source_ip"),
+                trace_data.get("user_agent"),
+                trace_data.get("error_message"),
+            ))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[db] insert_api_trace error: {e}", flush=True)
+    
+    threading.Thread(target=_do_insert, daemon=True).start()
+
+
+def get_api_trace(limit: int = 100, offset: int = 0, path: str = "") -> Dict[str, Any]:
+    """查询 API 请求追踪记录。"""
+    conn = get_conn()
+    try:
+        conditions = []
+        params = []
+        if path:
+            conditions.append("path LIKE ?")
+            params.append(f"%{path}%")
+        
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        
+        total = conn.execute(f"SELECT COUNT(*) FROM api_trace{where}", params).fetchone()[0]
+        rows = conn.execute(f"""
+            SELECT id, received_at, method, path, query_string, 
+                   substr(request_body, 1, 200) as request_body,
+                   substr(response_body, 1, 200) as response_body,
+                   status_code, duration_ms, source_ip, error_message
+            FROM api_trace{where}
+            ORDER BY id DESC LIMIT ? OFFSET ?
+        """, params + [limit, offset]).fetchall()
+        conn.close()
+        return {"total": total, "data": [dict(r) for r in rows]}
+    except Exception as e:
+        print(f"[db] get_api_trace error: {e}", flush=True)
+        return {"total": 0, "data": []}
 
 
 # ============================================================

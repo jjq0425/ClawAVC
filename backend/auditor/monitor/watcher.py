@@ -514,6 +514,7 @@ class RoundStateMachine:
         if not r.is_ended():
             return
         r.end_printed = True
+        print(f"[state_machine] Round ended, calling on_round_end for {r.round_id}", flush=True)
         if self.on_round_end:
             self.on_round_end(r)
         # Cleanup
@@ -976,6 +977,15 @@ def format_bj_time() -> str:
 
 def report_to_clawavc(data: dict) -> None:
     """Non-blocking POST to clawAVC /api/rounds."""
+    # 调试日志
+    if data.get("event") == "end":
+        print(
+            f"[report_to_clawavc] event=end round_id={data.get('round_id')} "
+            f"time_end={data.get('time_end', 'N/A')[:30] if data.get('time_end') else 'N/A'} "
+            f"last_llm_msg_len={len(data.get('last_llm_message', '') or '')}",
+            flush=True,
+        )
+    
     def _do_post():
         try:
             body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -1431,6 +1441,7 @@ class MonitorOrchestrator:
         self._round_queries: Dict[str, str] = {}
         self._round_workers: Dict[str, threading.Thread] = {}
         self._round_histories: Dict[str, List[Dict[str, str]]] = {}  # 存储每个 round 的 history
+        self._round_actions: Dict[str, List[Dict]] = {}  # 存储每个 round 的 actions
         # Cache the OpenClaw main process across rounds: (pid, starttime_ticks).
         # If the cached PID still exists with the same starttime at the next
         # round_start, proc_info.collect_for_round skips its full /proc scan.
@@ -1767,7 +1778,35 @@ class MonitorOrchestrator:
             self._round_ir_results[round_id] = {}
 
         ir_data = self._round_ir_results.get(round_id, {})
-        report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "history": json.dumps(history, ensure_ascii=False) if history else "", "action_json": "[]", "ir_json": json.dumps(ir_data, ensure_ascii=False) if ir_data else "", "judge_result": "", "is_abnormal": False, "overall_score": -1.0})
+        
+        # 获取 actions 用于 judge
+        actions = self._round_actions.get(round_id, [])
+        if not actions:
+            # 尝试从 session 文件提取
+            try:
+                oc_data = extract_from_openclaw_session(self.openclaw_log_root, round_id, start_time)
+                actions = oc_data.get("actions", [])
+                self._round_actions[round_id] = actions
+            except Exception as e:
+                print(f"[monitor] Failed to extract actions for {round_id}: {e}", flush=True)
+        
+        # 调用 judge 生成 judge_result
+        judge_result = ""
+        overall_score = 1.0
+        is_abnormal = False
+        if actions and ir_data:
+            try:
+                judge_result = judge(actions, ir_data)
+                import re as _re
+                score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
+                if score_match:
+                    overall_score = float(score_match.group(1))
+                is_abnormal = overall_score <= 0.5
+                print(f"[monitor] Judge result for {round_id}: score={overall_score} abnormal={is_abnormal}", flush=True)
+            except Exception as e:
+                print(f"[monitor] Judge error for {round_id}: {e}", flush=True)
+        
+        report_to_clawavc({"event": "end", "round_id": round_id, "time_end": "", "user_query": user_query, "history": json.dumps(history, ensure_ascii=False) if history else "", "action_json": json.dumps(actions, ensure_ascii=False) if actions else "[]", "ir_json": json.dumps(ir_data, ensure_ascii=False) if ir_data else "", "judge_result": judge_result, "is_abnormal": is_abnormal, "overall_score": overall_score})
         print(f"[monitor] IR ready for {round_id}", flush=True)
 
         # 发布到 clawAVC turn-ir long-poll 缓存：唤醒所有正在 wait 的 portkey 长轮询线程。
@@ -1785,9 +1824,10 @@ class MonitorOrchestrator:
         start_time = self._round_start_times.pop(r.round_id, r.started_at)
         start_dt = datetime.fromtimestamp(start_time, tz=ZoneInfo("Asia/Shanghai"))
 
-        worker = self._round_workers.pop(r.round_id, None)
-        if worker and worker.is_alive():
-            worker.join(timeout=65)
+        # 注意：不再等待 _query_and_ir_worker 线程
+        # round_end 和 round_ir_ready 是独立的，不应该互相阻塞
+        # worker 线程会自己完成翻译并更新数据库
+        _ = self._round_workers.pop(r.round_id, None)  # 只是清理，不等待
 
         user_query = self._round_queries.pop(r.round_id, None)
         ir_result = self._round_ir_results.pop(r.round_id, None)
@@ -1822,11 +1862,15 @@ class MonitorOrchestrator:
             actions = oc_data.get("actions", [])
             last_llm_msg = oc_data.get("last_llm_msg")
 
-        if ir_result is None and user_query:
-            try:
-                ir_result, _ = ir_translate(query=user_query, round_id=r.round_id, use_llm=True)
-            except Exception:
-                ir_result = {}
+        # round_end 不再等待翻译完成，直接使用已有的 ir_result（可能为 None）
+        # 翻译是异步进行的，round_end 只负责发送最终的 judge 结果
+        # 如果 ir_result 为 None，说明翻译还没完成，使用空结果
+        if ir_result is None:
+            ir_result = {}
+            print(f"[monitor] IR not ready for {r.round_id}, using empty result", flush=True)
+
+        # 存储 actions 供 _query_and_ir_worker 后续使用
+        self._round_actions[r.round_id] = actions
 
         judge_result = ""
         overall_score = 1.0
