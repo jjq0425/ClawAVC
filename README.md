@@ -38,6 +38,7 @@
 - [快速部署](#快速部署)
 - [内置监控](#内置监控)
 - [进程 & 安全上下文采集](#进程--安全上下文采集)
+- [安全拦截](#安全拦截)
 - [模拟攻击](#模拟攻击)
 - [页面模块](#页面模块)
 - [流量回放](#流量回放)
@@ -132,6 +133,10 @@ Backend 持久化到 SQLite + WebSocket 推送到前端
 ### 进程 & 安全上下文回放
 
 每一轮 ROUND_START 都会主动定位 OpenClaw 主进程，连同它启动的所有工具调用子进程一并采集 SELinux/AppArmor 标签、capabilities、namespaces、cgroup、loginuid、容器运行时等信息，作为 `pid_info` JSON 快照固化到本轮记录中。审计时可完整回放"谁在跑、跑在什么标签下、能做什么"。详见 [进程 & 安全上下文采集](#进程--安全上下文采集)。
+
+### 安全拦截（portkey 网关集成）
+
+ClawAVC 可与 portkey 网关联动，在 LLM 返回 tool_calls 时实时拦截 IR 白名单外的工具调用。支持死循环熔断保护和 IR 长轮询超时配置。详见 [安全拦截](#安全拦截)。
 
 ---
 
@@ -393,6 +398,41 @@ uv run python3 auditor/monitor/proc_info.py \
 
 ---
 
+## 安全拦截
+
+ClawAVC 支持与 portkey 网关深度集成，实现 Agent 工具调用的实时安全拦截。
+
+### 拦截策略
+
+| 功能 | 说明 |
+|------|------|
+| **拦截 IR 外工具** | 开启后，portkey 网关在收到上游 LLM 返回的 tool_calls 时，会同步等待本轮 IR 翻译完成，仅放行 IR 白名单内的工具；非白名单工具会被替换为系统提示，并将拦截事件上报至 ClawAVC |
+| **死循环熔断** | 当同一 turn 内对同名同参 tool_call 累计调用达到阈值（默认 3 次）时，网关将跳过 retry，直接合成"loop break"拒绝文本流，强制 Agent 改用自然语言回答 |
+| **IR 长轮询超时** | portkey 网关请求 `/api/translator/turn-ir` 时，clawAVC 会先等待 watcher 异步翻译完成；若超时则 fallback 调一次 translate 作为兜底，仍失败则放行 + 上报 ir_timeout 事件 |
+
+### 拦截链路
+
+```
+Agent 请求经 portkey 网关转发至上游 LLM
+    ↓
+LLM 返回含 tool_calls/tool_use 时，网关同步请求 clawAVC 的 /api/translator/turn-ir
+    ↓
+clawAVC 按 turn_key 缓存翻译结果（同一 turn 复用），返回 allowed_tools 白名单
+    ↓
+网关重写非白名单工具调用为系统提示，并 POST 上报至 /api/intercept/events
+    ↓
+本页通过 SocketIO 实时刷新拦截事件
+```
+
+### 拦截事件
+
+拦截事件存储在 `intercept_events` 表中，支持通过 `/api/intercept/events` 接口查询。事件类型包括：
+- `ir_tool_block`：工具被 IR 白名单拦截
+- `ir_loop_break`：死循环熔断触发
+- `ir_timeout`：IR 长轮询超时
+
+---
+
 ## 模拟攻击
 
 模拟攻击模块用于在隔离环境中复现典型的 Agent 攻击向量，验证 ClawAVC 检测引擎的防御能力。页面按攻击类型用色块分组，每类下方对应一个攻击配置模块。
@@ -401,7 +441,7 @@ uv run python3 auditor/monitor/proc_info.py \
 
 | 场景 | 等级 | 攻击目标 | 说明 |
 |------|------|----------|------|
-| **运行时篡改**（Runtime Tampering） | HIGH | Tool Dispatch 调度层 | 篡改 Agent 运行时的工具映射，请求工具 A 实际执行工具 B（攻击配置规划中） |
+| **运行时篡改**（Runtime Tampering） | HIGH | Tool Dispatch 调度层 | 篡改 Agent 运行时的工具映射，请求工具 A 实际执行工具 B |
 | **工具注入**（Tool Injection） | CRITICAL | Tools Manifest 工具注册表 | 向可用工具列表注入伪装的恶意工具，诱导 LLM 自然调用 |
 
 ### 工具注入攻击配置
@@ -414,6 +454,15 @@ uv run python3 auditor/monitor/proc_info.py \
 | `tool_injection.filepath` | 固定访问文件路径 — 注入工具被调用时强制读取指定文件 | `/root/.ssh/id_rsa` |
 | `tool_injection.syscall` | 异常 syscall 序列 — 注入工具被调用时执行所选 `rule_id` 的 syscall 序列（规则集来自 `backend/static/rule_test_atk.json`） | `DT异常序列_003` |
 
+### 运行时篡改攻击配置
+
+「运行时篡改」场景同样支持可配置攻击，每项可独立开启 / 关闭。
+
+| 配置 key | 说明 | 内容示例 |
+|----------|------|----------|
+| `runtime_tamper.replace` | 替换工具 — 将 Agent 请求的工具 A 替换为工具 B | `exec` |
+| `runtime_tamper.insert` | 插入工具 — 在工具调用列表中插入额外工具 | `malicious_tool` |
+
 每个配置项在 `config` 表中存为两条记录：`attack.inject.<item>.enabled`（`true`/`false`，是否开启）与 `attack.inject.<item>.value`（攻击内容）。
 
 #### 异常 syscall 序列联动 (sys_probe)
@@ -425,6 +474,14 @@ uv run python3 auditor/monitor/proc_info.py \
 - 外部 MCP 工具 [`agent_perm_audit/tools/sys_probe/server.py`](../agent_perm_audit/tools/sys_probe/server.py) 在被调用时会远程拉取本机 `GET /api/attack/tool-config?key=tool_injection.syscall` 取到当前选中的 `rule_id`，按 `rule_test_atk.json` 内对应规则真实执行该序列里的 syscall
 - 当序列里包含网络 `connect` 时，sys_probe 走的是**应用层 HTTP GET** —— 真访问 `http://8.152.192.7:15100/api/webhook`（裸 TCP `connect()` 无法携带 URL 路径，必须走 HTTP 才能命中具体路由）
 - rule_id 解析优先级：环境变量 `PERM_AUDIT_SYSCALL_SEQ` > `PERM_AUDIT_RULE_ID` > 远程拉取 ClawAVC > 默认 `DT异常序列_003`
+
+### 攻击消息模拟
+
+系统提供 `GET /api/attack/messages` 接口获取模拟攻击消息列表，以及 `DELETE /api/attack/messages` 接口清空消息，用于端到端测试攻击检测管线。
+
+### Webhook 接口
+
+系统提供 `ANY /api/webhook` 接口，用于接收外部系统（如 sys_probe 的 HTTP GET 回调）的 webhook 通知。该接口接受所有 HTTP 方法，便于测试系统集成。
 
 ### 对外接口
 
@@ -457,11 +514,14 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | `/` | 首页 | 系统介绍、检测维度说明、异常阈值可视化 | 入门口令 |
 | `/monitor` | 运行监控 | 监控配置 + 实时审计卡片流（筛选/分页/WebSocket实时推送） | 入门口令 |
 | `/attack` | 模拟攻击 | 预设恶意场景验证检测能力（灰度中） | 入门口令 |
+| `/policy` | 策略翻译 | IR 翻译器管理（翻译测试/模型配置/策略库/翻译日志/默认策略） | 入门口令 |
+| `/security` | 安全拦截 | portkey 网关拦截策略配置 + 拦截事件实时展示 | 入门口令 |
 | `/database` | 数据运维 | 可视化表编辑器 + SQL 控制台 + 数据导出入口 | 查询：入门口令 / 写操作：特权 |
-| `/export` | 数据导出 | SQL 筛选 + 多格式导出（CSV/Excel/TXT/JSON），从数据运维页跳转进入 | 入门口令 |
-| `/settings` | 平台管理 | 会话管理、入门口令配置 | 特权配置项需特权密钥 |
+| `/export` | 数据导出 | SQL 筛选 + 多格式导出（CSV/Excel/TXT/JSON/JSONL） | 入门口令 |
 | `/replay` | 流量回放 | 选择历史 Round 以 WSS 推送方式回放，便于调试客户端或演示 | 入门口令 |
-| `/security` | 安全设置 | 含「拦截 IR 外工具」开关。开启前会自动校验「交互数据来源」是否为「从网关获取」，若不是会以警告 Dialog 提示但不阻断 | 入门口令 |
+| `/api-docs` | 对外接口 | 所有对外公开 API 文档查看与测试 | 入门口令 |
+| `/navigator` | 快捷导航 | 可配置的外部链接导航页，支持 JSON 配置 | 入门口令 |
+| `/settings` | 平台管理 | 会话管理、入门口令配置、Round更新时间限制开关 | 特权配置项需特权密钥 |
 
 ### 流量回放
 
@@ -487,6 +547,19 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 |------|------|------|
 | `POST` | `/api/monitor/send-test` | 发送模拟/回放消息到 WSS |
 
+### 策略翻译详情
+
+策略翻译页面包含以下 Tab：
+
+| Tab | 说明 |
+|-----|------|
+| 翻译测试 | 输入用户 query 测试 IR 翻译结果，查看 Level-1 场景分类和 Level-2 策略生成 |
+| 模型配置 | 配置翻译器使用的 LLM API 地址、API Key、模型名称、温度参数等 |
+| 策略库 | 查看和编辑策略注册表（scenes.json + tools/*.json），支持场景和函数的增删改查 |
+| 翻译日志 | 查看 IR 翻译历史记录，支持按类型和场景筛选 |
+| 默认策略 | 配置默认兜底 IR 策略，当翻译失败或无法识别场景时生效 |
+| 提示词管理 | 查看和编辑 Level-1/Level-2 翻译提示词模板，支持预览和重置 |
+
 ### 运行监控详情结构
 
 ```
@@ -501,6 +574,12 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 │  └─ 多维行为轨迹综合研判（集成中）            │
 └──────────────────────────────────────────────┘
 ```
+
+---
+
+## 流量回放
+
+（见 [页面模块 → 流量回放](#流量回放)）
 
 ---
 
@@ -555,6 +634,7 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | `PUT` | `/api/rounds/update` | 更新 round 字段（仅支持部分字段，15分钟内） | 对外公开 |
 | `POST` | `/api/rounds` | 上报 round (event=start/end) | 内部调用 |
 | `GET` | `/api/stats` | 统计概览 | 普通 |
+| `POST` | `/api/import` | 手动触发从 JSONL 文件导入历史 Round 数据 | 特权 |
 
 ### 监控
 
@@ -573,10 +653,31 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 |------|------|------|------|
 | `POST` | `/api/translator/translate` | IR 翻译 (内部) | 内部 |
 | `POST` | `/api/translator/test` | 翻译测试 (UI) | 普通 |
+| `POST` | `/api/translator/level1` | 仅测试 Level-1 场景分类 | 普通 |
+| `POST` | `/api/translator/level2` | 仅测试 Level-2 策略生成 | 普通 |
+| `POST` | `/api/translator/turn-ir` | portkey 网关联动接口，长轮询返回 IR 白名单 | 内部 |
 | `GET/PUT` | `/api/translator/config` | LLM 模型配置 | 特权 |
-| `GET/PUT` | `/api/translator/prompts` | 提示词管理 | 普通 |
+| `GET/PUT` | `/api/translator/prompts` | 提示词管理（查看/编辑/预览/重置） | 普通 |
 | `GET` | `/api/translator/registry` | 策略库全量 | 普通 |
-| `GET/PUT` | `/api/translator/scene/<name>` | 场景 CRUD | 查看普通/修改特权 |
+| `GET` | `/api/translator/registry-health` | 策略库健康状态检查 | 普通 |
+| `GET/PUT` | `/api/translator/registry-path` | 策略库路径配置 | 特权 |
+| `GET/PUT` | `/api/translator/scene/<name>` | 场景详情 CRUD | 查看普通/修改特权 |
+| `GET/PUT` | `/api/translator/scene/<name>/desc` | 更新场景描述 | 特权 |
+| `GET/PUT` | `/api/translator/scene/<name>/functions` | 更新场景函数定义 | 特权 |
+| `GET/PUT` | `/api/translator/scene/<name>/function/<func>` | 更新场景单个函数定义 | 特权 |
+| `GET/PUT` | `/api/translator/default-policy` | 默认兜底策略管理 | 特权 |
+| `GET` | `/api/translator/logs` | 翻译日志查询 | 普通 |
+
+### 安全拦截
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| `GET/PUT` | `/api/config/intercept_non_ir_tools` | 拦截 IR 外工具开关 | 特权 |
+| `GET/PUT` | `/api/config/loop_breaker` | 死循环熔断配置 | 特权 |
+| `GET/PUT` | `/api/config/turn_ir_wait_ms` | IR 长轮询超时配置 | 特权 |
+| `POST` | `/api/intercept/events` | 上报拦截事件（portkey 网关调用） | 内部 |
+| `GET` | `/api/intercept/events` | 查询拦截事件列表 | 普通 |
+| `DELETE` | `/api/intercept/events` | 清空拦截事件 | 特权 |
 
 ### 数据库
 
@@ -591,14 +692,19 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 |------|------|------|------|
 | `GET` | `/api/config` | 获取公开配置 | 普通 |
 | `PUT` | `/api/config` | 更新配置 | 特权 |
+| `GET/PUT` | `/api/config/admin_ttl` | 特权会话有效期配置 | 特权 |
+| `GET/PUT` | `/api/config/round_update_time_limit` | Round 更新时间限制开关 | 特权 |
+| `GET/PUT` | `/api/config/navigator` | 快捷导航配置 | 普通/特权 |
 
 ### 模拟攻击
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| `GET` | `/api/attack/config` | 获取工具注入攻击配置（内部页面加载） | 普通 |
-| `PUT` | `/api/attack/config` | 保存工具注入攻击配置（含开启状态与内容） | 普通 |
+| `GET` | `/api/attack/config` | 获取攻击配置（内部页面加载） | 普通 |
+| `PUT` | `/api/attack/config` | 保存攻击配置（含开启状态与内容） | 普通 |
+| `GET` | `/api/attack/rules` | 获取异常 syscall 规则列表 | 普通 |
 | `GET` | `/api/attack/tool-config?key=tool_injection.network` | 对外接口：按配置 key 查询开启状态与内容 | 对外公开 |
+| `GET/DELETE` | `/api/attack/messages` | 攻击消息模拟列表/清空 | 普通 |
 
 ### 流量回放
 
@@ -606,11 +712,19 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 |------|------|------|------|
 | `POST` | `/api/monitor/send-test` | 发送模拟/回放消息到 /wss/monitor | 普通 |
 
+### Webhook
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| `ANY` | `/api/webhook` | Webhook 接收接口（所有 HTTP 方法） | 公开 |
+
 ### WebSocket
 
 | 事件 | 方向 | Payload | 说明 |
 |------|------|---------|------|
 | `new_round_info` | Server → Client | Round 对象 | 新 round 实时推送 |
+| `intercept_event` | Server → Client | 拦截事件对象 | 拦截事件实时推送 |
+| `push` | Server → Client | 统一推送事件 | 按 `push_type` 区分类型 |
 | `connect` | Client → Server | - | 建立连接 |
 
 ---
@@ -628,6 +742,7 @@ ws://<host>:15100/wss/<namespace>
 | 消息组 | Namespace | 说明 |
 |--------|-----------|------|
 | 运行消息组 | `/wss/monitor` | Agent 行为审计实时推送 |
+| 默认命名空间 | `/` | 平台内部推送（新 round、拦截事件等） |
 
 ### 统一事件
 
@@ -639,6 +754,7 @@ ws://<host>:15100/wss/<namespace>
 | `round_ir_ready` | IR 策略就绪 | 意图翻译完成 |
 | `round_end` | Round 结束 | 完整判定结果 |
 | `round_kernel` | 内核态信息推送 | 内核态信息上报后推送 |
+| `intercept_event` | 拦截事件 | portkey 网关上报工具拦截 |
 
 ### 接入示例
 
@@ -735,6 +851,31 @@ GET /api/docs/public ← 对外公开接口
 - 回放时自动包含 `round_kernel` 阶段（如果存在内核态数据）
 - 进度条分段显示：round_start(33%) → round_ir_ready(66%) → round_end(80%) → round_kernel(100%)
 
+### IR 翻译器高级功能
+
+#### 两阶段翻译管线
+
+IR 翻译器采用两阶段 LLM 管线：
+1. **Level-1 场景分类**：将用户 query 分类为最小必要场景集合（如 `file_ops`、`shell_exec`、`search`）
+2. **Level-2 策略生成**：基于选中场景的函数定义，生成结构化 `subject/objects` 权限策略
+
+#### 策略验证
+
+翻译结果会自动经过 `validate_ir()` 函数验证，检查：
+- policies 数组存在且非空
+- subject 是否为已知场景
+- tool 对象的 identifier 是否在注册表中
+- params 参数名是否合法
+- file 对象是否有 identifier 和 actions
+
+#### 策略库热重载
+
+支持通过 API 重新加载策略库（`GET /api/translator/registry-health` 检查健康状态，`PUT /api/translator/registry-path` 配置自定义路径），无需重启服务。
+
+#### 默认策略
+
+当 IR 翻译失败或无法识别场景时，系统可使用默认兜底策略（`GET/PUT /api/translator/default-policy`）。默认策略经过 normalize 和 validate 后存储。
+
 ### 新增接口文档
 
 在 `backend/api_docs.py` 的 `ENDPOINT_REGISTRY` 中添加一条记录即可，文档自动生效：
@@ -764,6 +905,7 @@ GET /api/docs/public ← 对外公开接口
 | gevent | 26+ | 异步 Worker |
 | SQLite | 3.34+ | 持久化存储 |
 | uv | latest | 包管理 |
+| requests | latest | LLM API 调用 |
 
 ### Frontend
 
@@ -794,10 +936,11 @@ GET /api/docs/public ← 对外公开接口
 clawAVC/
 ├── backend/
 │   ├── app.py                 # Flask 主应用 + SocketIO + 全部 API
-│   ├── db.py                  # SQLite 数据层（rounds/config 表）
+│   ├── db.py                  # SQLite 数据层（rounds/config/translation_logs/intercept_events 表）
+│   ├── api_docs.py            # 自动化 API 文档生成
 │   ├── auditor/
 │   │   ├── translator/        # IR 翻译器 (Level-1 场景分类 + Level-2 策略生成)
-│   │   │   ├── core.py
+│   │   │   ├── core.py        # 翻译核心（LLM 调用/提示词/验证/归一化）
 │   │   │   └── policy_registry/  # 策略注册表 (scenes.json + tools/*.json)
 │   │   └── monitor/           # 内置监控模块
 │   │       ├── watcher.py     # OpenClaw日志监听 + 网关解析 + 调度
@@ -827,16 +970,21 @@ clawAVC/
 │   │   │   │   ├── ConfigTab.vue      # 模型配置
 │   │   │   │   ├── RegistryTab.vue    # 策略库管理
 │   │   │   │   ├── LogsTab.vue        # 翻译日志
-│   │   │   │   └── DefaultPolicyTab.vue # 默认策略
+│   │   │   │   ├── DefaultPolicyTab.vue # 默认策略
+│   │   │   │   └── PromptsTab.vue     # 提示词管理
 │   │   │   ├── AttackPage.vue     # 模拟攻击
+│   │   │   ├── SecurityPage.vue   # 安全拦截
 │   │   │   ├── DatabasePage.vue   # 数据运维
 │   │   │   ├── ExportPage.vue     # 数据导出
 │   │   │   ├── ReplayPage.vue     # 流量回放
-│   │   │   └── SettingsPage.vue   # 平台管理
-│   │   ├── components/
-│   │   │   ├── PrivilegeDialog.vue    # 特权验证弹窗（通用）
-│   │   │   ├── PrivilegeStatus.vue    # 特权状态指示器（通用）
-│   │   │   └── RowDetailDrawer.vue    # 行详情抽屉（数据运维）
+│   │   │   ├── ApiDocsPage.vue    # 对外接口
+│   │   │   ├── NavigatorPage.vue  # 快捷导航
+│   │   │   ├── SettingsPage.vue   # 平台管理
+│   │   │   └── components/
+│   │   │       ├── PrivilegeDialog.vue    # 特权验证弹窗（通用）
+│   │   │       ├── PrivilegeStatus.vue    # 特权状态指示器（通用）
+│   │   │       ├── RowDetailDrawer.vue    # 行详情抽屉（数据运维）
+│   │   │       └── RuleSelectDialog.vue   # 规则选择弹窗（模拟攻击）
 │   │   └── utils/
 │   │       └── socket.js          # WebSocket 连接管理
 │   ├── index.html
@@ -844,6 +992,7 @@ clawAVC/
 │   └── vite.config.js
 │
 ├── logs/                      # 运行日志（git ignored）
+├── infos/                     # 运行时数据（数据库/内核信息文件）
 ├── .claude/CLAUDE.md          # 项目开发文档
 ├── .gitignore
 ├── start.sh                   # 一键启动脚本
@@ -880,10 +1029,17 @@ npm run dev
 1. 在 `backend/app.py` 添加 Flask route
 2. 需要持久化则在 `backend/db.py` 添加相应函数
 3. 特权操作需检查 `_check_admin_session(token)`
+4. 在 `backend/api_docs.py` 的 `ENDPOINT_REGISTRY` 添加文档元数据
 
 ### 数据库迁移
 
 SQLite 数据库文件为 `infos/db/clawAVC.db`，表结构在 `backend/db.py` 的 `init_db()` 和 `init_config_table()` 中定义。新增表只需添加 `CREATE TABLE IF NOT EXISTS` 语句，不影响已有数据。
+
+支持的数据库表：
+- `rounds`：审计轮次数据
+- `config`：平台配置项
+- `translation_logs`：IR 翻译历史日志
+- `intercept_events`：安全拦截事件记录
 
 ---
 

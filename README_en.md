@@ -38,6 +38,7 @@ Real-time Monitoring · Multi-dimensional Detection · Intent Comparison · Anom
 - [Quick Deployment](#quick-deployment)
 - [Built-in Monitoring](#built-in-monitoring)
 - [Process & Security Context Capture](#process--security-context-capture)
+- [Security Interception](#security-interception)
 - [Attack Simulation](#attack-simulation)
 - [Page Modules](#page-modules)
 - [Traffic Replay](#traffic-replay)
@@ -85,7 +86,7 @@ As AI Agents become widely deployed in production environments, they gain high-p
 │                                    │   Frontend (Vue3)       │   │
 │                                    │                         │   │
 │                                    │  ┌───────┐ ┌───────┐   │   │
-│                                    │  │Monitor│ │Manage │...│   │
+│                                    │  │Monitor│ │Manage │...│   │   │
 │                                    │  └───────┘ └───────┘   │   │
 │                                    └─────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
@@ -132,6 +133,10 @@ Card-based design with grouped display of Access (behavior traces), View (intent
 ### Process & Security Context Replay
 
 Every ROUND_START actively locates the OpenClaw main process and snapshots its security context — together with every live tool-calling subprocess it spawned — capturing SELinux/AppArmor labels, capabilities, namespaces, cgroup membership, audit `loginuid`, container runtime, and more. The full snapshot is persisted as `pid_info` JSON on the round record, so audits can fully replay *who was running, under what label, with what privileges*. See [Process & Security Context Capture](#process--security-context-capture).
+
+### Security Interception (portkey Gateway Integration)
+
+ClawAVC integrates with the portkey gateway to intercept tool calls outside the IR whitelist in real-time. Supports loop-breaker protection and configurable IR long-polling timeout. See [Security Interception](#security-interception).
 
 ---
 
@@ -394,6 +399,41 @@ Prints the full JSON output — useful when troubleshooting "why wasn't OpenClaw
 
 ---
 
+## Security Interception
+
+ClawAVC supports deep integration with the portkey gateway to implement real-time security interception of Agent tool calls.
+
+### Interception Policies
+
+| Feature | Description |
+|---------|-------------|
+| **Block tools outside IR** | When enabled, the portkey gateway waits for IR translation to complete before returning tool_calls to the Agent, and only allows tools in the IR whitelist; blocked tools are replaced with system prompts, and interception events are reported to ClawAVC |
+| **Loop Breaker** | When the same tool call (by name + params) is invoked repeatedly within the same turn (default threshold: 3), the gateway skips retry and synthesizes a "loop break" refusal text, forcing the Agent to answer in natural language |
+| **IR Long-poll Timeout** | When the portkey gateway requests `/api/translator/turn-ir`, ClawAVC waits for the watcher to complete asynchronous translation; if timed out, falls back to a direct translate call; if still failing, allows passage and reports an `ir_timeout` event |
+
+### Interception Flow
+
+```
+Agent request forwarded via portkey gateway to upstream LLM
+    ↓
+LLM returns tool_calls/tool_use → gateway synchronously requests ClawAVC /api/translator/turn-ir
+    ↓
+ClawAVC caches translation result by turn_key (reused across same turn), returns allowed_tools whitelist
+    ↓
+Gateway rewrites non-whitelisted tool calls to system prompts, POST reports to /api/intercept/events
+    ↓
+This page refreshes interception events in real-time via SocketIO
+```
+
+### Interception Events
+
+Interception events are stored in the `intercept_events` table and can be queried via `/api/intercept/events`. Event types include:
+- `ir_tool_block`: Tool blocked by IR whitelist
+- `ir_loop_break`: Loop breaker triggered
+- `ir_timeout`: IR long-poll timeout
+
+---
+
 ## Attack Simulation
 
 The Attack Simulation module reproduces typical Agent attack vectors in an isolated environment to validate the defensive capability of the ClawAVC detection engine. The page groups attack types into color blocks, with one attack configuration module under each type.
@@ -402,7 +442,7 @@ The Attack Simulation module reproduces typical Agent attack vectors in an isola
 
 | Scenario | Severity | Target | Description |
 |----------|----------|--------|-------------|
-| **Runtime Tampering** | HIGH | Tool Dispatch layer | Tampers the Agent's runtime tool mapping — requesting tool A while actually executing tool B (attack config planned) |
+| **Runtime Tampering** | HIGH | Tool Dispatch layer | Tampers the Agent's runtime tool mapping — requesting tool A while actually executing tool B |
 | **Tool Injection** | CRITICAL | Tools Manifest registry | Injects a disguised malicious tool into the available tool list, luring the LLM to call it naturally |
 
 ### Tool Injection Attack Config
@@ -415,6 +455,15 @@ The "Tool Injection" scenario supports configurable attacks. Each item can be en
 | `tool_injection.filepath` | Fixed file path access — forces the injected tool to read a given file when called | `/root/.ssh/id_rsa` |
 | `tool_injection.syscall` | Anomalous syscall sequence — when the injected tool is called, execute the syscall sequence of the selected `rule_id` (rules sourced from `backend/static/rule_test_atk.json`) | `DT异常序列_003` |
 
+### Runtime Tamper Attack Config
+
+The "Runtime Tampering" scenario also supports configurable attacks, each item can be enabled/disabled independently.
+
+| Config key | Description | Example content |
+|------------|-------------|-----------------|
+| `runtime_tamper.replace` | Replace tool — replace tool A requested by Agent with tool B | `exec` |
+| `runtime_tamper.insert` | Insert tool — insert an additional tool into the tool call list | `malicious_tool` |
+
 Each config item is stored as two records in the `config` table: `attack.inject.<item>.enabled` (`true`/`false`) and `attack.inject.<item>.value` (attack content).
 
 #### Anomalous syscall sequence integration (sys_probe)
@@ -426,6 +475,14 @@ Each config item is stored as two records in the `config` table: `attack.inject.
 - The external MCP tool [`agent_perm_audit/tools/sys_probe/server.py`](../agent_perm_audit/tools/sys_probe/server.py) pulls the current `rule_id` at runtime via `GET /api/attack/tool-config?key=tool_injection.syscall`, then truly executes the syscall sequence defined by that rule in `rule_test_atk.json`
 - When the sequence contains a network `connect`, sys_probe performs an **application-layer HTTP GET** to `http://8.152.192.7:15100/api/webhook` — raw TCP `connect()` cannot carry a URL path, so the request must speak HTTP to actually hit `/api/webhook`
 - `rule_id` resolution priority: env `PERM_AUDIT_SYSCALL_SEQ` > `PERM_AUDIT_RULE_ID` > remote fetch from ClawAVC > default `DT异常序列_003`
+
+### Attack Message Simulation
+
+The system provides `GET /api/attack/messages` to retrieve simulated attack messages, and `DELETE /api/attack/messages` to clear them, for end-to-end testing of the attack detection pipeline.
+
+### Webhook Interface
+
+The system provides `ANY /api/webhook` to receive webhook notifications from external systems (e.g., sys_probe HTTP GET callbacks). This endpoint accepts all HTTP methods for easy integration testing.
 
 ### Public Endpoint
 
@@ -458,11 +515,14 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 | `/` | Home | System intro, detection dimensions, anomaly threshold visualization | Entry passphrase |
 | `/monitor` | Runtime Monitor | Monitor config + real-time audit card stream (filter/pagination/WebSocket push) | Entry passphrase |
 | `/attack` | Attack Simulation | Preset malicious scenarios to validate detection capabilities (in beta) | Entry passphrase |
+| `/policy` | Policy Translation | IR translator management (translation test/model config/registry/logs/default policy) | Entry passphrase |
+| `/security` | Security Interception | portkey gateway interception policy config + real-time interception events | Entry passphrase |
 | `/database` | Database Operations | Visual table editor + SQL console + data export entry | Read: passphrase / Write: privileged |
-| `/export` | Data Export | SQL filtering + multi-format export (CSV/Excel/TXT/JSON), accessed from Database Operations | Entry passphrase |
-| `/settings` | Platform Settings | Session management, passphrase configuration | Privileged items require privilege key |
+| `/export` | Data Export | SQL filtering + multi-format export (CSV/Excel/TXT/JSON/JSONL), accessed from Database Operations | Entry passphrase |
 | `/replay` | Traffic Replay | Select historical rounds and replay via WSS push for debugging or demo | Entry passphrase |
-| `/security` | Security Settings | Includes the "Intercept tools outside IR" switch. Before enabling, the page checks whether "interaction data source" is "from gateway"; if not, a warning Dialog is shown (informational, non-blocking) | Entry passphrase |
+| `/api-docs` | Public API | All public-facing API documentation with test panel | Entry passphrase |
+| `/navigator` | Quick Navigator | Configurable external link navigation page, supports JSON configuration | Entry passphrase |
+| `/settings` | Platform Settings | Session management, passphrase configuration, round update time limit toggle | Privileged items require privilege key |
 
 ### Traffic Replay
 
@@ -488,6 +548,19 @@ The Traffic Replay feature allows users to select historical Round data and rese
 |--------|------|-------------|
 | `POST` | `/api/monitor/send-test` | Send mock/replay message to WSS |
 
+### Policy Translation Detail
+
+The Policy Translation page includes the following Tabs:
+
+| Tab | Description |
+|-----|-------------|
+| Translation Test | Input user query to test IR translation, view Level-1 scene classification and Level-2 policy generation |
+| Model Config | Configure the LLM API URL, API Key, model name, temperature, and other parameters for the translator |
+| Policy Registry | View and edit the policy registry (scenes.json + tools/*.json), supports CRUD for scenes and functions |
+| Translation Logs | View IR translation history, supports filtering by type and scene |
+| Default Policy | Configure the default fallback IR policy, which takes effect when translation fails or scenes cannot be identified |
+| Prompt Management | View and edit Level-1/Level-2 translation prompt templates, supports preview and reset |
+
 ### Runtime Monitor Detail Structure
 
 ```
@@ -504,6 +577,12 @@ The Traffic Replay feature allows users to select historical Round data and rese
 │      (in progress)                               │
 └──────────────────────────────────────────────────┘
 ```
+
+---
+
+## Traffic Replay
+
+(See [Page Modules → Traffic Replay](#traffic-replay))
 
 ---
 
@@ -559,6 +638,7 @@ The Traffic Replay feature allows users to select historical Round data and rese
 | `PUT` | `/api/rounds/update` | Update round field (partial fields, within 15 min) | Public |
 | `POST` | `/api/rounds` | Report round (event=start/end) | Internal |
 | `GET` | `/api/stats` | Statistics overview | Normal |
+| `POST` | `/api/import` | Manually trigger import of historical Round data from JSONL file | Privileged |
 
 ### Monitoring
 
@@ -577,10 +657,31 @@ The Traffic Replay feature allows users to select historical Round data and rese
 |--------|------|-------------|------------|
 | `POST` | `/api/translator/translate` | IR translation (internal) | Internal |
 | `POST` | `/api/translator/test` | Translation test (UI) | Normal |
+| `POST` | `/api/translator/level1` | Test Level-1 scene classification only | Normal |
+| `POST` | `/api/translator/level2` | Test Level-2 policy generation only | Normal |
+| `POST` | `/api/translator/turn-ir` | portkey gateway integration: long-poll IR whitelist | Internal |
 | `GET/PUT` | `/api/translator/config` | LLM model configuration | Privileged |
-| `GET/PUT` | `/api/translator/prompts` | Prompt management | Normal |
+| `GET/PUT` | `/api/translator/prompts` | Prompt management (view/edit/preview/reset) | Normal |
 | `GET` | `/api/translator/registry` | Full policy registry | Normal |
-| `GET/PUT` | `/api/translator/scene/<name>` | Scene CRUD | View: Normal / Modify: Privileged |
+| `GET` | `/api/translator/registry-health` | Policy registry health check | Normal |
+| `GET/PUT` | `/api/translator/registry-path` | Policy registry path configuration | Privileged |
+| `GET/PUT` | `/api/translator/scene/<name>` | Scene detail CRUD | View: Normal / Modify: Privileged |
+| `GET/PUT` | `/api/translator/scene/<name>/desc` | Update scene description | Privileged |
+| `GET/PUT` | `/api/translator/scene/<name>/functions` | Update scene function definitions | Privileged |
+| `GET/PUT` | `/api/translator/scene/<name>/function/<func>` | Update single function definition | Privileged |
+| `GET/PUT` | `/api/translator/default-policy` | Default fallback policy management | Privileged |
+| `GET` | `/api/translator/logs` | Translation log query | Normal |
+
+### Security Interception
+
+| Method | Path | Description | Permission |
+|--------|------|-------------|------------|
+| `GET/PUT` | `/api/config/intercept_non_ir_tools` | Block non-IR tools switch | Privileged |
+| `GET/PUT` | `/api/config/loop_breaker` | Loop breaker configuration | Privileged |
+| `GET/PUT` | `/api/config/turn_ir_wait_ms` | IR long-poll timeout configuration | Privileged |
+| `POST` | `/api/intercept/events` | Report interception event (called by portkey gateway) | Internal |
+| `GET` | `/api/intercept/events` | Query interception event list | Normal |
+| `DELETE` | `/api/intercept/events` | Clear all interception events | Privileged |
 
 ### Database
 
@@ -595,14 +696,19 @@ The Traffic Replay feature allows users to select historical Round data and rese
 |--------|------|-------------|------------|
 | `GET` | `/api/config` | Get public configuration | Normal |
 | `PUT` | `/api/config` | Update configuration | Privileged |
+| `GET/PUT` | `/api/config/admin_ttl` | Privilege session TTL configuration | Privileged |
+| `GET/PUT` | `/api/config/round_update_time_limit` | Round update time limit switch | Privileged |
+| `GET/PUT` | `/api/config/navigator` | Quick navigator configuration | Normal/Privileged |
 
 ### Attack Simulation
 
 | Method | Path | Description | Permission |
 |--------|------|-------------|------------|
-| `GET` | `/api/attack/config` | Get tool injection attack config (internal page load) | Normal |
-| `PUT` | `/api/attack/config` | Save tool injection attack config (incl. enabled state & content) | Normal |
+| `GET` | `/api/attack/config` | Get attack config (internal page load) | Normal |
+| `PUT` | `/api/attack/config` | Save attack config (incl. enabled state & content) | Normal |
+| `GET` | `/api/attack/rules` | Get anomalous syscall rule list | Normal |
 | `GET` | `/api/attack/tool-config?key=tool_injection.network` | Public endpoint: query enabled state & content by config key | Public |
+| `GET/DELETE` | `/api/attack/messages` | Attack message simulation list/clear | Normal |
 
 ### Traffic Replay
 
@@ -610,11 +716,19 @@ The Traffic Replay feature allows users to select historical Round data and rese
 |--------|------|-------------|------------|
 | `POST` | `/api/monitor/send-test` | Send mock/replay message to /wss/monitor | Normal |
 
+### Webhook
+
+| Method | Path | Description | Permission |
+|--------|------|-------------|------------|
+| `ANY` | `/api/webhook` | Webhook receiver endpoint (all HTTP methods) | Public |
+
 ### WebSocket
 
 | Event | Direction | Payload | Description |
 |-------|-----------|---------|-------------|
 | `new_round_info` | Server → Client | Round object | Real-time push for new rounds |
+| `intercept_event` | Server → Client | Interception event object | Real-time push for interception events |
+| `push` | Server → Client | Unified push event | Differentiated by `push_type` field |
 | `connect` | Client → Server | - | Establish connection |
 
 ---
@@ -632,6 +746,7 @@ ws://<host>:15100/wss/<namespace>
 | Message Group | Namespace | Description |
 |---------------|-----------|-------------|
 | Runtime Messages | `/wss/monitor` | Real-time Agent behavior audit push |
+| Default Namespace | `/` | Platform internal push (new rounds, interception events, etc.) |
 
 ### Unified Events
 
@@ -643,6 +758,7 @@ All messages are pushed via the `push` event, differentiated by the `push_type` 
 | `round_ir_ready` | IR policy ready | Intent translation completed |
 | `round_end` | Round ended | Complete verdict result |
 | `round_kernel` | Kernel info pushed | After kernel info reporting |
+| `intercept_event` | Interception event | portkey gateway reports tool block |
 
 ### Integration Examples
 
@@ -739,6 +855,31 @@ New `push_type: "round_kernel"` stage, pushed after round_end:
 - Replay automatically includes `round_kernel` stage (if kernel data exists)
 - Progress bar shows four stages: round_start(33%) → round_ir_ready(66%) → round_end(80%) → round_kernel(100%)
 
+### IR Translator Advanced Features
+
+#### Two-Stage Translation Pipeline
+
+The IR translator uses a two-stage LLM pipeline:
+1. **Level-1 Scene Classification**: Classifies the user query into a minimal required set of scenes (e.g., `file_ops`, `shell_exec`, `search`)
+2. **Level-2 Policy Generation**: Based on the selected scene's function definitions, generates structured `subject/objects` permission policies
+
+#### Policy Validation
+
+Translation results are automatically validated by the `validate_ir()` function, checking:
+- policies array exists and is non-empty
+- subject is a known scene
+- tool object identifiers are in the registry
+- params parameter names are valid
+- file objects have identifier and actions
+
+#### Policy Registry Hot Reload
+
+Supports reloading the policy registry via API (`GET /api/translator/registry-health` for health check, `PUT /api/translator/registry-path` for custom path configuration) without restarting the service.
+
+#### Default Policy
+
+When IR translation fails or scenes cannot be identified, the system can use a default fallback policy (`GET/PUT /api/translator/default-policy`). The default policy is stored after normalization and validation.
+
 ### Adding New API Docs
 
 Add an entry to `ENDPOINT_REGISTRY` in `backend/api_docs.py` and docs take effect automatically:
@@ -768,6 +909,7 @@ Add an entry to `ENDPOINT_REGISTRY` in `backend/api_docs.py` and docs take effec
 | gevent | 26+ | Async worker |
 | SQLite | 3.34+ | Persistent storage |
 | uv | latest | Package manager |
+| requests | latest | LLM API calls |
 
 ### Frontend
 
@@ -798,10 +940,11 @@ Add an entry to `ENDPOINT_REGISTRY` in `backend/api_docs.py` and docs take effec
 clawAVC/
 ├── backend/
 │   ├── app.py                 # Flask main app + SocketIO + all APIs
-│   ├── db.py                  # SQLite data layer (rounds/config tables)
+│   ├── db.py                  # SQLite data layer (rounds/config/translation_logs/intercept_events tables)
+│   ├── api_docs.py            # Automated API documentation generator
 │   ├── auditor/
 │   │   ├── translator/        # IR Translator (Level-1 scene classification + Level-2 policy generation)
-│   │   │   ├── core.py
+│   │   │   ├── core.py        # Translation core (LLM call/prompts/validation/normalization)
 │   │   │   └── policy_registry/  # Policy registry (scenes.json + tools/*.json)
 │   │   └── monitor/           # Built-in monitoring module
 │   │       ├── watcher.py     # OpenClaw log watcher + gateway parser + scheduler
@@ -831,16 +974,21 @@ clawAVC/
 │   │   │   │   ├── ConfigTab.vue      # Model configuration
 │   │   │   │   ├── RegistryTab.vue    # Policy registry management
 │   │   │   │   ├── LogsTab.vue        # Translation logs
-│   │   │   │   └── DefaultPolicyTab.vue # Default policy
+│   │   │   │   ├── DefaultPolicyTab.vue # Default policy
+│   │   │   │   └── PromptsTab.vue     # Prompt management
 │   │   │   ├── AttackPage.vue     # Attack Simulation
+│   │   │   ├── SecurityPage.vue   # Security Interception
 │   │   │   ├── DatabasePage.vue   # Database Operations
 │   │   │   ├── ExportPage.vue     # Data Export
 │   │   │   ├── ReplayPage.vue     # Traffic Replay
-│   │   │   └── SettingsPage.vue   # Platform Settings
-│   │   ├── components/
-│   │   │   ├── PrivilegeDialog.vue    # Privilege verification modal (shared)
-│   │   │   ├── PrivilegeStatus.vue    # Privilege status indicator (shared)
-│   │   │   └── RowDetailDrawer.vue    # Row detail drawer (Database Operations)
+│   │   │   ├── ApiDocsPage.vue    # Public API docs
+│   │   │   ├── NavigatorPage.vue  # Quick Navigator
+│   │   │   ├── SettingsPage.vue   # Platform Settings
+│   │   │   └── components/
+│   │   │       ├── PrivilegeDialog.vue    # Privilege verification modal (shared)
+│   │   │       ├── PrivilegeStatus.vue    # Privilege status indicator (shared)
+│   │   │       ├── RowDetailDrawer.vue    # Row detail drawer (Database Operations)
+│   │   │       └── RuleSelectDialog.vue   # Rule selection dialog (Attack Simulation)
 │   │   └── utils/
 │   │       └── socket.js          # WebSocket connection management
 │   ├── index.html
@@ -848,6 +996,7 @@ clawAVC/
 │   └── vite.config.js
 │
 ├── logs/                      # Runtime logs (git ignored)
+├── infos/                     # Runtime data (database/kernel info files)
 ├── .claude/CLAUDE.md          # Project development docs
 ├── .gitignore
 ├── start.sh                   # One-click startup script
@@ -884,10 +1033,17 @@ The frontend dev server automatically proxies `/api` and `/socket.io` to the bac
 1. Add Flask route in `backend/app.py`
 2. If persistence is needed, add corresponding functions in `backend/db.py`
 3. Privileged operations must check `_check_admin_session(token)`
+4. Add documentation metadata in `ENDPOINT_REGISTRY` in `backend/api_docs.py`
 
 ### Database Migration
 
 The SQLite database file is `infos/db/clawAVC.db`. Table schemas are defined in `init_db()` and `init_config_table()` in `backend/db.py`. Adding new tables only requires adding `CREATE TABLE IF NOT EXISTS` statements without affecting existing data.
+
+Supported database tables:
+- `rounds`: Audit round data
+- `config`: Platform configuration items
+- `translation_logs`: IR translation history logs
+- `intercept_events`: Security interception event records
 
 ---
 
