@@ -1065,6 +1065,18 @@ def get_api_trace(limit: int = 100, offset: int = 0, path: str = "") -> Dict[str
         return {"total": 0, "data": []}
 
 
+def clear_api_trace() -> int:
+    """清空 api_trace 表，返回删除的记录数。"""
+    conn = get_conn()
+    try:
+        cursor = conn.execute("DELETE FROM api_trace")
+        conn.commit()
+        return cursor.rowcount
+    except Exception as e:
+        print(f"[db] clear_api_trace error: {e}", flush=True)
+        return 0
+
+
 # ============================================================
 # Config / Auth
 # ============================================================

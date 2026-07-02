@@ -1442,6 +1442,7 @@ class MonitorOrchestrator:
         self._round_workers: Dict[str, threading.Thread] = {}
         self._round_histories: Dict[str, List[Dict[str, str]]] = {}  # 存储每个 round 的 history
         self._round_actions: Dict[str, List[Dict]] = {}  # 存储每个 round 的 actions
+        self._round_judge_done: Dict[str, bool] = {}  # 标记 judge 是否已完成，防止重复执行
         # Cache the OpenClaw main process across rounds: (pid, starttime_ticks).
         # If the cached PID still exists with the same starttime at the next
         # round_start, proc_info.collect_for_round skips its full /proc scan.
@@ -1802,40 +1803,65 @@ class MonitorOrchestrator:
             except Exception as e:
                 print(f"[monitor] Failed to update IR for {round_id}: {e}", flush=True)
         
-        # 调用 judge：检查 actions 和 ir_data 是否都有值
+        # 延迟 1.5 秒后调用 judge，等待 round_end 提取 actions 完成
         # Judge 结果只更新数据库，不广播
-        actions = self._round_actions.get(round_id, [])
-        if actions and ir_data:
+        def delayed_judge_worker():
             try:
-                judge_result = judge(actions, ir_data)
-                import re as _re
-                score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
-                judge_score = float(score_match.group(1)) if score_match else -1.0
+                # 等待 1.5 秒，让 round_end 有时间提取 actions
+                time.sleep(1.5)
                 
-                # 只更新数据库，不广播
-                from auditor.monitor.watcher import format_bj_time as _fmt_time
-                payload = {
-                    "event": "end",
-                    "round_id": round_id,
-                    "time_end": _fmt_time(),
-                    "judge_result": judge_result,
-                    "overall_score": judge_score,
-                }
-                import json as _json
-                req = urllib.request.Request(
-                    CLAWAVC_ROUNDS_API,
-                    data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                urllib.request.urlopen(req, timeout=5)
-                print(f"[monitor] Judge result updated (worker) for {round_id}: score={judge_score}", flush=True)
+                # 检查是否已被 delayed_judge(end) 先执行
+                if self._round_judge_done.get(round_id):
+                    print(f"[monitor] Judge already done by delayed_judge(end) for {round_id}, skipping", flush=True)
+                    return
+                
+                # 获取最新的 actions 和 ir_data
+                current_actions = self._round_actions.get(round_id, [])
+                current_ir_data = self._round_ir_results.get(round_id, {})
+                
+                print(f"[monitor] Delayed judge (worker) check for {round_id}: actions_count={len(current_actions)} ir_data_count={len(current_ir_data)}", flush=True)
+                
+                if current_actions and current_ir_data:
+                    try:
+                        judge_result = judge(current_actions, current_ir_data)
+                        import re as _re
+                        score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
+                        judge_score = float(score_match.group(1)) if score_match else -1.0
+                        
+                        # 标记 judge 已完成
+                        self._round_judge_done[round_id] = True
+                        
+                        # 只更新数据库，不广播
+                        from auditor.monitor.watcher import format_bj_time as _fmt_time
+                        payload = {
+                            "event": "end",
+                            "round_id": round_id,
+                            "time_end": _fmt_time(),
+                            "judge_result": judge_result,
+                            "overall_score": judge_score,
+                        }
+                        import json as _json
+                        req = urllib.request.Request(
+                            CLAWAVC_ROUNDS_API,
+                            data=_json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                            headers={"Content-Type": "application/json"},
+                            method="POST",
+                        )
+                        urllib.request.urlopen(req, timeout=5)
+                        print(f"[monitor] Judge result updated (worker) for {round_id}: score={judge_score}", flush=True)
+                    except Exception as e:
+                        print(f"[monitor] Judge error for {round_id}: {e}", flush=True)
+                elif not current_actions:
+                    print(f"[monitor] No actions for {round_id}, skipping judge (worker)", flush=True)
+                elif not current_ir_data:
+                    print(f"[monitor] No IR data for {round_id}, skipping judge (worker)", flush=True)
             except Exception as e:
-                print(f"[monitor] Judge error for {round_id}: {e}", flush=True)
-        elif not actions:
-            print(f"[monitor] No actions for {round_id}, skipping judge in worker", flush=True)
-        elif not ir_data:
-            print(f"[monitor] No IR data for {round_id}, skipping judge in worker", flush=True)
+                print(f"[monitor] Delayed judge (worker) error for {round_id}: {e}", flush=True)
+        
+        # 启动延迟 judge 线程
+        judge_thread = threading.Thread(target=delayed_judge_worker, daemon=True)
+        judge_thread.start()
+        print(f"[monitor] Started delayed judge (worker) thread for {round_id}", flush=True)
         
         print(f"[monitor] IR ready for {round_id}", flush=True)
 
@@ -1860,7 +1886,8 @@ class MonitorOrchestrator:
         _ = self._round_workers.pop(r.round_id, None)  # 只是清理，不等待
 
         user_query = self._round_queries.pop(r.round_id, None)
-        ir_result = self._round_ir_results.pop(r.round_id, None)
+        # 注意：不要在这里 pop ir_result！让 delayed_judge 来消费
+        # ir_result = self._round_ir_results.pop(r.round_id, None)  # 删除这行
         # 优先使用在 round start 时捕获的 history
         history = self._round_histories.pop(r.round_id, [])
 
@@ -1894,12 +1921,9 @@ class MonitorOrchestrator:
                 actions = oc_data.get("actions", [])
                 last_llm_msg = oc_data.get("last_llm_msg")
 
-        # round_end 不再等待翻译完成，直接使用已有的 ir_result（可能为 None）
+        # round_end 不再等待翻译完成
         # 翻译是异步进行的，round_end 只负责发送最终的 judge 结果
-        # 如果 ir_result 为 None，说明翻译还没完成，使用空结果
-        if ir_result is None:
-            ir_result = {}
-            print(f"[monitor] IR not ready for {r.round_id}, using empty result", flush=True)
+        # IR 数据保留在 self._round_ir_results 中，供 delayed_judge 消费
 
         # 存储 actions 供后续使用
         self._round_actions[r.round_id] = actions
@@ -1929,18 +1953,23 @@ class MonitorOrchestrator:
         report_to_clawavc(out)
         print(f"[monitor] Round ended: query={user_query or '(none)'} actions_count={len(actions)}", flush=True)
 
-        # 延迟 500ms 后调用 judge，等待 IR 翻译完成
+        # 延迟 1.5 秒后调用 judge，等待 IR 翻译完成
         # Judge 结果只更新数据库，不广播
         def delayed_judge():
             try:
-                # 等待 500ms，让 IR 翻译完成
-                time.sleep(0.5)
+                # 等待 1.5 秒，让 IR 翻译完成
+                time.sleep(1.5)
+                
+                # 检查是否已被 delayed_judge_worker 先执行
+                if self._round_judge_done.get(r.round_id):
+                    print(f"[monitor] Judge already done by delayed_judge(worker) for {r.round_id}, skipping", flush=True)
+                    return
                 
                 # 获取最新的 actions 和 ir_data
                 current_actions = self._round_actions.get(r.round_id, [])
                 current_ir_data = self._round_ir_results.get(r.round_id, {})
                 
-                print(f"[monitor] Delayed judge check for {r.round_id}: actions_count={len(current_actions)} ir_data_count={len(current_ir_data)}", flush=True)
+                print(f"[monitor] Delayed judge (end) check for {r.round_id}: actions_count={len(current_actions)} ir_data_count={len(current_ir_data)}", flush=True)
                 
                 if current_actions and current_ir_data:
                     try:
@@ -1948,6 +1977,9 @@ class MonitorOrchestrator:
                         import re as _re
                         score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
                         judge_score = float(score_match.group(1)) if score_match else -1.0
+                        
+                        # 标记 judge 已完成
+                        self._round_judge_done[r.round_id] = True
                         
                         # 只更新数据库，不广播
                         from auditor.monitor.watcher import format_bj_time as _fmt_time
@@ -1974,12 +2006,12 @@ class MonitorOrchestrator:
                 elif not current_ir_data:
                     print(f"[monitor] No IR data for {r.round_id}, skipping judge", flush=True)
             except Exception as e:
-                print(f"[monitor] Delayed judge error for {r.round_id}: {e}", flush=True)
+                print(f"[monitor] Delayed judge (end) error for {r.round_id}: {e}", flush=True)
         
         # 启动延迟 judge 线程
         judge_thread = threading.Thread(target=delayed_judge, daemon=True)
         judge_thread.start()
-        print(f"[monitor] Started delayed judge thread for {r.round_id}", flush=True)
+        print(f"[monitor] Started delayed judge (end) thread for {r.round_id}", flush=True)
     def run(self) -> None:
         """Main blocking loop."""
         self.running = True

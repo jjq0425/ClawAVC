@@ -564,22 +564,23 @@ def set_admin_ttl():
 # --- IR Translator API ---
 @app.route("/api/translator/config", methods=["GET"])
 def get_translator_config():
-    """Get current IR translator LLM config."""
-    keys = ["api_base_url", "api_key", "model", "temperature", "timeout", "json_mode"]
+    """Get current IR translator LLM config. API Key 不返回（安全考虑）。"""
+    keys = ["api_base_url", "model", "temperature", "timeout", "json_mode"]
     config = {}
     for k in keys:
         val = db.get_config(f"ir_translator.{k}")
-        if k == "api_key" and val:
-            # Mask API key
-            config[k] = val[:6] + "***" + val[-4:] if len(val) > 10 else "***"
-        else:
-            config[k] = val or ""
+        config[k] = val or ""
+    # api_key 不返回，前端显示为空
+    config["api_key"] = ""
     return jsonify({"ok": True, "data": config})
 
 
 @app.route("/api/translator/config", methods=["PUT"])
 def set_translator_config():
-    """Update IR translator LLM config. Requires admin."""
+    """Update IR translator LLM config. Requires admin.
+    
+    注意：只有当 api_key 字段有值时才会更新，空值不会覆盖已有配置。
+    """
     token = request.headers.get("X-Admin-Session", "")
     if not _check_admin_session(token):
         return jsonify({"ok": False, "error": "需要特权验证"}), 403
@@ -587,6 +588,9 @@ def set_translator_config():
     allowed_keys = ["api_base_url", "api_key", "model", "temperature", "timeout", "json_mode", "prompt_level1", "prompt_level2"]
     for k, v in data.items():
         if k in allowed_keys:
+            # api_key 特殊处理：空值不更新，避免误覆盖
+            if k == "api_key" and not v:
+                continue
             db.set_config(f"ir_translator.{k}", str(v))
     return jsonify({"ok": True})
 
@@ -2353,6 +2357,52 @@ def main():
         """查询 /api/rounds/detection/syscall 的调用记录。"""
         result = db.get_api_trace(limit=100, path="/api/rounds/detection/syscall")
         return jsonify({"ok": True, **result})
+
+    @api_doc(summary="清空API追踪记录", category="平台管理", description="清空 api_trace 表的所有记录", public=True)
+    @app.route("/api/trace/clear", methods=["DELETE"])
+    def clear_api_trace():
+        """清空 API 请求追踪记录。"""
+        token = request.headers.get("X-Admin-Session", "")
+        if not _check_admin_session(token):
+            return jsonify({"ok": False, "error": "需要特权验证"}), 403
+        deleted = db.clear_api_trace()
+        return jsonify({"ok": True, "data": {"deleted": deleted}})
+
+    @api_doc(summary="清空后端日志", category="平台管理", description="清空 backend.log 文件内容", public=True)
+    @app.route("/api/logs/clear-backend", methods=["POST"])
+    def clear_backend_log():
+        """清空后端日志文件。"""
+        token = request.headers.get("X-Admin-Session", "")
+        if not _check_admin_session(token):
+            return jsonify({"ok": False, "error": "需要特权验证"}), 403
+        log_path = "/home/hx/jjq/clawAVC/logs/backend.log"
+        try:
+            if os.path.exists(log_path):
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write("")
+                return jsonify({"ok": True, "data": {"file": "backend.log", "status": "已清空"}})
+            else:
+                return jsonify({"ok": False, "error": "日志文件不存在"}), 404
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"清空失败: {str(e)}"}), 500
+
+    @api_doc(summary="清空前端日志", category="平台管理", description="清空 frontend.log 文件内容", public=True)
+    @app.route("/api/logs/clear-frontend", methods=["POST"])
+    def clear_frontend_log():
+        """清空前端日志文件。"""
+        token = request.headers.get("X-Admin-Session", "")
+        if not _check_admin_session(token):
+            return jsonify({"ok": False, "error": "需要特权验证"}), 403
+        log_path = "/home/hx/jjq/clawAVC/logs/frontend.log"
+        try:
+            if os.path.exists(log_path):
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write("")
+                return jsonify({"ok": True, "data": {"file": "frontend.log", "status": "已清空"}})
+            else:
+                return jsonify({"ok": False, "error": "日志文件不存在"}), 404
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"清空失败: {str(e)}"}), 500
 
     print("[clawAVC] Starting backend on http://0.0.0.0:15100")
     socketio.run(app, host="0.0.0.0", port=15100, debug=False, allow_unsafe_werkzeug=True)

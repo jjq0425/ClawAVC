@@ -80,6 +80,66 @@
 
       <!-- Intercept Non-IR Tools 开关已迁移至「安全拦截」页面 -->
 
+      <!-- 清空 API Trace -->
+      <div class="setting-row" :class="{ locked: !adminValid }">
+        <div class="setting-left">
+          <div v-if="!adminValid" class="lock-icon">
+            <t-icon name="lock-on" size="16px" />
+          </div>
+          <div class="setting-label">
+            <span>清空 API 追踪记录</span>
+            <span class="setting-desc">清空 api_trace 表的所有请求记录</span>
+          </div>
+        </div>
+        <div class="setting-value">
+          <t-popconfirm content="确定要清空所有 API 追踪记录吗？此操作不可撤销。" @confirm="clearApiTrace">
+            <t-button theme="danger" size="small" :disabled="!adminValid" :loading="clearingTrace">
+              清空
+            </t-button>
+          </t-popconfirm>
+        </div>
+      </div>
+
+      <!-- 清空后端日志 -->
+      <div class="setting-row" :class="{ locked: !adminValid }">
+        <div class="setting-left">
+          <div v-if="!adminValid" class="lock-icon">
+            <t-icon name="lock-on" size="16px" />
+          </div>
+          <div class="setting-label">
+            <span>清空后端日志</span>
+            <span class="setting-desc">清空 logs/backend.log 文件内容</span>
+          </div>
+        </div>
+        <div class="setting-value">
+          <t-popconfirm content="确定要清空后端日志吗？此操作不可撤销。" @confirm="clearBackendLog">
+            <t-button theme="danger" size="small" :disabled="!adminValid" :loading="clearingBackendLog">
+              清空
+            </t-button>
+          </t-popconfirm>
+        </div>
+      </div>
+
+      <!-- 清空前端日志 -->
+      <div class="setting-row" :class="{ locked: !adminValid }">
+        <div class="setting-left">
+          <div v-if="!adminValid" class="lock-icon">
+            <t-icon name="lock-on" size="16px" />
+          </div>
+          <div class="setting-label">
+            <span>清空前端日志</span>
+            <span class="setting-desc">清空 logs/frontend.log 文件内容</span>
+          </div>
+        </div>
+        <div class="setting-value">
+          <t-popconfirm content="确定要清空前端日志吗？此操作不可撤销。" @confirm="clearFrontendLog">
+            <t-button theme="danger" size="small" :disabled="!adminValid" :loading="clearingFrontendLog">
+              清空
+            </t-button>
+          </t-popconfirm>
+        </div>
+      </div>
+
       <!-- Unlock hint -->
       <div v-if="!adminValid" style="margin-top: 12px;">
         <PrivilegeStatus hint="以上配置项需要特权密钥" @unlock="showPrivDialog = true" />
@@ -128,6 +188,7 @@ const adminSession = ref("")
 const adminExpiry = ref(0)
 const tick = ref(0)
 let _timer = null
+const clearingTrace = ref(false)
 
 const adminValid = computed(() => {
   void tick.value
@@ -135,6 +196,9 @@ const adminValid = computed(() => {
   const e = Number(sessionStorage.getItem("clawavc_admin_expiry") || 0)
   return !!s && Date.now() < e
 })
+
+const clearingBackendLog = ref(false)
+const clearingFrontendLog = ref(false)
 
 onMounted(() => {
   const saved = sessionStorage.getItem("clawavc_admin_session")
@@ -216,6 +280,64 @@ async function saveRoundUpdateTimeLimit() {
     MessagePlugin.error("连接失败")
     roundUpdateTimeLimitEnabled.value = !roundUpdateTimeLimitEnabled.value
   }
+}
+
+async function clearApiTrace() {
+  clearingTrace.value = true
+  try {
+    const res = await fetch("/api/trace/clear", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", "X-Admin-Session": adminSession.value },
+    })
+    const json = await res.json()
+    if (json.ok) {
+      const deleted = json.data?.deleted || 0
+      MessagePlugin.success(`已清空 ${deleted} 条 API 追踪记录`)
+    } else {
+      MessagePlugin.error(json.error || "清空失败")
+    }
+  } catch (e) {
+    MessagePlugin.error("连接失败")
+  }
+  clearingTrace.value = false
+}
+
+async function clearBackendLog() {
+  clearingBackendLog.value = true
+  try {
+    const res = await fetch("/api/logs/clear-backend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Admin-Session": adminSession.value },
+    })
+    const json = await res.json()
+    if (json.ok) {
+      MessagePlugin.success("后端日志已清空")
+    } else {
+      MessagePlugin.error(json.error || "清空失败")
+    }
+  } catch (e) {
+    MessagePlugin.error("连接失败")
+  }
+  clearingBackendLog.value = false
+}
+
+async function clearFrontendLog() {
+  clearingFrontendLog.value = true
+  try {
+    const res = await fetch("/api/logs/clear-frontend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Admin-Session": adminSession.value },
+    })
+    const json = await res.json()
+    if (json.ok) {
+      MessagePlugin.success("前端日志已清空")
+    } else {
+      MessagePlugin.error(json.error || "清空失败")
+    }
+  } catch (e) {
+    MessagePlugin.error("连接失败")
+  }
+  clearingFrontendLog.value = false
 }
 </script>
 
