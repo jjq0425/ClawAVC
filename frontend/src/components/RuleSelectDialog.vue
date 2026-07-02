@@ -56,6 +56,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { MessagePlugin } from 'tdesign-vue-next'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -129,6 +130,8 @@ function onConfirm() {
   emit('update:modelValue', pick.value)
   emit('confirm', pick.value)
   emit('update:visible', false)
+  // 提示用户需要再次点击保存配置按钮
+  MessagePlugin.info('已选择异常序列，请点击上方「保存配置」按钮使设置生效')
 }
 </script>
 
