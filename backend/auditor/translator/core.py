@@ -214,7 +214,7 @@ LEVEL2_SYS = """你是一个「OpenClaw function-level 权限 IR 生成器」。
   - `params` 为数组格式：[{"name": "参数名", "identifier": "参数值"}]，只能使用 function 定义中声明过的参数名。
 - 对于 type="file" 的对象：
   - `identifier` 为文件路径（来自用户 query 或工具参数中的路径）。
-  - `actions` 为允许的文件操作列表，如 ["read"]、["write", "create"] 等。
+  - `actions` 为允许的文件操作列表，为一个数组，元素为字符串，仅可在"read"、"write"、"delete"、"create"选择
 - 对于 type="network" 的对象：
   - `identifier` 为网络地址（如 "http://example.com/api"、"https://*.example.com/*"），可使用通配符/正则匹配域名或路径。
   - `actions` 为允许的网络操作列表，只能从以下选项中选择（可多选）：
