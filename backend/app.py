@@ -6,6 +6,7 @@ Claw Access-View Compliance - Backend Server
 Flask + Flask-SocketIO providing:
 - REST API for rounds data
 - WebSocket for real-time push
+- Webhook for external services
 - SQLite persistence
 """
 
@@ -20,6 +21,7 @@ from api_docs import api_doc, generate_docs
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO
+import requests as http_requests
 
 sys.path.insert(0, str(Path(__file__).parent))
 import db
@@ -28,6 +30,55 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = "clawAVC-secret-2026"
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent", path="/wss")
+
+
+def _get_webhook_urls() -> List[str]:
+    """从数据库获取 webhook URL 列表"""
+    urls_json = db.get_config("webhook.urls", "[]")
+    try:
+        urls = json.loads(urls_json) if urls_json else []
+        return [u.strip() for u in urls if u and u.strip()]
+    except Exception:
+        return []
+
+
+def _send_webhook(data: dict, timeout: int = 5) -> None:
+    """发送 webhook 请求到所有配置的 URL（异步，不阻塞主流程）"""
+    urls = _get_webhook_urls()
+    if not urls:
+        return
+    
+    def fire_and_forget(url: str, payload: dict):
+        try:
+            resp = http_requests.post(url, json=payload, timeout=timeout)
+            if resp.status_code == 200:
+                print(f"[webhook] Sent to {url} OK", flush=True)
+            else:
+                print(f"[webhook] Sent to {url} HTTP {resp.status_code}", flush=True)
+        except Exception as e:
+            print(f"[webhook] Failed to send to {url}: {e}", flush=True)
+    
+    # 在后台线程中发送，不阻塞主流程
+    for url in urls:
+        t = threading.Thread(target=fire_and_forget, args=(url, data), daemon=True)
+        t.start()
+
+
+def broadcast_push(data: dict) -> None:
+    """
+    统一推送函数：同时发送 WebSocket 和 Webhook
+    
+    Args:
+        data: 推送数据，必须包含 push_type 字段
+    """
+    # 1. WebSocket 推送
+    try:
+        socketio.emit("push", data, namespace="/wss/monitor")
+    except Exception as e:
+        print(f"[broadcast] WebSocket emit failed: {e}", flush=True)
+    
+    # 2. Webhook 推送
+    _send_webhook(data)
 
 # Import historical data on first startup
 JSONL_PATH = os.environ.get(
@@ -302,7 +353,8 @@ def report_round():
             record = db.get_round_by_id(round_id)
             if record:
                 socketio.emit("new_round_info", record)
-                socketio.emit("push", {"push_type": "round_start", "round_id": round_id, "time_start": data.get("time_start", ""), "session_key": data.get("session_key", ""), "push_time": data.get("time_start", "")}, namespace="/wss/monitor")
+                push_data = {"push_type": "round_start", "round_id": round_id, "time_start": data.get("time_start", ""), "session_key": data.get("session_key", ""), "push_time": data.get("time_start", "")}
+                broadcast_push(push_data)
         return jsonify({"ok": True, "inserted": row_id is not None})
 
     else:
@@ -372,12 +424,14 @@ def report_round():
             # 避免重复推送（_query_and_ir_worker 已经推送过一次）
             request_ir_json = data.get("ir_json", "")
             if request_ir_json and request_ir_json != "__loading__":
-                socketio.emit("push", {"push_type": "round_ir_ready", "round_id": round_id, "ir_json": ir_json, "push_time": data.get("time_end") or data.get("time_start", "")}, namespace="/wss/monitor")
+                push_data = {"push_type": "round_ir_ready", "round_id": round_id, "ir_json": ir_json, "push_time": data.get("time_end") or data.get("time_start", "")}
+                broadcast_push(push_data)
             
             # round_end: 只要解析了 action 就推送，与 overall_score 无关
             # action_json 从 DB 获取真实值，而非请求体
             if action_json and action_json != "[]":
-                socketio.emit("push", {"push_type": "round_end", "round_id": round_id, "time_start": data.get("time_start", ""), "time_end": data.get("time_end", ""), "action_json": action_json, "push_time": data.get("time_end", "")}, namespace="/wss/monitor")
+                push_data = {"push_type": "round_end", "round_id": round_id, "time_start": data.get("time_start", ""), "time_end": data.get("time_end", ""), "action_json": action_json, "push_time": data.get("time_end", "")}
+                broadcast_push(push_data)
 
         return jsonify({"ok": True})
 
@@ -1132,8 +1186,8 @@ def send_test_wss():
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "+0800"
     data["push_time"] = now
     
-    # 通过 Socket.IO 向 /wss/monitor 推送消息
-    socketio.emit("push", data, namespace="/wss/monitor")
+    # 通过统一推送函数发送（WebSocket + Webhook）
+    broadcast_push(data)
     
     return jsonify({"ok": True, "data": {"push_type": push_type, "is_mock": True}})
 
@@ -1398,6 +1452,47 @@ def set_intercept_non_ir_tools():
     except Exception:
         pass
     return jsonify({"ok": True, "data": {"enabled": enabled}})
+
+
+# ─── Webhook 配置 ────────────────────────────────────────────
+# 用于将 round 事件推送给外部服务（如 portkey 网关）
+# 配置存储在 db.config 表中，key 为 webhook.urls（JSON 数组）
+
+@api_doc(summary="获取 Webhook 配置", category="平台配置", public=False)
+@app.route("/api/config/webhook", methods=["GET"])
+def get_webhook_config():
+    """获取当前配置的 webhook URL 列表"""
+    urls = _get_webhook_urls()
+    return jsonify({"ok": True, "data": {"urls": urls}})
+
+@api_doc(summary="设置 Webhook 配置", category="平台配置", public=False)
+@app.route("/api/config/webhook", methods=["PUT"])
+def set_webhook_config():
+    """设置 webhook URL 列表，保存到数据库"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    
+    data = request.get_json(force=True)
+    urls = data.get("urls", [])
+    
+    # 验证 URL 格式
+    if not isinstance(urls, list):
+        return jsonify({"ok": False, "error": "urls 必须是数组"}), 400
+    
+    # 过滤并去重
+    valid_urls = []
+    for u in urls:
+        u = u.strip()
+        if u and (u.startswith("http://") or u.startswith("https://")):
+            if u not in valid_urls:
+                valid_urls.append(u)
+    
+    # 保存到数据库
+    db.set_config("webhook.urls", json.dumps(valid_urls))
+    print(f"[webhook] Updated webhook URLs: {valid_urls}", flush=True)
+    
+    return jsonify({"ok": True, "data": {"urls": valid_urls}})
 
 
 # ─── Loop-Breaker（死循环熔断）配置 ─────────────────────────
@@ -1843,14 +1938,14 @@ def _record_turn_ir_timeout_event(
             "fallback_err": fallback_err,
         }
         conn.execute(
-            "INSERT INTO intercept_events (event_type, protocol, turn_key, user_query, "
+            "INSERT INTO intercept_events (event_type, protocol, turn_key, round_id, "
             "violations_json, allowed_tools_json, source, extra_json, note) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "ir_timeout",
                 "",
                 turn_key,
-                (user_query or "")[:4000],
+                round_id,
                 json.dumps([], ensure_ascii=False),
                 json.dumps([], ensure_ascii=False),
                 "clawavc-long-poll",
@@ -1860,7 +1955,7 @@ def _record_turn_ir_timeout_event(
         )
         conn.commit()
         row = conn.execute(
-            "SELECT id, received_at, event_type, protocol, turn_key, user_query, "
+            "SELECT id, received_at, event_type, protocol, turn_key, round_id, "
             "violations_json, allowed_tools_json, source, extra_json, note "
             "FROM intercept_events ORDER BY id DESC LIMIT 1"
         ).fetchone()

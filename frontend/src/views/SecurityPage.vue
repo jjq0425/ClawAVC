@@ -171,8 +171,10 @@
             <span v-if="(row.allowed_tools || []).length > 6" class="more-hint">+{{ row.allowed_tools.length - 6 }}</span>
           </div>
         </template>
-        <template #user_query="{ row }">
-          <div v-if="row" class="query-cell" :title="row.user_query || ''">{{ row.user_query || '-' }}</div>
+        <template #round_id="{ row }">
+          <div v-if="row" class="round-id-cell">
+            <code :title="row.round_id || ''">{{ row.round_id || '-' }}</code>
+          </div>
         </template>
         <template #turn_key="{ row }">
           <code v-if="row" class="mono small">{{ row.turn_key || '-' }}</code>
@@ -410,7 +412,7 @@ const columns = [
   { colKey: "protocol", title: "协议", width: 90 },
   { colKey: "violations", title: "被拦截工具", width: 200 },
   { colKey: "allowed_tools", title: "本轮白名单", width: 260 },
-  { colKey: "user_query", title: "user_query", minWidth: 220, ellipsis: true },
+  { colKey: "round_id", title: "round_id", minWidth: 220, ellipsis: true },
   { colKey: "turn_key", title: "turn_key", width: 110 },
   { colKey: "note", title: "备注", minWidth: 200, ellipsis: true },
 ]
@@ -546,7 +548,8 @@ onUnmounted(() => {
 
 .tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
 .more-hint { font-size: 12px; color: #999; align-self: center; }
-.query-cell { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #555; font-size: 13px; }
+.round-id-cell { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.round-id-cell code { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 12px; color: #0052d9; cursor: pointer; }
 .note-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #666; font-size: 12px; }
 .mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 12px; color: #555; }
 .mono.small { font-size: 11px; color: #888; }

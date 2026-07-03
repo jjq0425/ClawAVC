@@ -79,6 +79,94 @@ sio.wait()</code></pre>
           </div>
         </div>
 
+        <!-- Webhook 推送配置 -->
+        <div class="webhook-card">
+          <div class="webhook-header">
+            <div class="webhook-title-row">
+              <span class="webhook-icon">
+                <t-icon name="api" size="16px" />
+              </span>
+              <span class="webhook-title">HTTP Webhook 推送</span>
+              <span class="webhook-sub">通过 HTTP POST 接收推送</span>
+            </div>
+            <div v-if="!adminValid" class="admin-lock">
+              <t-icon name="lock-on" size="14px" />
+              <span>配置需要特权验证</span>
+            </div>
+          </div>
+          
+          <div class="webhook-body">
+            <div class="webhook-info">
+              <div class="info-icon">
+                <t-icon name="info-circle" size="14px" />
+              </div>
+              <div class="info-text">
+                <p class="info-title">什么是 Webhook？</p>
+                <p class="info-desc">配置后，平台会在推送事件的同时向指定 URL 发送 HTTP POST 请求。适用于无法使用 WebSocket 的场景（如 Serverless 函数、HTTP 网关等）。</p>
+              </div>
+            </div>
+
+            <div class="webhook-form">
+              <div class="form-row">
+                <label class="form-label">Webhook URL</label>
+                <div class="form-inputs">
+                  <t-input 
+                    v-model="newWebhookUrl" 
+                    placeholder="http://portkey-host:port/api/webhook/ir-push"
+                    :disabled="!adminValid"
+                    style="width: 100%;"
+                    clearable
+                  />
+                  <t-button 
+                    size="small" 
+                    theme="primary" 
+                    @click="addWebhook" 
+                    :disabled="!newWebhookUrl.trim() || !adminValid"
+                  >
+                    <t-icon name="add" size="14px" />
+                    添加
+                  </t-button>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="webhookUrls.length === 0" class="webhook-empty">
+              <div class="empty-icon">
+                <t-icon name="link" size="32px" />
+              </div>
+              <p class="empty-title">暂未配置 Webhook URL</p>
+              <p class="empty-desc">添加 URL 后，平台将自动推送 round 事件到指定地址</p>
+            </div>
+            
+            <div v-else class="webhook-list">
+              <div 
+                v-for="(url, index) in webhookUrls" 
+                :key="index" 
+                class="webhook-item"
+                :class="{ 'removing': removingIndex === index }"
+              >
+                <div class="item-content">
+                  <div class="item-icon">
+                    <t-icon name="check-circle" size="14px" />
+                  </div>
+                  <div class="item-url">
+                    <code>{{ url }}</code>
+                  </div>
+                </div>
+                <t-button 
+                  size="small" 
+                  variant="text" 
+                  theme="danger" 
+                  @click="removeWebhook(index)"
+                  :disabled="removingIndex === index"
+                >
+                  <t-icon name="delete" size="14px" />
+                </t-button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 运行消息组 -->
         <div class="category-header">
           <t-icon name="wifi" size="18px" />
@@ -317,9 +405,124 @@ sio.wait()</code></pre>
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from "vue"
 import { io } from "socket.io-client"
+import { MessagePlugin } from "tdesign-vue-next"
 
 const browserHost = typeof window !== "undefined" ? window.location.hostname : "127.0.0.1"
 const defaultWsBase = (typeof window !== "undefined" ? (window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.hostname + ":15100" : "ws://127.0.0.1:15100")
+
+// Webhook 配置
+const webhookUrls = ref([])
+const newWebhookUrl = ref("")
+const removingIndex = ref(-1)
+
+// 特权验证状态
+const adminSession = ref("")
+
+// 从 sessionStorage 获取 admin session
+onMounted(() => {
+  const saved = sessionStorage.getItem("clawavc_admin_session")
+  const savedExpiry = sessionStorage.getItem("clawavc_admin_expiry")
+  if (saved && savedExpiry && Date.now() < Number(savedExpiry)) {
+    adminSession.value = saved
+  }
+  loadWebhookConfig()
+})
+
+const adminValid = computed(() => {
+  return !!adminSession.value
+})
+
+async function loadWebhookConfig() {
+  try {
+    const res = await fetch("/api/config/webhook")
+    const json = await res.json()
+    if (json.ok) webhookUrls.value = json.data.urls || []
+  } catch (e) { console.error("加载 Webhook 配置失败:", e) }
+}
+
+async function saveWebhookConfig() {
+  if (!adminValid.value) {
+    MessagePlugin.warning("需要特权验证，请先在设置中验证")
+    return
+  }
+  
+  try {
+    const res = await fetch("/api/config/webhook", {
+      method: "PUT",
+      headers: { 
+        "Content-Type": "application/json",
+        "X-Admin-Session": adminSession.value
+      },
+      body: JSON.stringify({ urls: webhookUrls.value }),
+    })
+    const json = await res.json()
+    if (json.ok) {
+      MessagePlugin.success("Webhook 配置已保存")
+    } else {
+      MessagePlugin.error(json.error || "保存失败")
+    }
+  } catch {
+    MessagePlugin.error("连接失败")
+  }
+}
+
+function addWebhook() {
+  if (!adminValid.value) {
+    MessagePlugin.warning("需要特权验证，请先在设置中验证")
+    return
+  }
+  
+  const url = newWebhookUrl.value.trim()
+  if (!url) return
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    MessagePlugin.warning("URL 必须以 http:// 或 https:// 开头")
+    return
+  }
+  if (!webhookUrls.value.includes(url)) {
+    webhookUrls.value.push(url)
+    saveWebhookConfig()
+  }
+  newWebhookUrl.value = ""
+}
+
+async function removeWebhook(index) {
+  if (!adminValid.value) {
+    MessagePlugin.warning("需要特权验证，请先在设置中验证")
+    return
+  }
+  
+  removingIndex.value = index
+  try {
+    const urls = [...webhookUrls.value]
+    urls.splice(index, 1)
+    await saveWebhookConfigDirect(urls)
+    webhookUrls.value = urls
+    MessagePlugin.success("已移除")
+  } finally {
+    removingIndex.value = -1
+  }
+}
+
+async function saveWebhookConfigDirect(urls) {
+  try {
+    const res = await fetch("/api/config/webhook", {
+      method: "PUT",
+      headers: { 
+        "Content-Type": "application/json",
+        "X-Admin-Session": adminSession.value || ""
+      },
+      body: JSON.stringify({ urls }),
+    })
+    const json = await res.json()
+    if (!json.ok) {
+      MessagePlugin.error(json.error || "保存失败")
+      throw new Error(json.error)
+    }
+  } catch (e) {
+    MessagePlugin.error("连接失败")
+    throw e
+  }
+}
 
 const codeLang = ref('js')
 const expandedEvent = ref(null)
@@ -331,7 +534,7 @@ const wsConnecting = ref(false)
 const messages = ref([])
 let socket = null
 
-onMounted(() => { checkMonitor() })
+onMounted(() => { checkMonitor(); loadWebhookConfig() })
 onUnmounted(() => { disconnectWs() })
 
 async function checkMonitor() {
@@ -486,6 +689,234 @@ function sendTestMessage() {
 .ws-url { font-size: 12px; color: #0052D9; background: #fff; padding: 4px 10px; border-radius: 4px; border: 1px solid #e8ecf0; }
 .hint { font-size: 11px; color: #999; margin: 12px 0 0; line-height: 1.6; }
 .hint code { background: #f0f5ff; color: #0052D9; padding: 1px 4px; border-radius: 2px; }
+
+/* Webhook Card */
+.webhook-card {
+  background: #fff;
+  border: 1px solid #e8ecf0;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+}
+.webhook-header {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #f8faff 0%, #fff 100%);
+  border-bottom: 1px solid #e8ecf0;
+}
+.webhook-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.webhook-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #0052D9 0%, #2a6cd8 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.webhook-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+}
+.webhook-sub {
+  font-size: 12px;
+  color: #888;
+  font-weight: 400;
+  margin-left: 8px;
+}
+.admin-lock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #ed7b2f;
+  padding: 4px 10px;
+  background: #fff8e6;
+  border-radius: 12px;
+  border: 1px solid #ffe58f;
+}
+.webhook-body {
+  padding: 20px;
+}
+.webhook-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.info-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #0052D9;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.info-text {
+  flex: 1;
+}
+.info-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+  margin: 0 0 4px;
+}
+.info-desc {
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+  line-height: 1.6;
+}
+.webhook-form {
+  margin-bottom: 16px;
+}
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.form-label {
+  font-size: 12px;
+  color: #666;
+  font-weight: 500;
+  min-width: 80px;
+  padding-top: 8px;
+}
+.form-inputs {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+.webhook-empty {
+  text-align: center;
+  padding: 32px 0;
+  color: #ccc;
+}
+.empty-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #f0f2f5;
+  color: #ccc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px;
+}
+.empty-title {
+  font-size: 13px;
+  color: #999;
+  margin: 0 0 4px;
+  font-weight: 500;
+}
+.empty-desc {
+  font-size: 12px;
+  color: #bbb;
+  margin: 0;
+}
+.webhook-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.webhook-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+.webhook-item.removing {
+  opacity: 0.5;
+}
+.item-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+.item-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #e6f7f0;
+  color: #00a870;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.item-url {
+  flex: 1;
+  min-width: 0;
+}
+.item-url code {
+  font-size: 12px;
+  color: #333;
+  font-family: "SF Mono", monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.webhook-example {
+  background: #1a1a2e;
+  border-radius: 8px;
+  padding: 16px;
+}
+.example-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a0e0a0;
+  margin-bottom: 12px;
+}
+.example-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.example-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.example-item.full {
+  flex-wrap: wrap;
+}
+.example-label {
+  font-size: 11px;
+  color: #666;
+  background: rgba(255,255,255,0.1);
+  padding: 3px 8px;
+  border-radius: 4px;
+  min-width: 70px;
+}
+.example-code {
+  font-size: 11px;
+  color: #69c0ff;
+  font-family: "SF Mono", monospace;
+  background: rgba(0,0,0,0.2);
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
 .category-header { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: #333; margin-bottom: 14px; }
 .ns-badge { font-size: 11px; background: #f0f5ff; color: #0052D9; padding: 3px 10px; border-radius: 4px; font-family: monospace; }
 .endpoint-card { background: #fff; border: 1px solid #e8ecf0; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }

@@ -141,7 +141,8 @@ def init_db():
             event_type TEXT DEFAULT 'ir_tool_block',
             protocol TEXT,
             turn_key TEXT,
-            user_query TEXT,
+            user_query TEXT,  -- 已废弃，保留兼容旧数据
+            round_id TEXT,   -- 新字段：本轮 round_id
             violations_json TEXT,
             allowed_tools_json TEXT,
             source TEXT,
@@ -149,8 +150,15 @@ def init_db():
             note TEXT
         )
     """)
-    # 迁移：为已存在的旧库补 note 列（IR 长轮询超时上报等场景使用）
+    # 迁移：为已存在的旧库补 round_id 列
     ie_cols = [r[1] for r in conn.execute("PRAGMA table_info(intercept_events)").fetchall()]
+    if "round_id" not in ie_cols:
+        try:
+            conn.execute("ALTER TABLE intercept_events ADD COLUMN round_id TEXT")
+            print("[db] migrate intercept_events.round_id success", flush=True)
+        except Exception as e:
+            print(f"[db] migrate intercept_events.round_id failed: {e}", flush=True)
+    # 迁移：为已存在的旧库补 note 列（IR 长轮询超时上报等场景使用）
     if "note" not in ie_cols:
         try:
             conn.execute("ALTER TABLE intercept_events ADD COLUMN note TEXT")
@@ -158,6 +166,7 @@ def init_db():
             print(f"[db] migrate intercept_events.note failed: {e}", flush=True)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_intercept_events_time ON intercept_events(received_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_intercept_events_turn ON intercept_events(turn_key)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_intercept_events_round ON intercept_events(round_id)")
     # API 请求追踪表
     conn.execute("""
         CREATE TABLE IF NOT EXISTS api_trace (
