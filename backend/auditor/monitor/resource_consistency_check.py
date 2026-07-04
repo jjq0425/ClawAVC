@@ -1,33 +1,27 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""Abnormal user-state judging entrypoint.
-
-This file provides a stable `judge(action, IR)` function boundary for the
-orchestrator. The implementation adapts the current round's action list and
-translated IR into the layered resource consistency checker.
-
-This is a self-contained module that integrates the resource_consistency_check
-logic directly, removing the external module dependency.
-"""
-
 from __future__ import annotations
 
 import json
+import os
 import re
-import shlex
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Sequence
 from urllib.parse import urlparse
 
-from .shell_command_semantics import analyze_shell_command
-
-# ---------------------------------------------------------------------------
-# Core data types
-# ---------------------------------------------------------------------------
+from shell_command_semantics import analyze_shell_command
 
 Action = str
 ResourceType = Literal["file", "tool", "network"]
+ResourceKind = Literal["file", "directory", "network", "process", "unknown"]
+
+DEFAULT_ASPECT_WEIGHTS: Dict[str, float] = {
+    "tool_call": 1.0,
+    "tool_trajectory": 0.0,
+    "parameter": 1.0,
+    "resource_access": 1.0,
+}
 
 
 @dataclass(frozen=True)
@@ -59,6 +53,22 @@ class BehaviorEvent:
     identifier: str
     action: Action
     params: Optional[Dict[str, str]] = None
+    resource_kind: ResourceKind = "file"
+    inference_status: Literal["resolved", "partial", "unresolved"] = "resolved"
+    inference_reason: Optional[str] = None
+    source: str = "manual"
+    source_tool: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    round_id: Optional[str] = None
+    round_id_source: Optional[str] = None
+    timestamp: Optional[str] = None
+    timestamp_source: Optional[str] = None
+    pid: Optional[int] = None
+    parent_pid: Optional[int] = None
+    container_id: Optional[str] = None
+    sandbox_id: Optional[str] = None
+    outcome: Literal["success", "error", "pending", "unknown"] = "unknown"
+    outcome_detail: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -101,11 +111,6 @@ class LayeredCheckResult:
     behaviors: List[BehaviorEvent]
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers for resource consistency check
-# ---------------------------------------------------------------------------
-
-
 def _as_list(value: Any) -> List[Any]:
     if value is None:
         return []
@@ -118,7 +123,6 @@ def _normalize_action(action: Any) -> Action:
     raw = str(action or "").strip().lower()
     aliases = {
         "open": "read",
-        "access": "read",
         "openat": "read",
         "o_rdonly": "read",
         "read_file": "read",
@@ -160,13 +164,61 @@ def _infer_resource_type(identifier: Any, fallback: Any = None) -> ResourceType:
     return "tool"
 
 
+def _parse_open_flags(raw_flags: Any) -> Optional[int]:
+    if raw_flags is None:
+        return None
+    if isinstance(raw_flags, int):
+        return raw_flags
+
+    text = str(raw_flags).strip()
+    if not text:
+        return None
+    try:
+        return int(text, 0)
+    except ValueError:
+        pass
+
+    flag_value = 0
+    matched = False
+    for name in re.split(r"[\s|,+]+", text.upper()):
+        if not name:
+            continue
+        value = getattr(os, name, None)
+        if isinstance(value, int):
+            flag_value |= value
+            matched = True
+    return flag_value if matched else None
+
+
+def _normalize_behavior_action(
+    action: Any,
+    params: Optional[Dict[str, Any]] = None,
+) -> Action:
+    raw = str(action or "").strip().lower()
+    if raw not in {"open", "openat"}:
+        return _normalize_action(raw)
+
+    params = params or {}
+    raw_flags = (
+        params.get("flags")
+        if "flags" in params
+        else params.get("flag", params.get("open_flags"))
+    )
+    flags = _parse_open_flags(raw_flags)
+    if flags is None:
+        return "unknown"
+    if flags & os.O_CREAT:
+        return "create"
+
+    access_mode = flags & os.O_ACCMODE
+    if access_mode in {os.O_WRONLY, os.O_RDWR}:
+        return "write"
+    if flags & (os.O_APPEND | os.O_TRUNC):
+        return "write"
+    return "read"
+
+
 def _glob_pattern_to_regex(pattern: str) -> str:
-    """Translate * and ** to a path/url-aware regular expression.
-
-    `*` matches one segment, while `**` may cross separators. This is stricter
-    than fnmatch for path-like resources, where `*` would otherwise cross `/`.
-    """
-
     parts: List[str] = []
     index = 0
     while index < len(pattern):
@@ -216,6 +268,12 @@ def _match_identifier(actual: str, expected: str, match_mode: str = "auto") -> b
 
     if match_mode == "glob" or "*" in expected:
         return re.fullmatch(_glob_pattern_to_regex(expected), actual) is not None
+
+    # Prefix-style path matching:
+    # If expected ends with "/", treat it as an allowed directory prefix.
+    expected_prefix = expected.rstrip("/")
+    if expected.endswith("/") and expected_prefix:
+        return actual == expected_prefix or actual.startswith(expected_prefix + "/")
 
     return False
 
@@ -299,6 +357,8 @@ def _parse_object(raw: Dict[str, Any]) -> IRObject:
         raw.get("identifier")
         or raw.get("path")
         or raw.get("url")
+        or raw.get("uri")
+        or raw.get("endpoint")
         or raw.get("domain")
         or raw.get("host")
         or raw.get("name")
@@ -321,11 +381,6 @@ def _parse_object(raw: Dict[str, Any]) -> IRObject:
         selinux_rules=[str(rule) for rule in _as_list(rules)],
         identifier_match=str(raw.get("identifier_match", raw.get("match", "auto"))).lower(),  # type: ignore[arg-type]
     )
-
-
-# ---------------------------------------------------------------------------
-# IR policy parsing
-# ---------------------------------------------------------------------------
 
 
 def parse_ir_policies(raw_ir: Any) -> List[IRPolicy]:
@@ -387,16 +442,20 @@ def load_ir_policies(json_path: str | Path) -> List[IRPolicy]:
     return parse_ir_policies(json.loads(path.read_text(encoding="utf-8")))
 
 
-# ---------------------------------------------------------------------------
-# Event evaluation
-# ---------------------------------------------------------------------------
-
-
 def _evaluate_event(
     event: BehaviorEvent,
     allow_policies: Sequence[IRPolicy],
 ) -> tuple[bool, List[str], List[str]]:
-    event_action = _normalize_action(event.action)
+    event_action = _normalize_behavior_action(event.action, event.params)
+    if event.inference_status == "unresolved" or event_action == "unknown":
+        return (
+            False,
+            [
+                f"resource semantics unresolved: {event.identifier}, "
+                f"reason={event.inference_reason or 'insufficient action context'}"
+            ],
+            [],
+        )
     matched_rules: List[str] = []
 
     for policy in allow_policies:
@@ -450,11 +509,6 @@ def _aspect_result(
     )
 
 
-# ---------------------------------------------------------------------------
-# Consistency check functions
-# ---------------------------------------------------------------------------
-
-
 def Resource_Consistency_Check(
     ir_policies: Sequence[IRPolicy],
     behaviors: Sequence[BehaviorEvent],
@@ -484,11 +538,6 @@ def Resource_Consistency_Check(
         violations=violations,
         matched_rules=sorted(set(matched_rules)),
     )
-
-
-# ---------------------------------------------------------------------------
-# Gateway message to behavior conversion
-# ---------------------------------------------------------------------------
 
 
 def _normalize_params_dict(raw: Any) -> Optional[Dict[str, str]]:
@@ -525,6 +574,146 @@ def _extract_messages(gateway_trace: Any) -> List[Dict[str, Any]]:
     raise ValueError("gateway_trace must be a messages list or an object containing body.messages")
 
 
+def _extract_trace_metadata(gateway_trace: Any) -> Dict[str, Any]:
+    if not isinstance(gateway_trace, dict):
+        return {}
+
+    body = gateway_trace.get("body")
+    body = body if isinstance(body, dict) else {}
+    round_id = gateway_trace.get("round_id") or body.get("round_id")
+    timestamp = gateway_trace.get("timestamp") or body.get("timestamp")
+    return {
+        "round_id": round_id,
+        "round_id_source": "trace_field" if round_id is not None else None,
+        "timestamp": timestamp,
+        "timestamp_source": "trace_field" if timestamp is not None else None,
+        "pid": gateway_trace.get("pid") or body.get("pid"),
+        "parent_pid": gateway_trace.get("parent_pid") or body.get("parent_pid"),
+        "container_id": gateway_trace.get("container_id") or body.get("container_id"),
+        "sandbox_id": gateway_trace.get("sandbox_id") or body.get("sandbox_id"),
+    }
+
+
+def _timestamp_from_user_content(content: Any) -> Optional[str]:
+    text = _gateway_content_to_text(content)
+    match = re.search(
+        r"\[[A-Za-z]{3}\s+"
+        r"(?P<date>\d{4}-\d{2}-\d{2})\s+"
+        r"(?P<time>\d{2}:\d{2})(?::(?P<second>\d{2}))?\s+"
+        r"GMT(?P<offset>[+-]\d{1,2})\]",
+        text,
+    )
+    if not match:
+        return None
+
+    offset_hours = int(match.group("offset"))
+    tz = timezone(timedelta(hours=offset_hours))
+    second = match.group("second") or "00"
+    parsed = datetime.strptime(
+        f"{match.group('date')} {match.group('time')}:{second}",
+        "%Y-%m-%d %H:%M:%S",
+    ).replace(tzinfo=tz)
+    return parsed.isoformat()
+
+
+def _user_round_metadata(
+    message: Dict[str, Any],
+    trace_metadata: Dict[str, Any],
+    round_index: int,
+) -> Dict[str, Any]:
+    explicit_round_id = message.get("round_id")
+    trace_round_id = trace_metadata.get("round_id")
+    if explicit_round_id is not None:
+        round_id = str(explicit_round_id)
+        round_id_source = "message_field"
+    elif trace_round_id is not None:
+        round_id = str(trace_round_id)
+        round_id_source = "trace_field"
+    else:
+        round_id = f"derived-round-{round_index:04d}"
+        round_id_source = "derived_sequence"
+
+    explicit_timestamp = message.get("timestamp")
+    trace_timestamp = trace_metadata.get("timestamp")
+    content_timestamp = _timestamp_from_user_content(message.get("content"))
+    if explicit_timestamp is not None:
+        timestamp = str(explicit_timestamp)
+        timestamp_source = "message_field"
+    elif trace_timestamp is not None:
+        timestamp = str(trace_timestamp)
+        timestamp_source = "trace_field"
+    elif content_timestamp is not None:
+        timestamp = content_timestamp
+        timestamp_source = "message_content_minute"
+    else:
+        timestamp = None
+        timestamp_source = None
+
+    return {
+        **trace_metadata,
+        "round_id": round_id,
+        "round_id_source": round_id_source,
+        "timestamp": timestamp,
+        "timestamp_source": timestamp_source,
+    }
+
+
+def _assistant_event_metadata(
+    message: Dict[str, Any],
+    current_metadata: Dict[str, Any],
+) -> Dict[str, Any]:
+    metadata = dict(current_metadata)
+    if message.get("round_id") is not None:
+        metadata["round_id"] = str(message["round_id"])
+        metadata["round_id_source"] = "message_field"
+    if message.get("timestamp") is not None:
+        metadata["timestamp"] = str(message["timestamp"])
+        metadata["timestamp_source"] = "message_field"
+    return metadata
+
+
+def _tool_result_metadata(messages: Sequence[Dict[str, Any]]) -> Dict[str, Dict[str, Optional[str]]]:
+    results: Dict[str, Dict[str, Optional[str]]] = {}
+
+    for message in messages:
+        if message.get("role") != "tool" or not message.get("tool_call_id"):
+            continue
+
+        tool_call_id = str(message["tool_call_id"])
+        content = _gateway_content_to_text(message.get("content")).strip()
+        outcome: Literal["success", "error", "pending", "unknown"] = "unknown"
+        detail: Optional[str] = None
+
+        if content:
+            try:
+                payload = json.loads(content)
+            except json.JSONDecodeError:
+                payload = None
+
+            if isinstance(payload, dict):
+                status = str(payload.get("status", "")).lower()
+                if status in {"error", "failed", "failure"} or payload.get("error"):
+                    outcome = "error"
+                    detail = str(payload.get("error") or payload.get("message") or status)
+                elif status in {"pending", "approval_required"}:
+                    outcome = "pending"
+                    detail = str(payload.get("message") or status)
+                else:
+                    outcome = "success"
+            elif content.lower().startswith("approval required"):
+                outcome = "pending"
+                detail = content.splitlines()[0]
+            else:
+                outcome = "success"
+
+        results[tool_call_id] = {
+            "outcome": outcome,
+            "outcome_detail": detail,
+        }
+
+    return results
+
+
 def _resolve_exec_path(raw_path: str, workdir: Optional[str]) -> str:
     if not raw_path:
         return str(Path(workdir or "."))
@@ -539,25 +728,56 @@ def _resolve_exec_path(raw_path: str, workdir: Optional[str]) -> str:
 def _looks_like_path(token: str) -> bool:
     if not token or token.startswith("-"):
         return False
-    return "/" in token or token in {".", ".."} or token.endswith((".md", ".txt", ".json", ".py", ".csv"))
+    return (
+        "/" in token
+        or token in {".", ".."}
+        or token.endswith(
+            (
+                ".md",
+                ".txt",
+                ".json",
+                ".py",
+                ".csv",
+                ".pdf",
+                ".doc",
+                ".docx",
+                ".xls",
+                ".xlsx",
+                ".yaml",
+                ".yml",
+                ".xml",
+                ".sh",
+                ".c",
+                ".cc",
+                ".cpp",
+                ".h",
+            )
+        )
+    )
 
 
-def _looks_like_network_identifier(token: str) -> bool:
-    if not token or token.startswith("-"):
-        return False
-    parsed = urlparse(token)
-    if parsed.scheme in {"http", "https", "ftp", "ssh", "git"} and (parsed.netloc or parsed.path):
-        return True
-    if "@" in token and ":" in token:
-        return True
-    return bool(re.fullmatch(r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}(:\d+)?(/.*)?", token))
+def _shell_complexity_reason(command: str, tokens: Sequence[str]) -> Optional[str]:
+    if "\n" in command:
+        return "multi-line shell command"
+    if any(token in {"|", "||", "&&", ";", "&"} for token in tokens):
+        return "shell pipeline or command chaining"
+    if any(token in {">", ">>", "<", "<<", "2>", "2>>"} for token in tokens):
+        return "shell redirection"
+    if re.search(r"`[^`]+`|\$\([^)]*\)|\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*", command):
+        return "shell variable or command expansion"
+    if tokens and tokens[0] in {"sh", "bash", "zsh", "python", "python3", "node"} and "-c" in tokens:
+        return "nested script execution"
+    return None
 
 
-def _normalize_network_identifier(token: str) -> str:
-    return token.strip()
-
-
-def _infer_exec_behaviors(args: Dict[str, Any]) -> List[BehaviorEvent]:
+def _infer_exec_behaviors(
+    args: Dict[str, Any],
+    *,
+    source_tool: str,
+    tool_call_id: Optional[str],
+    trace_metadata: Dict[str, Any],
+    outcome_metadata: Dict[str, Optional[str]],
+) -> List[BehaviorEvent]:
     command = str(args.get("command", "")).strip()
     if not command:
         return []
@@ -568,16 +788,29 @@ def _infer_exec_behaviors(args: Dict[str, Any]) -> List[BehaviorEvent]:
     for behavior in analysis.behaviors:
         if behavior.resource_kind == "network":
             resource_type: ResourceType = "network"
+            resource_kind: ResourceKind = "network"
         elif behavior.resource_kind == "process":
             resource_type = "tool"
+            resource_kind = "process"
         else:
             resource_type = "file"
+            resource_kind = behavior.resource_kind
+
         events.append(
             BehaviorEvent(
                 resource_type=resource_type,
                 identifier=behavior.identifier,
                 action=behavior.action,
                 params=_normalize_params_dict(args),
+                resource_kind=resource_kind,
+                inference_status=behavior.inference_status,
+                inference_reason=behavior.reason,
+                source="gateway",
+                source_tool=source_tool,
+                tool_call_id=tool_call_id,
+                outcome=outcome_metadata.get("outcome", "unknown"),  # type: ignore[arg-type]
+                outcome_detail=outcome_metadata.get("outcome_detail"),
+                **trace_metadata,
             )
         )
     return events
@@ -586,15 +819,22 @@ def _infer_exec_behaviors(args: Dict[str, Any]) -> List[BehaviorEvent]:
 def gateway_messages_to_behaviors(gateway_trace: Any) -> List[BehaviorEvent]:
     """
     Convert gateway-side messages into BehaviorEvent records.
-    Current baseline only consumes assistant tool_calls and ignores tool ids.
+    Each assistant tool call produces a tool-level event. File and shell tools
+    may additionally produce resource-level events inferred from arguments.
     """
 
     messages = _extract_messages(gateway_trace)
+    trace_metadata = _extract_trace_metadata(gateway_trace)
+    tool_results = _tool_result_metadata(messages)
     behaviors: List[BehaviorEvent] = []
+    current_metadata = dict(trace_metadata)
+    round_index = 0
 
     file_action_map = {
         "read": "read",
         "read_file": "read",
+        "open": "open",
+        "openat": "openat",
         "write": "write",
         "write_file": "write",
         "edit": "write",
@@ -606,8 +846,17 @@ def gateway_messages_to_behaviors(gateway_trace: Any) -> List[BehaviorEvent]:
     }
 
     for msg in messages:
+        if msg.get("role") == "user":
+            round_index += 1
+            current_metadata = _user_round_metadata(
+                msg,
+                trace_metadata,
+                round_index,
+            )
+            continue
         if msg.get("role") != "assistant":
             continue
+        event_metadata = _assistant_event_metadata(msg, current_metadata)
         for tool_call in msg.get("tool_calls", []) or []:
             if not isinstance(tool_call, dict):
                 continue
@@ -635,15 +884,63 @@ def gateway_messages_to_behaviors(gateway_trace: Any) -> List[BehaviorEvent]:
                 or args.get("endpoint")
                 or args.get("domain")
                 or args.get("host")
+                or args.get("query")
+            )
+            tool_call_id = str(tool_call.get("id")) if tool_call.get("id") else None
+            outcome_metadata = tool_results.get(
+                tool_call_id or "",
+                {"outcome": "unknown", "outcome_detail": None},
+            )
+
+            behaviors.append(
+                BehaviorEvent(
+                    resource_type="tool",
+                    identifier=tool_name,
+                    action="invoke",
+                    params=_normalize_params_dict(args),
+                    source="gateway",
+                    source_tool=tool_name,
+                    tool_call_id=tool_call_id,
+                    outcome=outcome_metadata.get("outcome", "unknown"),  # type: ignore[arg-type]
+                    outcome_detail=outcome_metadata.get("outcome_detail"),
+                    **event_metadata,
+                )
             )
 
             if normalized_tool in file_action_map and path:
+                resource_kind: Literal["file", "directory", "unknown"] = "file"
+                if (
+                    outcome_metadata.get("outcome") == "error"
+                    and "EISDIR" in str(outcome_metadata.get("outcome_detail") or "")
+                ):
+                    resource_kind = "directory"
+
+                action = _normalize_behavior_action(
+                    file_action_map[normalized_tool],
+                    args,
+                )
+                inference_status: Literal["resolved", "partial", "unresolved"] = (
+                    "unresolved" if action == "unknown" else "resolved"
+                )
                 behaviors.append(
                     BehaviorEvent(
                         resource_type="file",
                         identifier=str(path),
-                        action=file_action_map[normalized_tool],
+                        action=action,
                         params=_normalize_params_dict(args),
+                        resource_kind=resource_kind,
+                        inference_status=inference_status,
+                        inference_reason=(
+                            "open/openat flags missing or unsupported"
+                            if inference_status == "unresolved"
+                            else None
+                        ),
+                        source="gateway",
+                        source_tool=tool_name,
+                        tool_call_id=tool_call_id,
+                        outcome=outcome_metadata.get("outcome", "unknown"),  # type: ignore[arg-type]
+                        outcome_detail=outcome_metadata.get("outcome_detail"),
+                        **event_metadata,
                     )
                 )
                 continue
@@ -652,35 +949,38 @@ def gateway_messages_to_behaviors(gateway_trace: Any) -> List[BehaviorEvent]:
                 behaviors.append(
                     BehaviorEvent(
                         resource_type="network",
-                        identifier=str(network_identifier or args.get("query") or tool_name),
+                        identifier=str(network_identifier or tool_name),
                         action="connect",
                         params=_normalize_params_dict(args),
+                        resource_kind="network",
+                        inference_status="resolved" if network_identifier else "partial",
+                        inference_reason=(
+                            "network target from tool arguments"
+                            if network_identifier
+                            else "network-capable tool without explicit target"
+                        ),
+                        source="gateway",
+                        source_tool=tool_name,
+                        tool_call_id=tool_call_id,
+                        outcome=outcome_metadata.get("outcome", "unknown"),  # type: ignore[arg-type]
+                        outcome_detail=outcome_metadata.get("outcome_detail"),
+                        **event_metadata,
                     )
                 )
                 continue
 
             if normalized_tool in {"exec", "bash", "shell"}:
-                inferred_behaviors = _infer_exec_behaviors(args)
+                inferred_behaviors = _infer_exec_behaviors(
+                    args,
+                    source_tool=tool_name,
+                    tool_call_id=tool_call_id,
+                    trace_metadata=event_metadata,
+                    outcome_metadata=outcome_metadata,
+                )
                 if inferred_behaviors:
                     behaviors.extend(inferred_behaviors)
-                    continue
-
-            action = "execute" if normalized_tool in {"exec", "bash", "shell"} else "invoke"
-            behaviors.append(
-                BehaviorEvent(
-                    resource_type="tool",
-                    identifier=tool_name,
-                    action=action,
-                    params=_normalize_params_dict(args),
-                )
-            )
 
     return behaviors
-
-
-# ---------------------------------------------------------------------------
-# Scored & Layered check functions
-# ---------------------------------------------------------------------------
 
 
 def Resource_Consistency_Check_Scored(
@@ -737,6 +1037,7 @@ def Resource_Consistency_Check_Scored(
 def Resource_Consistency_Check_Layered(
     ir_input: Sequence[IRPolicy] | str | Path | Dict[str, Any] | List[Any],
     behavior_input: Sequence[BehaviorEvent] | Dict[str, Any] | List[Any],
+    aspect_weights: Optional[Dict[str, float]] = None,
 ) -> LayeredCheckResult:
     """
     Layered consistency output for task-1:
@@ -775,20 +1076,26 @@ def Resource_Consistency_Check_Layered(
     tool_call_violations: List[str] = []
     for event in tool_events:
         matched = False
+        event_violation = False
         for obj in allowed_tool_objects:
             if not _match_identifier(event.identifier, obj.identifier, obj.identifier_match):
                 continue
             allowed_actions = {_normalize_action(action) for action in obj.actions}
-            if not _action_allowed(event.resource_type, _normalize_action(event.action), allowed_actions):
+            if not _action_allowed(
+                event.resource_type,
+                _normalize_behavior_action(event.action, event.params),
+                allowed_actions,
+            ):
                 tool_call_violations.append(
-                    f"tool action over-privilege: {event.action} on {event.identifier}, allowed={sorted(allowed_actions)}"
+                        f"tool action over-privilege: {event.action} on {event.identifier}, allowed={sorted(allowed_actions)}"
                 )
                 matched = True
+                event_violation = True
                 break
             matched = True
             matched_rules.extend(obj.selinux_rules)
             break
-        if matched and (not tool_call_violations or "tool action over-privilege" not in tool_call_violations[-1]):
+        if matched and not event_violation:
             tool_call_matched += 1
         elif not matched:
             tool_call_violations.append(f"tool out of IR allow scope: {event.identifier}")
@@ -797,7 +1104,14 @@ def Resource_Consistency_Check_Layered(
     parameter_total = 0
     parameter_violations: List[str] = []
     for event in tool_events:
-        matched_obj = next((obj for obj in allowed_tool_objects if _match_identifier(event.identifier, obj.identifier, obj.identifier_match)), None)
+        matched_obj = next(
+            (
+                obj
+                for obj in allowed_tool_objects
+                if _match_identifier(event.identifier, obj.identifier, obj.identifier_match)
+            ),
+            None,
+        )
         if matched_obj is None:
             continue
         parameter_total += 1
@@ -839,17 +1153,34 @@ def Resource_Consistency_Check_Layered(
     parameter_result = _aspect_result(parameter_matched, parameter_total, parameter_violations)
     resource_result = _aspect_result(resource_matched, len(resource_events), resource_violations)
 
-    overall_violations.extend(tool_call_result.violations)
-    overall_violations.extend(trajectory_result.violations)
-    overall_violations.extend(parameter_result.violations)
-    overall_violations.extend(resource_result.violations)
-
-    active_scores = [
-        result.score
-        for result in [tool_call_result, trajectory_result, parameter_result, resource_result]
-        if result.total_count > 0
+    weights = {**DEFAULT_ASPECT_WEIGHTS, **(aspect_weights or {})}
+    active_violation_parts = [
+        ("tool_call", tool_call_result),
+        ("tool_trajectory", trajectory_result),
+        ("parameter", parameter_result),
+        ("resource_access", resource_result),
     ]
-    overall_score = 1.0 if not active_scores else round(sum(active_scores) / len(active_scores), 4)
+    for name, result in active_violation_parts:
+        if result.violations and weights.get(name, 0.0) > 0:
+            overall_violations.extend(result.violations)
+
+    weighted_parts = [
+        ("tool_call", tool_call_result),
+        ("tool_trajectory", trajectory_result),
+        ("parameter", parameter_result),
+        ("resource_access", resource_result),
+    ]
+    weighted_scores = [
+        weights[name] * result.score
+        for name, result in weighted_parts
+        if result.total_count > 0 and weights.get(name, 0.0) > 0
+    ]
+    weight_sum = sum(
+        weights[name]
+        for name, result in weighted_parts
+        if result.total_count > 0 and weights.get(name, 0.0) > 0
+    )
+    overall_score = 1.0 if weight_sum == 0 else round(sum(weighted_scores) / weight_sum, 4)
 
     return LayeredCheckResult(
         consistent="no" if overall_violations else "yes",
@@ -868,308 +1199,23 @@ def layered_result_to_dict(result: LayeredCheckResult) -> Dict[str, Any]:
     return asdict(result)
 
 
-def layered_result_to_text(result: LayeredCheckResult) -> str:
-    """
-    Convert LayeredCheckResult into a human-readable text summary.
-    """
-    lines: List[str] = []
-
-    # Overall verdict
-    if result.consistent == "yes":
-        lines.append(f"【判定结果】行为一致，整体得分: {result.overall_score}")
-    else:
-        lines.append(f"【判定结果】行为异常，整体得分: {result.overall_score}")
-
-    # Tool call consistency
-    tc = result.tool_call_consistency
-    if tc.total_count > 0:
-        if tc.consistent == "yes":
-            lines.append(f"  - 工具调用一致性: 通过 ({tc.matched_count}/{tc.total_count})")
-        else:
-            lines.append(f"  - 工具调用一致性: 异常 ({tc.matched_count}/{tc.total_count})")
-            for v in tc.violations:
-                if "out of IR allow scope" in v:
-                    tool_name = v.split(":")[-1].strip()
-                    lines.append(f"    * 调用了未授权的工具: {tool_name}")
-                elif "action over-privilege" in v:
-                    lines.append(f"    * 工具操作越权: {v}")
-                else:
-                    lines.append(f"    * {v}")
-
-    # Tool trajectory consistency
-    tt = result.tool_trajectory_consistency
-    if tt.total_count > 0:
-        if tt.consistent == "yes":
-            lines.append(f"  - 工具调用顺序一致性: 通过 ({tt.matched_count}/{tt.total_count})")
-        else:
-            lines.append(f"  - 工具调用顺序一致性: 异常 ({tt.matched_count}/{tt.total_count})")
-            for v in tt.violations:
-                if "trajectory mismatch" in v:
-                    lines.append(f"    * 调用顺序与预期不符")
-                else:
-                    lines.append(f"    * {v}")
-
-    # Parameter consistency
-    pc = result.parameter_consistency
-    if pc.total_count > 0:
-        if pc.consistent == "yes":
-            lines.append(f"  - 参数一致性: 通过 ({pc.matched_count}/{pc.total_count})")
-        else:
-            lines.append(f"  - 参数一致性: 异常 ({pc.matched_count}/{pc.total_count})")
-            for v in pc.violations:
-                if "param mismatch" in v:
-                    lines.append(f"    * 参数不匹配: {v}")
-                else:
-                    lines.append(f"    * {v}")
-
-    # Resource access consistency
-    ra = result.resource_access_consistency
-    if ra.total_count > 0:
-        if ra.consistent == "yes":
-            lines.append(f"  - 资源访问一致性: 通过 ({ra.matched_count}/{ra.total_count})")
-        else:
-            lines.append(f"  - 资源访问一致性: 异常 ({ra.matched_count}/{ra.total_count})")
-            for v in ra.violations:
-                if "out of IR allow scope" in v:
-                    lines.append(f"    * 访问了未授权的资源: {v}")
-                elif "action over-privilege" in v:
-                    lines.append(f"    * 资源操作越权: {v}")
-                else:
-                    lines.append(f"    * {v}")
-
-    # Behavior summary
-    if result.behaviors:
-        lines.append("  - 行为记录:")
-        for b in result.behaviors:
-            if b.resource_type == "tool":
-                param_str = ""
-                if b.params:
-                    param_str = ", ".join(f"{k}={v}" for k, v in b.params.items())
-                lines.append(f"    * 调用工具 [{b.identifier}]({param_str})")
-            else:
-                lines.append(f"    * 访问资源 [{b.resource_type}:{b.identifier}] 操作={b.action}")
-
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Judge function (orchestrator entrypoint)
-# ---------------------------------------------------------------------------
-
-
-def _get(obj: Any, key: str, default: Any = None) -> Any:
-    """Support both dict-style and attribute-style access."""
-    if obj is None:
-        return default
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
-
-
-def _normalize_ir(ir: Any) -> Dict[str, Any]:
-    """
-    Convert the translated IR into the policy shape expected by the consistency module.
-    Supports both:
-    - New format: level2.policies already in subject/objects format
-    - Old format: level2.policies in scene/resource_type/functions format
-    """
-
-    level1 = _get(ir, "level1", []) or []
-    level2 = _get(ir, "level2", {}) or {}
-    raw_policies = _get(level2, "policies", []) or []
-
-    normalized_policies: List[Dict[str, Any]] = []
-    for raw_policy in raw_policies:
-        effect = _get(raw_policy, "effect", "allow")
-
-        # --- New format: already has subject/objects ---
-        if "subject" in (raw_policy if isinstance(raw_policy, dict) else {}) and "objects" in (raw_policy if isinstance(raw_policy, dict) else {}):
-            normalized_policies.append({
-                "subject": raw_policy["subject"],
-                "effect": effect,
-                "objects": raw_policy["objects"],
-            })
-            continue
-
-        # --- Old format: scene/resource_type/functions -> convert ---
-        resource_type = _get(raw_policy, "resource_type", "file")
-        scene = _get(raw_policy, "scene", level1[0] if level1 else "default_task")
-        functions = _get(raw_policy, "functions", []) or []
-
-        objects: List[Dict[str, Any]] = []
-        for fn in functions:
-            fn_name = _get(fn, "name", "")
-            fn_type = _get(fn, "type", "function")
-            params = _get(fn, "params", {}) or {}
-
-            # Tool-level intent object.
-            objects.append(
-                {
-                    "type": "tool",
-                    "identifier": fn_name,
-                    "actions": ["invoke"],
-                    "params": params or None,
-                }
-            )
-
-            # File-level intent object, if path-like resource exists.
-            if resource_type == "file" and isinstance(params, dict) and params.get("path"):
-                objects.append(
-                    {
-                        "type": "file",
-                        "identifier": params["path"],
-                        "actions": _get(fn, "file_actions", ["read"]),
-                        "params": None,
-                    }
-                )
-            elif resource_type == "network" and isinstance(params, dict):
-                network_identifier = (
-                    params.get("url")
-                    or params.get("uri")
-                    or params.get("endpoint")
-                    or params.get("domain")
-                    or params.get("host")
-                    or params.get("identifier")
-                    or fn_name
-                )
-                objects.append(
-                    {
-                        "type": "network",
-                        "identifier": network_identifier,
-                        "actions": _get(fn, "network_actions", _get(fn, "actions", ["connect"])),
-                        "params": None,
-                    }
-                )
-            elif resource_type != "file":
-                objects.append(
-                    {
-                        "type": resource_type,
-                        "identifier": fn_name if fn_type == "function" else str(params),
-                        "actions": _get(fn, "actions", ["invoke"]),
-                        "params": params or None,
-                    }
-                )
-
-        normalized_policies.append(
-            {
-                "subject": scene,
-                "effect": effect,
-                "objects": objects,
-            }
-        )
-
-    return {"policies": normalized_policies}
-
-
-def _normalize_actions(action: Any) -> List[BehaviorEvent]:
-    """
-    Convert orchestrator action records into BehaviorEvent.
-
-    Expected action item shape:
-    {
-      "tool": "read",
-      "arguments": {"path": "..."},
-      "resources": [{"path": "...", "access": "read"}],
-      "result": "..."
+def demo_behaviors() -> Dict[str, List[BehaviorEvent]]:
+    return {
+        "yes_case": [
+            BehaviorEvent("file", "/workspace/report/ref.pdf", "read"),
+            BehaviorEvent("file", "/workspace/report/draft.md", "write"),
+        ],
+        "no_case": [
+            BehaviorEvent("file", "/workspace/report/ref.pdf", "write"),
+            BehaviorEvent("file", "/etc/passwd", "read"),
+        ],
     }
-    """
 
-    action_list = action if isinstance(action, list) else [action]
-    behaviors: List[BehaviorEvent] = []
-
-    for item in action_list:
-        if not isinstance(item, dict):
-            continue
-
-        tool = str(item.get("tool", "")).strip()
-        arguments = item.get("arguments") or {}
-        resources = item.get("resources") or []
-
-        if tool:
-            behaviors.append(
-                BehaviorEvent(
-                    resource_type="tool",
-                    identifier=tool,
-                    action="invoke",
-                    params={str(k): str(v) for k, v in arguments.items()} if isinstance(arguments, dict) else None,
-                )
-            )
-
-        for resource in resources:
-            if not isinstance(resource, dict):
-                continue
-            identifier = (
-                resource.get("identifier")
-                or resource.get("path")
-                or resource.get("url")
-                or resource.get("uri")
-                or resource.get("endpoint")
-                or resource.get("domain")
-                or resource.get("host")
-            )
-            access = resource.get("access") or resource.get("action") or "read"
-            if not identifier:
-                continue
-            resource_type = _infer_resource_type(
-                identifier,
-                resource.get("type") or resource.get("resource_type") or resource.get("kind"),
-            )
-            behaviors.append(
-                BehaviorEvent(
-                    resource_type=resource_type,
-                    identifier=str(identifier),
-                    action=str(access),
-                    params=None,
-                )
-            )
-
-    return behaviors
-
-
-def judge(action: Any, IR: Any) -> str:
-    """Return textual abnormal-state judgement for one completed round."""
-    normalized_ir = _normalize_ir(IR)
-    behaviors = _normalize_actions(action)
-    result = Resource_Consistency_Check_Layered(normalized_ir, behaviors)
-    return layered_result_to_text(result)
-
-
-# ---------------------------------------------------------------------------
-# Demo / self-test
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    sample_action = [
-        {
-            "tool": "read",
-            "arguments": {"path": "/temp/helloworld.txt"},
-            "resources": [{"path": "/temp/helloworld.txt", "access": "read"}],
-            "result": '{\n  "status": "error",\n  "tool": "read",\n  "error": "Path escapes sandbox root (~/.openclaw/workspace): /temp/helloworld.txt"\n}',
-        }
-    ]
-
-    sample_ir = {
-        "level1": ["file_ops"],
-        "level2": {
-            "policies": [
-                {
-                    "effect": "allow",
-                    "functions": [
-                        {
-                            "file_actions": ["read"],
-                            "name": "read",
-                            "params": {"path": "/temp/helloworld.txt"},
-                            "type": "function",
-                        }
-                    ],
-                    "resource_type": "file",
-                    "scene": "file_ops",
-                }
-            ],
-            "query": "read一下/temp/helloworld.txt，看看有什么，记得调用read工具",
-            "round_id": "129b8a51",
-            "validation": {"errors": [], "ok": True, "warnings": []},
-        },
-    }
-
-    print(judge(sample_action, sample_ir))
+    ir = load_ir_policies("第一组json最终版.json")
+    for case_name, behaviors in demo_behaviors().items():
+        result = Resource_Consistency_Check(ir, behaviors)
+        print(f"{case_name}: {result.consistent}")
+        print(f"  violations: {result.violations}")
+        print(f"  matched_rules: {result.matched_rules}")
