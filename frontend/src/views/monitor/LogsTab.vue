@@ -24,9 +24,7 @@
     <transition-group name="card-slide" tag="div" class="rounds-list">
       <div v-for="r in rounds" :key="r.round_id" class="round-card" :class="{ abnormal: (r.overall_score ?? -1) <= 0.5 && (r.overall_score ?? -1) >= 0, pending: (r.overall_score ?? -1) < 0 }">
         <div class="card-header" @click="toggleExpand(r.round_id)">
-          <div class="score-badge" :class="(r.overall_score ?? -1) < 0 ? 'pending' : (r.overall_score ?? 0) > 0.5 ? 'pass' : 'fail'">
-            {{ (r.overall_score ?? -1) < 0 ? '...' : ((r.overall_score ?? 0) * 100).toFixed(0) }}
-          </div>
+          <div class="score-badge" :class="(r.overall_score ?? -1) < 0 ? 'pending' : (r.overall_score ?? 0) > 0.5 ? 'pass' : 'fail'"></div>
           <div class="card-info">
             <div class="query-text">{{ r.user_query || '(无查询)' }}</div>
             <div class="card-meta">
@@ -34,9 +32,6 @@
               <span class="meta-time">{{ fmtTime(r.time_start) }} → {{ fmtTime(r.time_end) }}</span>
             </div>
           </div>
-          <t-tag :theme="(r.overall_score ?? -1) < 0 ? 'primary' : (r.overall_score ?? 0) > 0.5 ? 'success' : 'danger'" variant="light" size="medium">
-            {{ (r.overall_score ?? -1) < 0 ? '检测中' : (r.overall_score ?? 0) > 0.5 ? '合规' : '异常' }}
-          </t-tag>
         </div>
 
         <div v-if="expandedId === r.round_id" class="card-expand">
@@ -431,10 +426,8 @@ function openResourceFactsDialog(content) {
 .rounds-list { display: flex; flex-direction: column; gap: 12px; }
 .round-card { background: #fff; border-radius: 14px; border: 1px solid #e8ecf0; overflow: hidden; transition: all 0.25s; box-shadow: 0 1px 4px rgba(0,0,0,0.03); }
 .round-card:hover { box-shadow: 0 4px 16px rgba(0,82,217,0.08); border-color: #c8dcff; transform: translateY(-1px); }
-.round-card.abnormal { border-left: 4px solid #ED7B2F; }
-.round-card.pending { border-left: 4px solid #0052D9; }
 .card-header { display: flex; align-items: center; gap: 16px; padding: 18px 24px; cursor: pointer; }
-.score-badge { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #fff; flex-shrink: 0; }
+.score-badge { width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; }
 .score-badge.pass { background: linear-gradient(135deg, #00c48f, #00a870); box-shadow: 0 2px 8px rgba(0,168,112,0.3); }
 .score-badge.fail { background: linear-gradient(135deg, #ff9f43, #ED7B2F); box-shadow: 0 2px 8px rgba(237,123,47,0.3); }
 .score-badge.pending { background: linear-gradient(135deg, #a0aec0, #718096); animation: pulse-badge 1.5s ease-in-out infinite; }

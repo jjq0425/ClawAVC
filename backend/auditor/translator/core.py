@@ -490,9 +490,9 @@ def validate_ir(ir: Dict[str, Any]) -> ValidationReport:
             obj_type = obj.get("type")
             identifier = obj.get("identifier")
 
-            if obj_type not in ("tool", "file"):
+            if obj_type not in ("tool", "file", "network"):
                 rep.ok = False
-                rep.errors.append(f"policy[{i}].objects[{j}] type 必须为 'tool' 或 'file'，当前为 {obj_type!r}")
+                rep.errors.append(f"policy[{i}].objects[{j}] type 必须为 'tool' 或 'file' 或 'network'，当前为 {obj_type!r}")
                 continue
 
             if not identifier:
@@ -544,6 +544,7 @@ def validate_ir(ir: Dict[str, Any]) -> ValidationReport:
                     for act in actions:
                         if act not in valid_file_actions:
                             rep.warnings.append(f"policy[{i}].objects[{j}] 未知文件操作 '{act}'")
+    
 
     return rep
 
