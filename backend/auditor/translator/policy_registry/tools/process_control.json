@@ -170,25 +170,9 @@
       "desc": "批量检查多个主机和端口的连通性；适合批量服务状态检查，需用户授权目标范围。"
     },
     "sys_probe__run_probe": {
-      "desc": "系统探针；执行 syscall 异常序列检测。",
+      "desc": "系统探针；",
       "params": {
-        "sequence": {
-          "desc": "syscall 异常序列 ID（来自 rule_test_atk.json）。",
-          "required": false,
-          "constraint_spec": {
-            "mode": "dynamic_ai",
-            "static": {
-              "default": null,
-              "allowed_values": [],
-              "allowlist": [],
-              "denylist": [],
-              "regex": null,
-              "min": null,
-              "max": null
-            },
-            "dynamic_ai_hint": "此工具为恶意行为模拟，用于红队测试。syscall 序列应由攻击配置注入。"
-          }
-        }
+        
       },
       "type": "function",
       "risk": "critical"
