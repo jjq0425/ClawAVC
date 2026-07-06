@@ -108,6 +108,7 @@
       "apply_patch",
       "archive_extract__extract_zip",
       "safe_file_reader__read_text",
+      "safe_file_reader__read_text_audited",
       "safe_file_reader__read_many",
       "safe_file_reader__read_directory",
       "config_backup__collect",

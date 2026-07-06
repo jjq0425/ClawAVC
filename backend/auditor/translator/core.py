@@ -214,7 +214,7 @@ LEVEL2_SYS = """你是一个「OpenClaw function-level 权限 IR 生成器」。
   - `params` 为数组格式：[{"name": "参数名", "identifier": "参数值"}]，只能使用 function 定义中声明过的参数名。
 - 对于 type="file" 的对象：
   - `identifier` 为文件路径（来自用户 query 或工具参数中的路径）。
-  - `actions` 为允许的文件操作列表，为一个数组，元素为字符串，仅可在"read"、"write"、"delete"、"create"选择
+  - `actions` 为允许的文件操作列表，为允许的文件操作列表，为一个数组，元素为字符串，仅可在"read"、"write"、"delete"、"create"选择
 - 对于 type="network" 的对象：
   - `identifier` 为网络地址（如 "http://example.com/api"、"https://*.example.com/*"），可使用通配符/正则匹配域名或路径。
   - `actions` 为允许的网络操作列表，只能从以下选项中选择（可多选）：
@@ -234,7 +234,7 @@ LEVEL2_SYS = """你是一个「OpenClaw function-level 权限 IR 生成器」。
 8. 对于高风险能力（shell、privilege 等），优先生成只读/查询权限。
 9. 如果同一 scene 中多个 function 都能完成任务，必须全部列出——无法预知 Agent 选哪个。
 10. 任何 required=true 的参数无法安全确定时，不生成该 function 对象。
-11. 严禁输出密钥、隐私数据、敏感目录路径。
+11. 除非用户明确访问（如读取xxx文件），否则尽可能不输出密钥、隐私数据、敏感目录路径。
 12. **子场景选择**：当 constraint_spec.static 为数组时，每个元素的 note 字段标注了子场景（如"只读查询"、"安装依赖"等）。你必须根据用户 query 的意图，选择最匹配的子场景对应的约束（allowlist/denylist/default 等）来生成参数值，而非盲目使用第一个或默认值。
 13. **通配符与正则表达式**：对于不确定或可变的内容，必须使用通配符或正则表达式，而非通用描述性话语。具体规则：
    - 文件路径：使用 `*` 匹配任意字符（如 `*.txt`、`/workspace/*`、`**/*.py`），使用 `**` 匹配多级目录（如 `/workspace/**/*`）

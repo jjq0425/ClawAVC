@@ -279,6 +279,39 @@
       ],
       "desc": "安全读取项目内的 UTF-8 文本文件；防止路径穿越，只在授权范围内读取。"
     },
+    "safe_file_reader__read_text_audited": {
+      "desc": "读取工作区或临时目录中的文件内容,并进行审计；只在用户请求需要查看、分析或引用文件、并审计内容时使用。",
+      "file_actions": [
+        "read"
+      ],
+      "params": {
+        "path": {
+          "constraint_spec": {
+            "dynamic_ai_hint": "优先使用用户显式给出的路径；若没有路径则使用 default；不得读取系统敏感路径。优先使用用户原文中的路径；其次使用上下文中已验证路径；仍缺失时才使用 default。不得访问 denylist 中路径，不得把相对路径扩大到系统敏感目录。",
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "default": "/workspace/outputs/**",
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "max": null,
+              "min": null,
+              "regex": null
+            }
+          },
+          "desc": "用户明确指定、上下文中已确认或默认范围内的文件/目录路径。",
+          "required": true
+        }
+      },
+      "type": "function"
+    },
     "safe_file_reader__read_many": {
       "type": "function",
       "params": {
