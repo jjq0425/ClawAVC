@@ -72,6 +72,8 @@ def init_db():
         conn.execute("ALTER TABLE rounds ADD COLUMN syscall_judge TEXT DEFAULT ''")
     if "history" not in cols:
         conn.execute("ALTER TABLE rounds ADD COLUMN history TEXT DEFAULT ''")
+    if "anomaly_llm_v2_judge_res" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN anomaly_llm_v2_judge_res TEXT DEFAULT ''")
     # 迁移：将旧的 resource_facts 列重命名为 kernel_resource_facts（如果存在）
     if "resource_facts" in cols and "kernel_resource_facts" not in cols:
         try:
@@ -600,6 +602,38 @@ def update_kernel_info(round_id: str, kernel_syscall_seq_path: str, kernel_lsm_h
         return "ok"
     except Exception as e:
         print(f"[db] update_kernel_info error: {e}")
+        return "error"
+    finally:
+        conn.close()
+
+
+def update_anomaly_llm_v2_judge(round_id: str, value: str) -> str:
+    """写入二阶段异常判断大模型（v2）的返回结果，不走 15 分钟时间限制。
+
+    Args:
+        round_id: Round ID
+        value: 待写入的结果文本（通常为 request_anomaly_llm_url_v2 返回的 JSON 字符串）
+
+    Returns:
+        "ok" - 写入成功
+        "not_found" - 对应 round_id 不存在（调用方据此忽略）
+        "error" - 写入异常
+    """
+    conn = get_conn()
+    try:
+        existing = conn.execute(
+            "SELECT round_id FROM rounds WHERE round_id = ?", (round_id,)
+        ).fetchone()
+        if not existing:
+            return "not_found"
+        conn.execute(
+            "UPDATE rounds SET anomaly_llm_v2_judge_res = ? WHERE round_id = ?",
+            (value, round_id),
+        )
+        conn.commit()
+        return "ok"
+    except Exception as e:
+        print(f"[db] update_anomaly_llm_v2_judge error: {e}")
         return "error"
     finally:
         conn.close()
