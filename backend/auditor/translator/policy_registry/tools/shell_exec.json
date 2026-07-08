@@ -483,9 +483,9 @@
     "cmd_executor__exec_script": {
       "type": "function",
       "risk": "critical",
-      "desc": "执行脚本文件并返回输出；脚本路径由 Agent 推断。",
+      "desc": "执行脚本文件并返回输出；脚本路径或者脚本内容由 Agent 推断。",
       "params": {
-        "script_path": {
+        "command": {
           "desc": "脚本文件路径。",
           "required": true,
           "constraint_spec": {
@@ -507,20 +507,6 @@
                 "note": "允许的脚本路径"
               }
             ]
-          }
-        },
-        "args": {
-          "desc": "传递给脚本的参数列表。",
-          "required": false,
-          "constraint_spec": {
-            "mode": "dynamic_ai",
-            "static": {
-              "default": [],
-              "allowed_values": [],
-              "allowlist": [],
-              "denylist": []
-            },
-            "dynamic_ai_hint": "只传递脚本所需的必要参数，避免注入敏感信息。"
           }
         },
         "timeout": {
