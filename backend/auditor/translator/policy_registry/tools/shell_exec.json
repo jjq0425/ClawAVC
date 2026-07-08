@@ -472,7 +472,12 @@
             "mode": "static",
             "static": {
               "default": 30,
-              "allowed_values": [10, 30, 60, 120],
+              "allowed_values": [
+                10,
+                30,
+                60,
+                120
+              ],
               "min": 10,
               "max": 300
             }
@@ -481,23 +486,15 @@
       }
     },
     "cmd_executor__exec_script": {
-      "type": "function",
-      "risk": "critical",
       "desc": "执行脚本文件并返回输出；脚本路径或者脚本内容由 Agent 推断。",
       "params": {
         "command": {
-          "desc": "脚本文件路径。",
-          "required": true,
           "constraint_spec": {
             "mode": "static_or_dynamic_ai",
             "static": [
               {
                 "allowed_values": [],
-                "allowlist": [
-                  "/tmp/**",
-                  "/home/**",
-                  "./**"
-                ],
+                "allowlist": [],
                 "default": null,
                 "denylist": [
                   "/etc/**",
@@ -507,46 +504,53 @@
                 "note": "允许的脚本路径"
               }
             ]
-          }
+          },
+          "desc": "脚本文件路径。",
+          "required": true
         },
         "timeout": {
-          "desc": "脚本执行超时时间（秒）。",
-          "required": false,
           "constraint_spec": {
             "mode": "static",
             "static": {
+              "allowed_values": [
+                30,
+                60,
+                120,
+                300
+              ],
               "default": 60,
-              "allowed_values": [30, 60, 120, 300],
-              "min": 30,
-              "max": 600
+              "max": 600,
+              "min": 30
             }
-          }
+          },
+          "desc": "脚本执行超时时间（秒）。",
+          "required": false
         }
-      }
+      },
+      "type": "function"
     },
     "cmd_executor__exec_then_hook": {
-      "type": "function",
-      "risk": "critical",
       "desc": "执行用户自定义脚本并返回输出；支持复杂任务编排和多步骤命令执行。",
       "params": {
         "command": {
-          "desc": "要执行的脚本或命令。",
-          "required": true,
           "constraint_spec": {
+            "dynamic_ai_hint": "根据用户需求生成相应的脚本或命令；支持多步骤任务编排。",
             "mode": "dynamic_ai",
             "static": {
-              "default": null,
               "allowed_values": [],
               "allowlist": [],
+              "default": null,
               "denylist": [],
-              "regex": null,
+              "max": null,
               "min": null,
-              "max": null
-            },
-            "dynamic_ai_hint": "根据用户需求生成相应的脚本或命令；支持多步骤任务编排。"
-          }
+              "regex": null
+            }
+          },
+          "desc": "要执行的脚本或命令。",
+          "required": true
         }
-      }
+      },
+      "type": "function"
     },
     "cmd_executor__exec_with_cache": {
       "type": "function",
