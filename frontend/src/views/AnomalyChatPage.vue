@@ -13,28 +13,39 @@
         </t-button>
       </div>
       <div class="xy-side__list">
-        <div
+        <t-tooltip
           v-for="s in sessions"
           :key="s.session_id"
-          class="xy-session"
-          :class="{ active: s.session_id === activeId }"
-          @click="selectSession(s.session_id)"
+          placement="right"
+          :show-arrow="true"
         >
-          <div class="xy-session__icon"><t-icon name="chat" /></div>
-          <div class="xy-session__body">
-            <div class="xy-session__title">{{ s.title || "新对话" }}</div>
-            <div class="xy-session__meta">
-              <span class="xy-session__time">{{ fmtTime(s.updated_at) }}</span>
-              <span v-if="s.preview" class="xy-session__preview">{{ s.preview }}</span>
+          <template #content>
+            <div class="xy-session-tip">
+              <div class="xy-session-tip__title">{{ s.title || "新对话" }}</div>
+              <div v-if="s.preview" class="xy-session-tip__preview">{{ s.preview }}</div>
+              <div v-if="s.updated_at" class="xy-session-tip__time">{{ fmtTime(s.updated_at) }}</div>
             </div>
-          </div>
-          <span
-            class="xy-session__del"
-            @click.stop="deleteSession(s.session_id)"
+          </template>
+          <div
+            class="xy-session"
+            :class="{ active: s.session_id === activeId }"
+            @click="selectSession(s.session_id)"
           >
-            <t-icon name="delete" />
-          </span>
-        </div>
+            <div class="xy-session__body">
+              <div class="xy-session__title">{{ s.title || "新对话" }}</div>
+              <div class="xy-session__meta">
+                <span class="xy-session__time">{{ fmtTime(s.updated_at) }}</span>
+                <span v-if="s.preview" class="xy-session__preview">{{ s.preview }}</span>
+              </div>
+            </div>
+            <span
+              class="xy-session__del"
+              @click.stop="deleteSession(s.session_id)"
+            >
+              <t-icon name="delete" />
+            </span>
+          </div>
+        </t-tooltip>
         <div v-if="!sessions.length" class="xy-side__empty">暂无对话，点击「新建对话」开始</div>
       </div>
     </aside>
@@ -342,29 +353,36 @@ function fmtTime(t) {
 
 /* 侧边栏 */
 .xy-side {
-  width: 280px;
-  flex: 0 0 280px;
+  width: 180px;
+  flex: 0 0 180px;
   display: flex;
   flex-direction: column;
   background: #fff;
-  border: 1px solid #e8ecf0;
+  border: 1px solid #eef1f5;
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 12px rgba(20, 30, 60, 0.04);
 }
 .xy-side__head {
   padding: 16px;
   border-bottom: 1px solid #eef1f5;
-  background: linear-gradient(135deg, #0b1f4d 0%, #143a8f 100%);
+  background: #fff;
 }
 .xy-side__brand {
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: #fff;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.xy-side__brand .t-icon {
+  font-size: 22px;
+  color: #2b6fff;
+}
+.xy-side__brand span {
   font-weight: 700;
   font-size: 15px;
-  margin-bottom: 14px;
+  color: #1c2b3a;
+  letter-spacing: 0.3px;
 }
 .xy-side__list {
   flex: 1;
@@ -375,27 +393,15 @@ function fmtTime(t) {
 .xy-session {
   position: relative;
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border-radius: 10px;
   cursor: pointer;
   transition: background 0.15s;
 }
-.xy-session:hover { background: #f2f6ff; }
-.xy-session.active { background: #e8f0ff; box-shadow: inset 0 0 0 1px #c5d8ff; }
-.xy-session__icon {
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #4f8bff, #2b6fff);
-  color: #fff;
-  font-size: 18px;
-}
+.xy-session:hover { background: #f5f8fc; }
+.xy-session.active { background: #eef4ff; box-shadow: inset 3px 0 0 #2b6fff; }
 .xy-session__body { flex: 1; min-width: 0; }
 .xy-session__title {
   font-size: 14px;
@@ -434,10 +440,10 @@ function fmtTime(t) {
   display: flex;
   flex-direction: column;
   background: #fff;
-  border: 1px solid #e8ecf0;
+  border: 1px solid #eef1f5;
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 12px rgba(20, 30, 60, 0.04);
 }
 .xy-main__bar {
   display: flex;
@@ -447,13 +453,19 @@ function fmtTime(t) {
   border-bottom: 1px solid #eef1f5;
 }
 .xy-main__title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: #1c2b3a; }
+.xy-main__title .t-icon { color: #2b6fff; font-size: 18px; }
 .xy-main__actions { display: flex; align-items: center; gap: 10px; }
 .xy-main__chat {
   flex: 1;
   min-height: 0;
   min-width: 0;
-  padding: 14px;
+  padding: 0;
   overflow: hidden;
+}
+.xy-main__chat :deep(.xy-chat) {
+  border-radius: 0;
+  box-shadow: none;
+  height: 100%;
 }
 
 /* 设置对话框 */
@@ -498,4 +510,16 @@ function fmtTime(t) {
   margin-bottom: 6px;
 }
 .xy-set__alert { margin-top: 4px; }
+
+/* 会话悬浮详情 */
+.xy-session-tip__title { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+.xy-session-tip__preview {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.5;
+  max-width: 240px;
+  white-space: normal;
+  word-break: break-word;
+}
+.xy-session-tip__time { font-size: 11px; color: rgba(255, 255, 255, 0.55); margin-top: 4px; }
 </style>

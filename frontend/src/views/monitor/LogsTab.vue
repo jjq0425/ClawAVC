@@ -179,9 +179,7 @@
                   <span>多维行为轨迹综合研判</span>
                 </div>
                 <div class="xy-greeting">
-                  <div class="xy-greeting__bot">
-                    <t-icon name="robot" />
-                  </div>
+                  <t-icon name="robot" class="xy-greeting__bot" />
                   <div class="xy-greeting__main">
                     <div class="xy-greeting__row">
                       <span class="xy-greeting__hi">嗨，我是小异，帮你做多维行为异常研判～</span>
@@ -509,24 +507,14 @@ function openResourceFactsDialog(content) {
 .xy-greeting {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  background: linear-gradient(135deg, #fff7f0 0%, #fffdfa 100%);
-  border: 1px solid #ffe2cf;
-  border-radius: 10px;
-  padding: 14px 16px;
+  gap: 10px;
 }
 .xy-greeting__bot {
   flex: 0 0 auto;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #ff9a5a 0%, #ED7B2F 100%);
-  box-shadow: 0 4px 10px rgba(237, 123, 47, 0.25);
+  font-size: 22px;
+  color: #2b6fff;
+  line-height: 1.45;
 }
-.xy-greeting__bot .t-icon { color: #fff; font-size: 22px; }
 .xy-greeting__main { flex: 1; min-width: 0; }
 .xy-greeting__row {
   display: flex;
@@ -535,12 +523,16 @@ function openResourceFactsDialog(content) {
   gap: 10px;
   flex-wrap: wrap;
 }
-.xy-greeting__hi { font-size: 13px; font-weight: 600; color: #614026; }
+.xy-greeting__hi {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2a3d;
+}
 .xy-greeting__desc {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #9a6b4f;
+  color: #97a0b0;
 }
 .action-cards { display: flex; flex-direction: column; gap: 8px; }
 .action-chip { background: #fafbfc; border: 1px solid #eee; border-radius: 8px; padding: 10px 14px; }

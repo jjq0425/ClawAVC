@@ -3,9 +3,6 @@
     <!-- 头部：模型身份 + 状态 -->
     <div class="xy-chat__header">
       <div class="xy-chat__title">
-        <div class="xy-avatar assistant">
-          <t-icon name="cpu" />
-        </div>
         <div>
           <div class="xy-chat__name">小异</div>
           <div class="xy-chat__sub">异常分析检测大模型 · 二阶段</div>
