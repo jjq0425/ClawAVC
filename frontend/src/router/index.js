@@ -73,6 +73,12 @@ const routes = [
     component: () => import("../views/SecurityPage.vue"),
     meta: { requiresAuth: true },
   },
+  {
+    path: "/anomaly-chat",
+    name: "AnomalyChat",
+    component: () => import("../views/AnomalyChatPage.vue"),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

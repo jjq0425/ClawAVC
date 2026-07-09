@@ -175,8 +175,33 @@
                 <div v-else-if="!r.judge_result_kernel" class="integrating-hint">（本轮无行为记录）</div>
               </div>
               <div class="sub-block">
-                <div class="sub-block-header ai">多维行为轨迹综合研判（大模型）</div>
-                <div class="integrating-hint">正在集成中...</div>
+                <div class="sub-block-header ai">
+                  <span>多维行为轨迹综合研判</span>
+                </div>
+                <div class="xy-greeting">
+                  <div class="xy-greeting__bot">
+                    <t-icon name="robot" />
+                  </div>
+                  <div class="xy-greeting__main">
+                    <div class="xy-greeting__row">
+                      <span class="xy-greeting__hi">嗨，我是小异，帮你做多维行为异常研判～</span>
+                      <t-button
+                        size="small"
+                        theme="primary"
+                        variant="outline"
+                        class="xy-ask-btn"
+                        :loading="askingId === r.round_id"
+                        @click="askXiaoYi(r)"
+                      >
+                        <template #icon><t-icon name="robot" /></template>
+                        问问小异
+                      </t-button>
+                    </div>
+                    <p class="xy-greeting__desc">
+                      把本轮多维行为轨迹交给「小异」做异常分析检测；首次点击自动创建专属对话并关联本轮，之后沿用同一对话。
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </details>
@@ -200,6 +225,7 @@
 
 <script setup>
 import { ref, onMounted } from "vue"
+import { useRouter } from "vue-router"
 import socket, { connected } from "../../utils/socket.js"
 import { NotifyPlugin } from "tdesign-vue-next"
 import SyscallSeqDialog from "../../components/dialogs/SyscallSeqDialog.vue"
@@ -216,6 +242,31 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const filters = ref({ query: "", round_id: "", dateRange: [] })
 let notificationInstance = null
+
+const router = useRouter()
+const askingId = ref("")
+
+async function askXiaoYi(r) {
+  if (askingId.value) return
+  askingId.value = r.round_id
+  try {
+    const resp = await fetch("/api/monitor/anomaly-chat-from-round", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ round_id: r.round_id }),
+    })
+    const j = await resp.json()
+    if (j.ok && j.data?.session_id) {
+      router.push({ path: "/anomaly-chat", query: { session: j.data.session_id } })
+    } else {
+      NotifyPlugin.warning({ title: "提示", content: j.error || "创建对话失败" })
+    }
+  } catch {
+    NotifyPlugin.error({ title: "错误", content: "网络错误" })
+  } finally {
+    askingId.value = ""
+  }
+}
 
 // 内核态详情弹窗控制
 const syscallSeqVisible = ref(false)
@@ -452,8 +503,45 @@ function openResourceFactsDialog(content) {
 .sub-block-header { font-size: 12px; font-weight: 600; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #eee; }
 .sub-block-header.user { color: #0052D9; }
 .sub-block-header.kernel { color: #722ed1; }
-.sub-block-header.ai { color: #ED7B2F; }
-.integrating-hint { background: #f8f9fa; border: 1px dashed #ddd; border-radius: 6px; padding: 12px; font-size: 12px; color: #bbb; text-align: center; font-style: italic; }
+.sub-block-header.ai { color: #ED7B2F; display: flex; align-items: center; justify-content: space-between; }
+.sub-block-header.ai > span { flex: 1; }
+.xy-ask-btn { flex: 0 0 auto; }
+.xy-greeting {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: linear-gradient(135deg, #fff7f0 0%, #fffdfa 100%);
+  border: 1px solid #ffe2cf;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.xy-greeting__bot {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #ff9a5a 0%, #ED7B2F 100%);
+  box-shadow: 0 4px 10px rgba(237, 123, 47, 0.25);
+}
+.xy-greeting__bot .t-icon { color: #fff; font-size: 22px; }
+.xy-greeting__main { flex: 1; min-width: 0; }
+.xy-greeting__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.xy-greeting__hi { font-size: 13px; font-weight: 600; color: #614026; }
+.xy-greeting__desc {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #9a6b4f;
+}
 .action-cards { display: flex; flex-direction: column; gap: 8px; }
 .action-chip { background: #fafbfc; border: 1px solid #eee; border-radius: 8px; padding: 10px 14px; }
 .action-tool { margin-bottom: 4px; }

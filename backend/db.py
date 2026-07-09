@@ -74,6 +74,8 @@ def init_db():
         conn.execute("ALTER TABLE rounds ADD COLUMN history TEXT DEFAULT ''")
     if "anomaly_llm_v2_judge_res" not in cols:
         conn.execute("ALTER TABLE rounds ADD COLUMN anomaly_llm_v2_judge_res TEXT DEFAULT ''")
+    if "anomaly_llm_v2_chat_session" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN anomaly_llm_v2_chat_session TEXT DEFAULT ''")
     # 迁移：将旧的 resource_facts 列重命名为 kernel_resource_facts（如果存在）
     if "resource_facts" in cols and "kernel_resource_facts" not in cols:
         try:
@@ -189,6 +191,18 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_api_trace_time ON api_trace(received_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_api_trace_path ON api_trace(path)")
+    # 小异（二阶段异常判断大模型）对话会话表
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS anomaly_chats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT UNIQUE NOT NULL,
+            title TEXT DEFAULT '新对话',
+            messages TEXT DEFAULT '[]',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_anomaly_chats_time ON anomaly_chats(updated_at DESC)")
     # 初始化默认配置
     conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('round_update_time_limit_enabled', 'True')")
     conn.commit()
@@ -635,6 +649,167 @@ def update_anomaly_llm_v2_judge(round_id: str, value: str) -> str:
     except Exception as e:
         print(f"[db] update_anomaly_llm_v2_judge error: {e}")
         return "error"
+    finally:
+        conn.close()
+
+
+def set_round_anomaly_chat_session(round_id: str, session_id: str) -> str:
+    """将某个 round 关联到「小异」对话会话（写入 anomaly_llm_v2_chat_session）。
+
+    Returns:
+        "ok" - 写入成功
+        "not_found" - round_id 不存在
+        "error" - 写入异常
+    """
+    conn = get_conn()
+    try:
+        existing = conn.execute(
+            "SELECT round_id FROM rounds WHERE round_id = ?", (round_id,)
+        ).fetchone()
+        if not existing:
+            return "not_found"
+        conn.execute(
+            "UPDATE rounds SET anomaly_llm_v2_chat_session = ? WHERE round_id = ?",
+            (session_id, round_id),
+        )
+        conn.commit()
+        return "ok"
+    except Exception as e:
+        print(f"[db] set_round_anomaly_chat_session error: {e}")
+        return "error"
+    finally:
+        conn.close()
+
+
+# ============================================================
+# 小异（二阶段异常判断大模型）对话会话存储
+# ============================================================
+
+def list_anomaly_chats() -> List[Dict]:
+    """列出全部对话会话（含完整 messages），按最近更新倒序。"""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT session_id, title, messages, created_at, updated_at "
+            "FROM anomaly_chats ORDER BY updated_at DESC"
+        ).fetchall()
+        result = []
+        for r in rows:
+            try:
+                msgs = json.loads(r["messages"]) if r["messages"] else []
+            except Exception:
+                msgs = []
+            preview = ""
+            for m in msgs:
+                if m.get("role") == "user":
+                    preview = (m.get("content") or "")[:40]
+                    break
+            result.append({
+                "session_id": r["session_id"],
+                "title": r["title"] or "新对话",
+                "preview": preview,
+                "messages": msgs,
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+            })
+        return result
+    except Exception as e:
+        print(f"[db] list_anomaly_chats error: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def create_anomaly_chat() -> str:
+    """新建一个空对话会话，返回 session_id（失败返回空字符串）。"""
+    import uuid
+    conn = get_conn()
+    try:
+        session_id = uuid.uuid4().hex
+        conn.execute(
+            "INSERT INTO anomaly_chats (session_id, title, messages, updated_at) "
+            "VALUES (?, '新对话', '[]', CURRENT_TIMESTAMP)",
+            (session_id,),
+        )
+        conn.commit()
+        return session_id
+    except Exception as e:
+        print(f"[db] create_anomaly_chat error: {e}")
+        return ""
+    finally:
+        conn.close()
+
+
+def upsert_anomaly_chat(session_id: str, title: str, messages: List[Dict]) -> bool:
+    """写入/更新某个对话会话（session_id 不存在则新建）。"""
+    conn = get_conn()
+    try:
+        existing = conn.execute(
+            "SELECT session_id FROM anomaly_chats WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        payload = json.dumps(messages, ensure_ascii=False)
+        if existing:
+            conn.execute(
+                "UPDATE anomaly_chats SET title = ?, messages = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE session_id = ?",
+                (title, payload, session_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO anomaly_chats (session_id, title, messages, updated_at) "
+                "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+                (session_id, title, payload),
+            )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[db] upsert_anomaly_chat error: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_anomaly_chat(session_id: str) -> Optional[Dict]:
+    """按 session_id 查询单个对话会话（含完整 messages），不存在返回 None。"""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT session_id, title, messages, created_at, updated_at "
+            "FROM anomaly_chats WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "session_id": row["session_id"],
+            "title": row["title"] or "新对话",
+            "messages": json.loads(row["messages"]) if row["messages"] else [],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+    except Exception as e:
+        print(f"[db] get_anomaly_chat error: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def delete_anomaly_chat(session_id: str) -> bool:
+    """删除某个对话会话，并清除 rounds 表中对该会话的关联（失效引用）。"""
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM anomaly_chats WHERE session_id = ?", (session_id,))
+        # 清除指向该会话的 round 关联，保证下次「问问小异」会创建全新会话
+        conn.execute(
+            "UPDATE rounds SET anomaly_llm_v2_chat_session = '' "
+            "WHERE anomaly_llm_v2_chat_session = ?",
+            (session_id,),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[db] delete_anomaly_chat error: {e}")
+        return False
     finally:
         conn.close()
 

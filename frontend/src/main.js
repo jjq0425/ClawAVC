@@ -1,6 +1,7 @@
 import { createApp, nextTick } from "vue"
 import TDesign from "tdesign-vue-next"
 import "tdesign-vue-next/es/style/index.css"
+import TDesignChat from "@tdesign-vue-next/chat"
 import App from "./App.vue"
 import router from "./router"
 
@@ -10,6 +11,7 @@ window.__clawavcStage && window.__clawavcStage("parse")
 
 const app = createApp(App)
 app.use(TDesign)         // synchronous register of every TDesign component
+app.use(TDesignChat)      // 注册 TDesign AI Chat 组件（t-chat / t-chat-item / t-chat-input 等）
 app.use(router)
 
 window.__clawavcStage && window.__clawavcStage("mounting")

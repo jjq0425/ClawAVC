@@ -118,30 +118,6 @@
         </t-switch>
       </div>
 
-      <t-divider />
-
-      <div class="form-group">
-        <label class="form-label">异常判断大模型（二阶段）请求地址</label>
-        <p class="form-hint">配置二阶段异常判断大模型的服务地址，监控在二阶检测时会向该地址发起判断请求。留空则使用系统默认地址。</p>
-        <div class="input-row">
-          <t-input
-            v-model="anomaly_llm_url_v2"
-            placeholder="如 http://127.0.0.1:8000/v1/chat/completions"
-            clearable
-            size="large"
-            :disabled="monitorRunning"
-          />
-          <t-button theme="primary" @click="saveSingle('anomaly_llm_url_v2')" :loading="saving === 'anomaly_llm_url_v2'" :disabled="monitorRunning">
-            保存
-          </t-button>
-          <t-button theme="default" variant="outline" @click="anomalyDebugVisible = true">
-            <template #icon><t-icon name="bug" /></template>
-            调试
-          </t-button>
-        </div>
-      </div>
-
-      <AnomalyLlmDebugDialog v-model="anomalyDebugVisible" />
     </div>
   </div>
 </template>
@@ -149,14 +125,11 @@
 <script setup>
 import { ref, onMounted } from "vue"
 import { MessagePlugin } from "tdesign-vue-next"
-import AnomalyLlmDebugDialog from "../../components/AnomalyLlmDebugDialog.vue"
 
 const gateway_log_path = ref("")
 const openclaw_root = ref("")
 const use_gateway = ref(false)
 const tool_trace_enabled = ref(false)
-const anomaly_llm_url_v2 = ref("")
-const anomalyDebugVisible = ref(false)
 const saving = ref("")
 const pathStatus = ref({})
 const monitorRunning = ref(false)
@@ -177,7 +150,6 @@ async function loadConfig() {
       openclaw_root.value = d.openclaw_root || ""
       use_gateway.value = d.use_gateway === "true"
       tool_trace_enabled.value = d.tool_trace_enabled === "true"
-      anomaly_llm_url_v2.value = d.anomaly_llm_url_v2 || ""
       pathStatus.value = d._path_status || {}
     }
   } catch {}
@@ -228,7 +200,6 @@ async function saveSingle(key) {
     openclaw_root: openclaw_root.value,
     use_gateway: use_gateway.value ? "true" : "false",
     tool_trace_enabled: tool_trace_enabled.value ? "true" : "false",
-    anomaly_llm_url_v2: anomaly_llm_url_v2.value,
   }
   try {
     const r = await fetch("/api/monitor/config", {

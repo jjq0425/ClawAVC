@@ -34,6 +34,7 @@ const navItems = [
   { path: "/attack", icon: "bug", label: "模拟攻击" },
   { path: "/policy", icon: "file-setting", label: "策略翻译" },
   { path: "/security", icon: "shield-error", label: "安全拦截" },
+  { path: "/anomaly-chat", icon: "cpu", label: "异常分析" },
   { path: "/database", icon: "server", label: "数据运维" },
   { path: "/replay", icon: "play-circle", label: "流量回放" },
   { path: "/api-docs", icon: "code", label: "对外接口" },
@@ -58,5 +59,5 @@ body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft
 .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: #ddd; }
 .conn-dot.online { background: #00a870; box-shadow: 0 0 6px #00a870; }
 .conn-text { font-size: 12px; color: #999; }
-.main-area { flex: 1; margin-left: 220px; padding: 32px; }
+.main-area { flex: 1; margin-left: 220px; padding: 32px; min-width: 0; overflow-x: hidden; }
 </style>
