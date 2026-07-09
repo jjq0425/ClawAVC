@@ -63,23 +63,78 @@
     <!-- 设置对话框：二阶段异常判断大模型请求地址 -->
     <t-dialog
       v-model:visible="settingsVisible"
-      header="异常判断大模型（二阶段）设置"
+      header="小异设置"
       :confirm-btn="{ content: '保存', loading: settingsSaving }"
       @confirm="saveSettings"
       width="560px"
     >
-      <p class="xy-set__desc">
-        该地址即「小异」所连接的服务端（OpenAI 兼容的 <code>chat/completions</code>）。
-        对话与运行监控的二阶段异常判断共用此配置。
-      </p>
-      <t-textarea
-        v-model="settingsUrl"
-        placeholder="如 http://127.0.0.1:8000/v1/chat/completions"
-        :autosize="{ minRows: 2, maxRows: 4 }"
-      />
-      <t-alert v-if="settingsMsg" :theme="settingsOk ? 'success' : 'error'" class="xy-set__alert">
-        {{ settingsMsg }}
-      </t-alert>
+      <div class="xy-set">
+        <!-- 模型接入 -->
+        <section class="xy-set__section">
+          <div class="xy-set__section-head">
+            <t-icon name="link" />
+            <span>模型接入</span>
+          </div>
+          <p class="xy-set__desc">
+            小异连接的服务端地址（OpenAI 兼容的 <code>chat/completions</code>），对话与运行监控的二阶段异常判断共用此配置。
+          </p>
+          <div class="xy-set__field">
+            <label class="xy-set__label">请求地址</label>
+            <t-input
+              v-model="settingsUrl"
+              placeholder="如 http://127.0.0.1:8000/v1/chat/completions"
+              clearable
+            />
+          </div>
+          <div class="xy-set__field">
+            <label class="xy-set__label">单次输出最大 token 数</label>
+            <t-input-number
+              v-model="settingsMaxTokens"
+              :min="256"
+              :max="32768"
+              :step="256"
+              theme="normal"
+              placeholder="默认 2048"
+            />
+          </div>
+        </section>
+
+        <!-- 分析指令 -->
+        <section class="xy-set__section">
+          <div class="xy-set__section-head">
+            <t-icon name="edit" />
+            <span>分析指令</span>
+          </div>
+          <p class="xy-set__desc">
+            发起 Round 异常分析时附在多维审计数据之前的基础指令，可自定义分析视角与输出要求；留空则使用默认 prompt。
+          </p>
+          <t-textarea
+            v-model="settingsPrompt"
+            placeholder="请基于以下 Round 的完整多维行为轨迹审计数据……"
+            :autosize="{ minRows: 4, maxRows: 10 }"
+          />
+        </section>
+
+        <!-- 系统提示 -->
+        <section class="xy-set__section">
+          <div class="xy-set__section-head">
+            <t-icon name="chat" />
+            <span>系统提示</span>
+          </div>
+          <p class="xy-set__desc">
+            小异的人设与回答规范（系统提示词），作用于所有对话与异常分析；留空则使用默认设定。
+          </p>
+          <t-textarea
+            v-model="settingsSystem"
+            placeholder="你叫「小异」，是 ClawAVC 平台的异常分析检测大模型（二阶段）……"
+            :autosize="{ minRows: 4, maxRows: 10 }"
+          />
+        </section>
+
+        <t-alert v-if="settingsMsg" :theme="settingsOk ? 'success' : 'error'" class="xy-set__alert">
+          {{ settingsMsg }}
+        </t-alert>
+      </div>
     </t-dialog>
   </div>
 </template>
@@ -97,6 +152,9 @@ const activeId = ref("")
 const configured = ref(false)
 const settingsVisible = ref(false)
 const settingsUrl = ref("")
+const settingsPrompt = ref("")
+const settingsSystem = ref("")
+const settingsMaxTokens = ref(null)
 const settingsSaving = ref(false)
 const settingsMsg = ref("")
 const settingsOk = ref(true)
@@ -214,6 +272,10 @@ async function openSettings() {
     const j = await r.json()
     if (j.ok && j.data) {
       settingsUrl.value = j.data.anomaly_llm_url_v2 || ""
+      settingsPrompt.value = j.data.anomaly_llm_base_prompt || ""
+      settingsSystem.value = j.data.anomaly_llm_system_prompt || ""
+      const mt = j.data.anomaly_llm_max_tokens
+      settingsMaxTokens.value = mt ? Number(mt) : null
       configured.value = !!settingsUrl.value
     }
   } catch {}
@@ -224,20 +286,34 @@ async function saveSettings() {
   settingsSaving.value = true
   settingsMsg.value = ""
   try {
-    const r = await fetch("/api/monitor/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: "anomaly_llm_url_v2", value: settingsUrl.value }),
-    })
-    const j = await r.json()
-    if (j.ok) {
+    const saves = [
+      { key: "anomaly_llm_url_v2", value: settingsUrl.value },
+      { key: "anomaly_llm_base_prompt", value: settingsPrompt.value },
+      { key: "anomaly_llm_system_prompt", value: settingsSystem.value },
+      { key: "anomaly_llm_max_tokens", value: settingsMaxTokens.value != null ? String(settingsMaxTokens.value) : "" },
+    ]
+    let okAll = true
+    let err = ""
+    for (const s of saves) {
+      const r = await fetch("/api/monitor/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(s),
+      })
+      const j = await r.json()
+      if (!j.ok) {
+        okAll = false
+        err = j.error || "保存失败"
+      }
+    }
+    if (okAll) {
       settingsOk.value = true
       settingsMsg.value = "已保存"
       configured.value = !!settingsUrl.value.trim()
       MessagePlugin.success("已保存")
     } else {
       settingsOk.value = false
-      settingsMsg.value = j.error || "保存失败"
+      settingsMsg.value = err
     }
   } catch {
     settingsOk.value = false
@@ -381,7 +457,45 @@ function fmtTime(t) {
 }
 
 /* 设置对话框 */
-.xy-set__desc { font-size: 13px; color: #5e6675; margin: 0 0 12px; line-height: 1.6; }
-.xy-set__desc code { background: #f0f3f8; padding: 1px 6px; border-radius: 4px; font-size: 12px; }
-.xy-set__alert { margin-top: 12px; }
+.xy-set { padding: 2px; }
+.xy-set__section {
+  background: #fafbfd;
+  border: 1px solid #eef1f5;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.xy-set__section:last-of-type { margin-bottom: 8px; }
+.xy-set__section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1c2b3a;
+  margin-bottom: 8px;
+}
+.xy-set__section-head .t-icon { color: #2b6fff; font-size: 18px; }
+.xy-set__desc {
+  font-size: 12px;
+  color: #8a94a6;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.xy-set__desc code {
+  background: #eef3ff;
+  color: #2b6fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.xy-set__field { margin-bottom: 2px; }
+.xy-set__label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4a5568;
+  margin-bottom: 6px;
+}
+.xy-set__alert { margin-top: 4px; }
 </style>
