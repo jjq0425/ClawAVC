@@ -74,8 +74,33 @@ loading_bar() {
 }
 
 # ─── Kill existing ────────────────────────────────────────────
-fuser -k 15100/tcp 2>/dev/null
-fuser -k 15101/tcp 2>/dev/null
+# 注意: 某些机器上 fuser 会遍历 /proc 卡死(挂起), 这里改用 ss/lsof 定位 PID,
+# 并对所有外部命令加 timeout 兜底, 避免脚本卡在端口清理阶段。
+kill_port() {
+  local port="$1"
+  local pids=""
+  # 1) 优先用 ss (最快, 不易挂起)
+  if command -v ss >/dev/null 2>&1; then
+    pids=$(timeout 5 ss -ltnpH "sport = :$port" 2>/dev/null \
+      | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u)
+  fi
+  # 2) 退回 lsof
+  if [ -z "$pids" ] && command -v lsof >/dev/null 2>&1; then
+    pids=$(timeout 5 lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+  fi
+  # 3) 最后才用 fuser, 且强制超时, 防止挂起
+  if [ -z "$pids" ] && command -v fuser >/dev/null 2>&1; then
+    timeout 5 fuser -k "$port"/tcp 2>/dev/null
+    return
+  fi
+  if [ -n "$pids" ]; then
+    kill $pids 2>/dev/null
+    sleep 0.5
+    kill -9 $pids 2>/dev/null
+  fi
+}
+kill_port 15100
+kill_port 15101
 sleep 1
 
 DAEMON=false

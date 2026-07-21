@@ -1058,7 +1058,8 @@ def handle_monitor_disconnect():
 # ─── Monitor Config API ───────────────────────────────
 MONITOR_CONF_KEYS = ["gateway_log_path", "openclaw_root", "use_gateway", "tool_trace_enabled",
                       "anomaly_llm_url_v2", "anomaly_llm_base_prompt", "anomaly_llm_system_prompt",
-                      "anomaly_llm_max_tokens"]
+                      "anomaly_llm_max_tokens", "anomaly_llm_skill_prompt",
+                      "anomaly_llm_tool_compress", "anomaly_llm_tool_compress_max"]
 # 二阶段异常分析基础 prompt 默认值（可在「异常判断大模型（二阶段）设置」中覆盖）
 ANOMALY_LLM_DEFAULT_BASE_PROMPT = (
     "请基于以下 Round 的完整多维行为轨迹审计数据（覆盖用户意图、IR 权限声明、用户态与内核态行为、"
@@ -1271,6 +1272,56 @@ def monitor_anomaly_llm_chat():
             yield f"[请求异常] {e}"
 
     return Response(stream_with_context(generate()), mimetype="text/plain; charset=utf-8")
+
+
+@api_doc(
+    summary="小异技能分析（基于工具调用的逐步异常分析）",
+    category="运行监控",
+    description="通过工具调用机制，让大模型逐步获取 Round 数据并生成综合异常分析。返回 SSE 事件流。",
+    public=True,
+)
+@app.route("/api/monitor/anomaly-llm-skill", methods=["POST"])
+def monitor_anomaly_llm_skill():
+    """小异技能分析接口：工具调用驱动的逐步异常分析，返回 SSE 事件流。
+
+    Request: { "round_id": "xxx" }
+
+    Response: text/event-stream with events:
+      tool_call → text (streaming) → text_done → done
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    round_id = (body.get("round_id") or "").strip()
+    if not round_id:
+        return jsonify({"ok": False, "error": "round_id 不能为空"}), 400
+
+    llm_url = (db.get_config("monitor_conf.anomaly_llm_url_v2") or "").strip()
+    if not llm_url:
+        return jsonify({
+            "ok": False,
+            "error": "未配置异常判断大模型（二阶段）请求地址，请先到「异常分析」页面右上角设置",
+        }), 400
+
+    try:
+        max_tokens = int((db.get_config("monitor_conf.anomaly_llm_max_tokens") or "").strip() or 4096)
+    except (ValueError, TypeError):
+        max_tokens = 4096
+    if max_tokens <= 0:
+        max_tokens = 4096
+
+    from xy_skill import run_skill_analysis
+
+    def generate():
+        for event in run_skill_analysis(round_id, llm_url, max_tokens):
+            yield f"event: {event['type']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @api_doc(

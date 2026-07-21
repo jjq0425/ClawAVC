@@ -36,6 +36,58 @@
           <div v-if="m._expanded" class="xy-roundcard__detail">{{ m.content }}</div>
           <div v-else class="xy-roundcard__hint">点击展开完整审计上下文（用户意图 / 工具调用 / IR 声明 / 一阶段判定）</div>
         </div>
+        <!-- 技能分析：工具调用步骤卡片 + 最终文本 -->
+        <div
+          v-else-if="m.meta && m.meta.type === 'skill_analysis'"
+          class="xy-skill-msg"
+        >
+          <div v-if="m.meta.tool_steps && m.meta.tool_steps.length" class="xy-skill-steps">
+            <div
+              v-for="(step, si) in m.meta.tool_steps"
+              :key="si"
+              class="xy-skill-step"
+              :class="{ expanded: step._expanded, error: step.status === 'error' }"
+              @click="step._expanded = !step._expanded"
+            >
+              <div class="xy-skill-step__head">
+                <t-icon
+                  :name="step.status === 'completed' ? 'check-circle-filled' : step.status === 'error' ? 'close-circle-filled' : 'loading'"
+                  :class="'xy-skill-step__icon xy-skill-step__icon--' + step.status"
+                />
+                <span class="xy-skill-step__name">{{ step.name }}</span>
+                <span class="xy-skill-step__tag">
+                  <t-tag
+                    :theme="step.status === 'completed' ? 'success' : step.status === 'error' ? 'danger' : 'warning'"
+                    size="small"
+                    variant="light"
+                  >
+                    {{ step.status === 'completed' ? '完成' : step.status === 'error' ? '失败' : '调用中...' }}
+                  </t-tag>
+                </span>
+                <t-icon
+                  :name="step._expanded ? 'chevron-up' : 'chevron-down'"
+                  class="xy-skill-step__chev"
+                />
+              </div>
+              <div v-if="step._expanded && step.result_preview" class="xy-skill-step__detail">
+                <pre>{{ step.result_preview }}</pre>
+              </div>
+            </div>
+          </div>
+          <t-chat-item
+            :role="m.role"
+            :name="m.name"
+            :content="m.content"
+            :text-loading="!!m.loading"
+            :status="m.status || ''"
+          >
+            <template #avatar>
+              <div class="xy-avatar" :class="m.role">
+                <t-icon :name="m.role === 'assistant' ? 'cpu' : 'user'" />
+              </div>
+            </template>
+          </t-chat-item>
+        </div>
         <t-chat-item
           v-else
           :role="m.role"
@@ -66,6 +118,16 @@
           <template #icon><t-icon name="browse" /></template>
           分析 Round
         </t-button>
+        <t-button
+          size="small"
+          variant="outline"
+          theme="warning"
+          :disabled="busy"
+          @click="toggleSkillInput"
+        >
+          <template #icon><t-icon name="code" /></template>
+          技能分析
+        </t-button>
         <transition name="xy-round-input-fade">
           <div v-if="showRoundInput" class="xy-round-input">
             <t-input
@@ -85,6 +147,28 @@
               @click="sendRound"
             >
               发送
+            </t-button>
+          </div>
+        </transition>
+        <transition name="xy-round-input-fade">
+          <div v-if="showSkillInput" class="xy-round-input">
+            <t-input
+              v-model="skillRoundIdInput"
+              class="xy-round-input__field"
+              placeholder="输入 Round ID 进行技能分析"
+              :disabled="busy"
+              clearable
+              @enter="sendSkillRound"
+            >
+              <template #prefix-icon><t-icon name="hash" /></template>
+            </t-input>
+            <t-button
+              size="small"
+              theme="warning"
+              :disabled="busy || !skillRoundIdInput.trim()"
+              @click="sendSkillRound"
+            >
+              分析
             </t-button>
           </div>
         </transition>
@@ -141,6 +225,9 @@ const autoSentFor = ref("")
 // 内联「分析 Round」输入
 const showRoundInput = ref(false)
 const roundIdInput = ref("")
+// 内联「技能分析」输入
+const showSkillInput = ref(false)
+const skillRoundIdInput = ref("")
 
 const messages = reactive([])
 
@@ -171,10 +258,13 @@ watch(() => props.sessionId, () => loadFor(props.sessionId), { immediate: true }
 
 function clearChat() {
   if (busy.value) return
-  messages.splice(0, messages.length, { ...GREETING, content: "对话已清空。请继续描述需要分析的异常行为或粘贴审计数据。" })
+  // 使用标准问候语重置：其 content 严格等于 GREETING.content，
+  // 会被 runStream 的 isGreeting 过滤掉，从而发送给大模型的历史中不含任何残留。
+  messages.splice(0, messages.length, { ...GREETING })
   if (props.sessionId) {
-    emit("persist", { sessionId: props.sessionId, title: "新对话", messages: [{ ...GREETING, content: "对话已清空。请继续描述需要分析的异常行为或粘贴审计数据。" }] })
+    emit("persist", { sessionId: props.sessionId, title: "新对话", messages: [{ ...GREETING }] })
   }
+  MessagePlugin.success("对话已清空")
 }
 
 function appendAssistant() {
@@ -302,6 +392,141 @@ async function onSend(value) {
 function toggleRoundInput() {
   showRoundInput.value = !showRoundInput.value
   if (!showRoundInput.value) roundIdInput.value = ""
+}
+
+function toggleSkillInput() {
+  showSkillInput.value = !showSkillInput.value
+  if (!showSkillInput.value) skillRoundIdInput.value = ""
+}
+
+// SSE 技能分析：基于工具调用的逐步异常分析
+async function sendSkillRound() {
+  const rid = (skillRoundIdInput.value || "").trim()
+  if (!rid || busy.value) return
+  if (!props.sessionId) {
+    MessagePlugin.warning("请先新建一个对话")
+    return
+  }
+  showSkillInput.value = false
+  skillRoundIdInput.value = ""
+
+  // 添加用户消息
+  messages.push({
+    role: "user",
+    name: "你",
+    content: `技能分析 Round ${rid}`,
+    meta: { type: "skill_analysis", round_id: rid },
+  })
+
+  // 创建助手消息（含 tool_steps 跟踪）
+  const assistantMsg = reactive({
+    role: "assistant",
+    name: "小异",
+    content: "",
+    loading: true,
+    status: "",
+    meta: { type: "skill_analysis", round_id: rid, tool_steps: [] },
+  })
+  messages.push(assistantMsg)
+  busy.value = true
+
+  try {
+    const resp = await fetch("/api/monitor/anomaly-llm-skill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ round_id: rid }),
+    })
+
+    if (!resp.ok) {
+      let errMsg = `请求失败（HTTP ${resp.status}）`
+      try { const j = await resp.json(); if (j && j.error) errMsg = j.error } catch { /* skip */ }
+      assistantMsg.content = errMsg
+      assistantMsg.status = "error"
+      assistantMsg.loading = false
+      busy.value = false
+      MessagePlugin.error(errMsg)
+      return
+    }
+
+    // SSE 流解析
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder("utf-8")
+    let buffer = ""
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      // 按双换行分割 SSE 事件
+      const events = buffer.split("\n\n")
+      buffer = events.pop() || ""
+
+      for (const block of events) {
+        if (!block.trim()) continue
+        const lines = block.split("\n")
+        let dataStr = ""
+        for (const line of lines) {
+          if (line.startsWith("data: ")) dataStr = line.slice(6)
+        }
+        if (!dataStr) continue
+        try {
+          const data = JSON.parse(dataStr)
+          switch (data.type) {
+            case "tool_call":
+              if (data.status === "started") {
+                assistantMsg.meta.tool_steps.push({
+                  name: data.name,
+                  status: "started",
+                  result_preview: "",
+                  _expanded: false,
+                })
+              } else {
+                const step = assistantMsg.meta.tool_steps.find((s) => s.name === data.name)
+                if (step) {
+                  step.status = data.status
+                  step.result_preview = data.result || ""
+                }
+              }
+              break
+            case "text":
+              assistantMsg.content += data.content
+              break
+            case "text_done":
+              assistantMsg.content = data.content
+              break
+            case "tool_limit_reached":
+              console.warn("Tool limit:", data.message)
+              break
+            case "error":
+              assistantMsg.content = data.message
+              assistantMsg.status = "error"
+              MessagePlugin.error(data.message)
+              break
+            case "done":
+              // 分析完成
+              break
+          }
+        } catch (e) {
+          console.warn("SSE parse error:", dataStr, e)
+        }
+      }
+    }
+
+    if (!assistantMsg.content.trim() && assistantMsg.status !== "error") {
+      assistantMsg.content = "（技能分析未返回内容）"
+    }
+  } catch (e) {
+    const msg = "网络错误：" + (e?.message || e)
+    online.value = false
+    assistantMsg.content = msg
+    assistantMsg.status = "error"
+    MessagePlugin.error(msg)
+  } finally {
+    assistantMsg.loading = false
+    busy.value = false
+    persist()
+  }
 }
 
 // 输入 Round ID 后，拉取该轮的多维行为轨迹上下文并直接发给小异分析
@@ -493,4 +718,63 @@ async function sendRound() {
 .xy-round-input-fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
 .xy-round-input-fade-enter-from,
 .xy-round-input-fade-leave-to { opacity: 0; transform: translateY(-4px); }
+
+/* ── 技能分析工具调用步骤卡片 ── */
+.xy-skill-msg { margin: 6px 0; }
+.xy-skill-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.xy-skill-step {
+  border: 1px solid #e8ecf2;
+  border-radius: 8px;
+  background: #f8faff;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+.xy-skill-step:hover { box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04); }
+.xy-skill-step.expanded { background: #fff; }
+.xy-skill-step.error { background: #fff5f5; border-color: #ffd4d4; }
+.xy-skill-step__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.xy-skill-step__icon { font-size: 16px; }
+.xy-skill-step__icon--started { color: #faad14; }
+.xy-skill-step__icon--completed { color: #36cf9f; }
+.xy-skill-step__icon--error { color: #ff4d4f; }
+.xy-skill-step__name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #2a354a;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xy-skill-step__tag { flex: 0 0 auto; }
+.xy-skill-step__chev { color: #aab2c0; font-size: 14px; flex: 0 0 auto; }
+.xy-skill-step__detail {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #fafbfc;
+  border: 1px solid #eef1f5;
+  border-radius: 6px;
+  max-height: 240px;
+  overflow: auto;
+}
+.xy-skill-step__detail pre {
+  margin: 0;
+  font-size: 12px;
+  color: #4a5a72;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  line-height: 1.5;
+}
 </style>

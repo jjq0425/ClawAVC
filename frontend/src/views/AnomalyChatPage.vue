@@ -77,7 +77,8 @@
       header="小异设置"
       :confirm-btn="{ content: '保存', loading: settingsSaving }"
       @confirm="saveSettings"
-      width="560px"
+      width="760px"
+      :dialog-style="{ maxWidth: '92vw' }"
     >
       <div class="xy-set">
         <!-- 模型接入 -->
@@ -142,6 +143,48 @@
           />
         </section>
 
+        <!-- 技能分析提示 -->
+        <section class="xy-set__section">
+          <div class="xy-set__section-head">
+            <t-icon name="apartment" />
+            <span>技能分析提示</span>
+          </div>
+          <p class="xy-set__desc">
+            小异进行「技能分析」（基于工具调用逐步研判）时使用的专属系统提示词，定义其工具使用策略、分析步骤与最终输出格式；留空则使用默认设定。
+          </p>
+          <t-textarea
+            v-model="settingsSkill"
+            placeholder="你叫「小异」，是 ClawAVC 平台的异常分析检测大模型（二阶段）……"
+            :autosize="{ minRows: 4, maxRows: 10 }"
+          />
+        </section>
+
+        <!-- 工具结果压缩 -->
+        <section class="xy-set__section">
+          <div class="xy-set__section-head">
+            <t-icon name="filter" />
+            <span>工具结果压缩</span>
+          </div>
+          <p class="xy-set__desc">
+            工具返回的数据过长时：开启后调用大模型对其进行压缩，关闭则直接截断到阈值长度，避免单次工具数据过大。
+          </p>
+          <div class="xy-set__field xy-set__switch">
+            <label class="xy-set__label">启用大模型压缩</label>
+            <t-switch v-model="settingsCompress" />
+          </div>
+          <div class="xy-set__field">
+            <label class="xy-set__label">过长阈值（字符数）</label>
+            <t-input-number
+              v-model="settingsCompressMax"
+              :min="200"
+              :max="200000"
+              :step="200"
+              theme="normal"
+              placeholder="默认 2000"
+            />
+          </div>
+        </section>
+
         <t-alert v-if="settingsMsg" :theme="settingsOk ? 'success' : 'error'" class="xy-set__alert">
           {{ settingsMsg }}
         </t-alert>
@@ -165,7 +208,10 @@ const settingsVisible = ref(false)
 const settingsUrl = ref("")
 const settingsPrompt = ref("")
 const settingsSystem = ref("")
+const settingsSkill = ref("")
 const settingsMaxTokens = ref(null)
+const settingsCompress = ref(false)
+const settingsCompressMax = ref(null)
 const settingsSaving = ref(false)
 const settingsMsg = ref("")
 const settingsOk = ref(true)
@@ -285,8 +331,12 @@ async function openSettings() {
       settingsUrl.value = j.data.anomaly_llm_url_v2 || ""
       settingsPrompt.value = j.data.anomaly_llm_base_prompt || ""
       settingsSystem.value = j.data.anomaly_llm_system_prompt || ""
+      settingsSkill.value = j.data.anomaly_llm_skill_prompt || ""
       const mt = j.data.anomaly_llm_max_tokens
       settingsMaxTokens.value = mt ? Number(mt) : null
+      settingsCompress.value = (j.data.anomaly_llm_tool_compress || "").trim() === "true"
+      const cm = j.data.anomaly_llm_tool_compress_max
+      settingsCompressMax.value = cm ? Number(cm) : null
       configured.value = !!settingsUrl.value
     }
   } catch {}
@@ -301,7 +351,10 @@ async function saveSettings() {
       { key: "anomaly_llm_url_v2", value: settingsUrl.value },
       { key: "anomaly_llm_base_prompt", value: settingsPrompt.value },
       { key: "anomaly_llm_system_prompt", value: settingsSystem.value },
+      { key: "anomaly_llm_skill_prompt", value: settingsSkill.value },
       { key: "anomaly_llm_max_tokens", value: settingsMaxTokens.value != null ? String(settingsMaxTokens.value) : "" },
+      { key: "anomaly_llm_tool_compress", value: settingsCompress.value ? "true" : "false" },
+      { key: "anomaly_llm_tool_compress_max", value: settingsCompressMax.value != null ? String(settingsCompressMax.value) : "" },
     ]
     let okAll = true
     let err = ""
@@ -469,7 +522,11 @@ function fmtTime(t) {
 }
 
 /* 设置对话框 */
-.xy-set { padding: 2px; }
+.xy-set {
+  padding: 2px;
+  max-height: 76vh;
+  overflow-y: auto;
+}
 .xy-set__section {
   background: #fafbfd;
   border: 1px solid #eef1f5;
@@ -502,6 +559,8 @@ function fmtTime(t) {
   font-size: 12px;
 }
 .xy-set__field { margin-bottom: 2px; }
+.xy-set__switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.xy-set__switch .xy-set__label { margin-bottom: 0; }
 .xy-set__label {
   display: block;
   font-size: 12px;
