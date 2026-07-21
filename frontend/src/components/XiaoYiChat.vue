@@ -70,7 +70,7 @@
                 />
               </div>
               <div v-if="step._expanded && step.result_preview" class="xy-skill-step__detail">
-                <pre>{{ step.result_preview }}</pre>
+                <pre class="code-shell" v-html="highlightShell(step.result_preview)"></pre>
               </div>
             </div>
           </div>
@@ -116,7 +116,7 @@
           @click="toggleRoundInput"
         >
           <template #icon><t-icon name="browse" /></template>
-          分析 Round
+          快速分析
         </t-button>
         <t-button
           size="small"
@@ -126,7 +126,7 @@
           @click="toggleSkillInput"
         >
           <template #icon><t-icon name="code" /></template>
-          技能分析
+          技能分析（Skill）
         </t-button>
         <transition name="xy-round-input-fade">
           <div v-if="showRoundInput" class="xy-round-input">
@@ -186,6 +186,7 @@
 <script setup>
 import { ref, reactive, watch } from "vue"
 import { MessagePlugin } from "tdesign-vue-next"
+import { highlightShell } from "../utils/codeHighlighter.js"
 
 const props = defineProps({
   sessionId: { type: String, default: "" },
@@ -776,5 +777,28 @@ async function sendRound() {
   word-break: break-word;
   font-family: "SF Mono", "Fira Code", "Consolas", monospace;
   line-height: 1.5;
+}
+/* 工具结果代码块：深色主题 + 语法着色，注释与命令清晰区分 */
+.xy-skill-step__detail pre.code-shell {
+  margin: 0;
+  background: #1e1e2e;
+  color: #e4e4e7;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+}
+.xy-skill-step__detail pre.code-shell .tok-comment {
+  color: #7c8595;
+  font-style: italic;
+}
+.xy-skill-step__detail pre.code-shell .tok-keyword {
+  color: #c792ea;
+}
+.xy-skill-step__detail pre.code-shell .tok-string {
+  color: #c3e88d;
 }
 </style>
