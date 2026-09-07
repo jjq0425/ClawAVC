@@ -2,19 +2,66 @@
   <div class="registry-tab">
     <RegistryWarning />
 
-    <!-- Path Config -->
+    <!-- 当前 Policy（免特权切换） -->
+    <div class="policy-card policy-card--active">
+      <div class="policy-card__head">
+        <div class="policy-card__title"><t-icon name="layers" size="16px" /><span>当前 Policy</span></div>
+        <t-tag v-if="currentPolicy" theme="success" variant="light" size="small">已生效</t-tag>
+      </div>
+      <div class="policy-switch">
+        <t-select v-model="switchTarget" :options="policyOptions" placeholder="选择 Policy" style="flex:1;" />
+        <t-button
+          theme="primary"
+          size="small"
+          :disabled="!switchTarget || switchTarget === currentPolicy || switching"
+          :loading="switching"
+          @click="doSwitchPolicy"
+        >切换</t-button>
+      </div>
+      <p class="policy-path">
+        <t-icon name="folder" size="13px" />
+        <code>{{ resolvedPath || '—' }}</code>
+      </p>
+      <p class="policy-hint">切换无需特权，任何登录用户均可操作；切换后立即热重载，翻译与监控即时使用新策略。</p>
+      <div v-if="policyError" class="policy-msg error">{{ policyError }}</div>
+      <div v-if="policySuccess" class="policy-msg success">{{ policySuccess }}</div>
+    </div>
+
+    <!-- Policy 管理（需特权） -->
+    <div class="policy-card">
+      <div class="policy-card__head">
+        <div class="policy-card__title"><t-icon name="setting" size="16px" /><span>Policy 管理</span></div>
+        <PrivilegeStatus hint="新建/复制/重命名/删除 Policy 需要特权验证" @unlock="showPrivDialog = true" />
+      </div>
+      <div class="policy-manage">
+        <t-button size="small" variant="outline" :disabled="!adminValid" @click="openCreate">
+          <t-icon name="add" /> 新建
+        </t-button>
+        <t-button size="small" variant="outline" :disabled="!adminValid" @click="openRename">
+          <t-icon name="edit" /> 重命名
+        </t-button>
+        <t-button size="small" variant="outline" theme="danger" :disabled="!adminValid" @click="openDelete">
+          <t-icon name="delete" /> 删除
+        </t-button>
+      </div>
+      <p class="policy-hint">新建时可选择「复制自」某个已有 Policy，保证场景集合一致（当前 Policy 共 {{ currentScenes }} 个场景）。</p>
+      <div v-if="manageError" class="policy-msg error">{{ manageError }}</div>
+      <div v-if="manageSuccess" class="policy-msg success">{{ manageSuccess }}</div>
+    </div>
+
+    <!-- 路径模板（需特权） -->
     <div class="path-card">
       <div class="path-header">
-        <div class="path-label"><t-icon name="folder" size="16px" style="color: #0052D9;" /><span>策略库路径</span></div>
-        <PrivilegeStatus hint="修改路径/策略配置需要特权验证" @unlock="showPrivDialog = true" />
+        <div class="path-label"><t-icon name="folder" size="16px" style="color: #0052D9;" /><span>路径模板</span></div>
+        <PrivilegeStatus hint="修改路径模板需要特权验证" @unlock="showPrivDialog = true" />
       </div>
       <div class="path-input">
-        <t-input v-model="registryPath" :disabled="!adminValid" placeholder="/home/hx/jjq/clawAVC/backend/auditor/translator/policy_registry" style="flex:1;" />
-        <t-button theme="primary" size="small" :disabled="!adminValid || !registryPath.trim()" @click="savePath" :loading="savingPath">保存</t-button>
+        <t-input v-model="pathTemplate" :disabled="!adminValid" placeholder=".../auditor/translator/policies/{policy}/policy_registry" style="flex:1;" />
+        <t-button theme="primary" size="small" :disabled="!adminValid || !pathTemplate.trim()" @click="saveTemplate" :loading="savingTemplate">保存</t-button>
       </div>
-      <p class="path-hint">路径必须以 <code>policy_registry</code> 结尾，且包含 <code>scenes.json</code> 和 <code>tools/</code></p>
-      <div v-if="pathError" class="path-error">{{ pathError }}</div>
-      <div v-if="pathSuccess" class="path-success">{{ pathSuccess }}</div>
+      <p class="path-hint">用 <code>{policy}</code> 代表不同 Policy 的目录名；路径必须以 <code>policy_registry</code> 结尾，且包含 <code>scenes.json</code> 和 <code>tools/</code></p>
+      <div v-if="templateError" class="policy-msg error">{{ templateError }}</div>
+      <div v-if="templateSuccess" class="policy-msg success">{{ templateSuccess }}</div>
     </div>
 
     <!-- Scene Detail (when a scene is selected) -->
@@ -22,6 +69,7 @@
       <div class="detail-header">
         <t-button variant="text" size="small" @click="selectedScene = null"><t-icon name="chevron-left" /> 返回概览</t-button>
         <span class="detail-title">{{ selectedScene }}</span>
+        <t-tag v-if="currentPolicy" theme="primary" variant="light" size="small">当前编辑：{{ currentPolicy }}</t-tag>
       </div>
 
       <!-- Desc -->
@@ -65,6 +113,35 @@
       </div>
     </div>
 
+    <!-- Policy 管理对话框 -->
+    <t-dialog v-model:visible="showCreate" header="新建 Policy" :confirm-btn="{ content: '创建', theme: 'primary', loading: creating }" @confirm="doCreate">
+      <div class="policy-form">
+        <div class="form-row"><label>Policy 名称</label><t-input v-model="newName" placeholder="如 strict（字母/数字/下划线/中划线）" /></div>
+        <div class="form-row"><label>复制自（可选）</label>
+          <t-select v-model="copyFrom" :options="policyOptions" placeholder="留空则创建空骨架" clearable />
+        </div>
+      </div>
+    </t-dialog>
+
+    <t-dialog v-model:visible="showRename" header="重命名 Policy" :confirm-btn="{ content: '保存', theme: 'primary', loading: renaming }" @confirm="doRename">
+      <div class="policy-form">
+        <div class="form-row"><label>原 Policy</label><t-select v-model="renameOld" :options="policyOptions" placeholder="选择要重命名的 Policy" /></div>
+        <div class="form-row"><label>新名称</label><t-input v-model="renameNew" placeholder="新名称" /></div>
+      </div>
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="showDelete"
+      header="删除 Policy"
+      :confirm-btn="{ content: '确认删除', theme: 'danger', loading: deleting }"
+      @confirm="doDelete"
+    >
+      <p class="policy-delete-tip">确定要删除 Policy「{{ deleteTarget }}」吗？该操作会删除其策略库目录及全部场景文件，且不可恢复。</p>
+      <p class="policy-delete-path"><code>{{ deletePathPreview }}</code></p>
+      <p class="policy-delete-note">当前正在使用的 Policy 不可删除，请先切换到其他 Policy。</p>
+      <t-select v-model="deleteTarget" :options="deletableOptions" placeholder="选择要删除的 Policy" style="margin-top: 12px;" />
+    </t-dialog>
+
     <!-- Add Function Dialog -->
     <t-dialog v-model:visible="showAddFunc" header="新增 Function" :confirm-btn="{ content: '添加', theme: 'primary', loading: addingFunc }" @confirm="doAddFunc">
       <div class="add-func-form">
@@ -96,11 +173,42 @@ import PrivilegeStatus from "../../components/PrivilegeStatus.vue"
 import RegistryWarning from "../../components/RegistryWarning.vue"
 
 const showPrivDialog = ref(false)
-const registryPath = ref("")
-const savingPath = ref(false)
-const pathError = ref("")
-const pathSuccess = ref("")
 const registry = ref(null)
+
+// 多 Policy 状态
+const policies = ref([])
+const currentPolicy = ref("")
+const switchTarget = ref("")
+const resolvedPath = ref("")
+const pathTemplate = ref("")
+const switching = ref(false)
+const savingTemplate = ref(false)
+const policyError = ref("")
+const policySuccess = ref("")
+const templateError = ref("")
+const templateSuccess = ref("")
+const manageError = ref("")
+const manageSuccess = ref("")
+
+// Policy 管理对话框
+const showCreate = ref(false)
+const newName = ref("")
+const copyFrom = ref("")
+const creating = ref(false)
+const showRename = ref(false)
+const renameOld = ref("")
+const renameNew = ref("")
+const renaming = ref(false)
+const showDelete = ref(false)
+const deleteTarget = ref("")
+const deleting = ref(false)
+
+const policyOptions = computed(() =>
+  policies.value.map((p) => ({ label: `${p.name}（${p.scenes} 场景）`, value: p.name, disabled: !p.healthy }))
+)
+const deletableOptions = computed(() => policyOptions.value.filter((o) => o.value !== currentPolicy.value))
+const currentScenes = computed(() => (policies.value.find((p) => p.name === currentPolicy.value) || {}).scenes || 0)
+const deletePathPreview = computed(() => (policies.value.find((p) => p.name === deleteTarget.value) || {}).path || "—")
 const tick = ref(0)
 let _t = null
 const adminValid = computed(() => { void tick.value; return !!sessionStorage.getItem("clawavc_admin_session") && Date.now() < Number(sessionStorage.getItem("clawavc_admin_expiry") || 0) })
@@ -123,19 +231,117 @@ const editFuncName = ref("")
 const editFuncJson = ref("")
 const savingFunc = ref(false)
 
-onMounted(() => { _t = setInterval(() => tick.value++, 1000); loadPath(); loadRegistry() })
+onMounted(() => { _t = setInterval(() => tick.value++, 1000); loadPolicies(); loadRegistry() })
 onUnmounted(() => clearInterval(_t))
 
-async function loadPath() { try { const r = await fetch("/api/translator/registry-path"); const j = await r.json(); if (j.ok) registryPath.value = j.data.path || "" } catch {} }
+const ADMIN_HEAD = () => ({ "Content-Type": "application/json", "X-Admin-Session": sessionStorage.getItem("clawavc_admin_session") || "" })
 
-async function savePath() {
-  savingPath.value = true; pathError.value = ""; pathSuccess.value = ""
+async function loadPolicies() {
   try {
-    const r = await fetch("/api/translator/registry-path", { method: "PUT", headers: { "Content-Type": "application/json", "X-Admin-Session": sessionStorage.getItem("clawavc_admin_session") || "" }, body: JSON.stringify({ path: registryPath.value.trim() }) })
+    const r = await fetch("/api/translator/policies")
     const j = await r.json()
-    if (j.ok) { pathSuccess.value = "路径已保存，策略库已重新加载"; loadRegistry() } else pathError.value = j.error
-  } catch { pathError.value = "连接失败" }
-  savingPath.value = false
+    if (j.ok) {
+      policies.value = j.data.policies || []
+      currentPolicy.value = j.data.current || ""
+      resolvedPath.value = j.data.resolved_path || ""
+      pathTemplate.value = j.data.template || ""
+      if (!switchTarget.value) switchTarget.value = currentPolicy.value
+    }
+  } catch {}
+}
+
+// 切换当前 Policy（免特权）
+async function doSwitchPolicy() {
+  if (!switchTarget.value || switchTarget.value === currentPolicy.value) return
+  switching.value = true; policyError.value = ""; policySuccess.value = ""
+  try {
+    const r = await fetch("/api/translator/policies/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: switchTarget.value }),
+    })
+    const j = await r.json()
+    if (j.ok) {
+      currentPolicy.value = j.data.current
+      resolvedPath.value = j.data.path
+      policySuccess.value = `已切换到 Policy「${j.data.current}」，策略库已重新加载`
+      MessagePlugin.success(policySuccess.value)
+      loadRegistry()
+    } else policyError.value = j.error
+  } catch { policyError.value = "连接失败" }
+  switching.value = false
+}
+
+// 保存路径模板（需特权）
+async function saveTemplate() {
+  savingTemplate.value = true; templateError.value = ""; templateSuccess.value = ""
+  try {
+    const r = await fetch("/api/translator/policy-path-template", {
+      method: "PUT",
+      headers: ADMIN_HEAD(),
+      body: JSON.stringify({ template: pathTemplate.value.trim() }),
+    })
+    const j = await r.json()
+    if (j.ok) {
+      templateSuccess.value = j.data.applied ? "模板已保存，策略库已重新加载" : "模板已保存，但当前解析路径无效，请检查目录"
+      loadPolicies(); loadRegistry()
+    } else templateError.value = j.error
+  } catch { templateError.value = "连接失败" }
+  savingTemplate.value = false
+}
+
+// ─── Policy 管理：新建 / 重命名 / 删除（均需特权） ───
+function openCreate() { newName.value = ""; copyFrom.value = ""; manageError.value = ""; manageSuccess.value = ""; showCreate.value = true }
+
+async function doCreate() {
+  if (!newName.value.trim()) return
+  creating.value = true
+  try {
+    const r = await fetch("/api/translator/policies/create", {
+      method: "POST",
+      headers: ADMIN_HEAD(),
+      body: JSON.stringify({ name: newName.value.trim(), from: copyFrom.value || "" }),
+    })
+    const j = await r.json()
+    if (j.ok) { MessagePlugin.success("Policy 已创建"); showCreate.value = false; loadPolicies() }
+    else MessagePlugin.error(j.error)
+  } catch { MessagePlugin.error("连接失败") }
+  creating.value = false
+}
+
+function openRename() { renameOld.value = currentPolicy.value || ""; renameNew.value = ""; manageError.value = ""; manageSuccess.value = ""; showRename.value = true }
+
+async function doRename() {
+  if (!renameOld.value || !renameNew.value.trim()) return
+  renaming.value = true
+  try {
+    const r = await fetch("/api/translator/policies/rename", {
+      method: "PUT",
+      headers: ADMIN_HEAD(),
+      body: JSON.stringify({ old: renameOld.value, new: renameNew.value.trim() }),
+    })
+    const j = await r.json()
+    if (j.ok) {
+      MessagePlugin.success(j.data.switched ? "已重命名并同步切换" : "已重命名")
+      showRename.value = false
+      loadPolicies(); loadRegistry()
+    } else MessagePlugin.error(j.error)
+  } catch { MessagePlugin.error("连接失败") }
+  renaming.value = false
+}
+
+function openDelete() { deleteTarget.value = deletableOptions.value[0]?.value || ""; manageError.value = ""; manageSuccess.value = ""; showDelete.value = true }
+
+async function doDelete() {
+  if (!deleteTarget.value) return
+  deleting.value = true
+  try {
+    const r = await fetch(`/api/translator/policies/${encodeURIComponent(deleteTarget.value)}`, { method: "DELETE", headers: ADMIN_HEAD() })
+    const j = await r.json()
+    if (j.ok) { MessagePlugin.success("Policy 已删除"); showDelete.value = false; loadPolicies() }
+    else MessagePlugin.error(j.error)
+  } catch { MessagePlugin.error("连接失败") }
+  deleting.value = false
 }
 
 async function loadRegistry() { try { const r = await fetch("/api/translator/registry"); const j = await r.json(); if (j.ok) registry.value = j.data } catch {} }
@@ -200,6 +406,35 @@ async function saveFunc() {
 </script>
 
 <style scoped>
+/* 多 Policy 卡片 */
+.policy-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px 20px;
+  border: 1px solid #eee;
+  margin-bottom: 16px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.policy-card:hover { box-shadow: 0 4px 16px rgba(0, 82, 217, 0.08); border-color: #d6e4ff; }
+.policy-card--active { border-color: #c7dbff; background: linear-gradient(180deg, #fbfdff 0%, #fff 100%); }
+.policy-card__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.policy-card__title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: #333; }
+.policy-card__title .t-icon { color: #0052D9; font-size: 18px; }
+.policy-switch { display: flex; gap: 8px; }
+.policy-path { display: flex; align-items: center; gap: 6px; margin: 10px 0 4px; font-size: 11px; color: #888; }
+.policy-path code { background: #f0f5ff; color: #0052D9; padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", monospace; word-break: break-all; }
+.policy-hint { font-size: 11px; color: #999; margin: 8px 0 0; line-height: 1.6; }
+.policy-manage { display: flex; gap: 8px; flex-wrap: wrap; }
+.policy-msg { font-size: 12px; margin-top: 8px; padding: 6px 10px; border-radius: 6px; }
+.policy-msg.error { color: #ff5252; background: #fff5f5; }
+.policy-msg.success { color: #00a870; background: #f0fff8; }
+.policy-form .form-row { margin-bottom: 12px; }
+.policy-form label { display: block; font-size: 13px; font-weight: 500; color: #666; margin-bottom: 6px; }
+.policy-delete-tip { font-size: 13px; color: #333; margin: 0 0 8px; }
+.policy-delete-path { margin: 0 0 8px; }
+.policy-delete-path code { background: #fff5f5; color: #ff5252; padding: 2px 6px; border-radius: 4px; font-size: 11px; word-break: break-all; }
+.policy-delete-note { font-size: 11px; color: #999; margin: 0; }
+
 .path-card { background: #fff; border-radius: 12px; padding: 18px 20px; border: 1px solid #eee; margin-bottom: 16px; }
 .path-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .path-label { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: #333; }

@@ -917,6 +917,80 @@ def set_registry_path():
         pass
     return jsonify({"ok": True})
 
+
+# ─── 多 Policy 策略库管理 ───────────────────────────────────────
+@app.route("/api/translator/policies", methods=["GET"])
+def list_policies_api():
+    """列出全部 Policy（名/路径/场景数/健康）+ 当前 Policy + 路径模板 + 解析后路径。"""
+    try:
+        from auditor.translator.policy_manager import list_policies
+
+        return jsonify({"ok": True, "data": list_policies()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"读取策略库失败：{e}"}), 500
+
+
+@app.route("/api/translator/policies/switch", methods=["POST"])
+def switch_policy_api():
+    """切换当前 Policy（免特权，便于快速对比不同策略效果）。"""
+    from auditor.translator.policy_manager import switch_policy
+
+    body = request.get_json(force=True, silent=True) or {}
+    result, code = switch_policy((body.get("name") or "").strip())
+    return jsonify(result), code
+
+
+@app.route("/api/translator/policies/create", methods=["POST"])
+def create_policy_api():
+    """新建 Policy：from 为空建空骨架，否则复制自指定 Policy（保证场景一致）。需特权。"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    from auditor.translator.policy_manager import create_policy
+
+    body = request.get_json(force=True, silent=True) or {}
+    result, code = create_policy((body.get("name") or "").strip(), body.get("from"))
+    return jsonify(result), code
+
+
+@app.route("/api/translator/policies/rename", methods=["PUT"])
+def rename_policy_api():
+    """重命名 Policy。需特权。重命名当前生效 Policy 时自动同步切换。"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    from auditor.translator.policy_manager import rename_policy
+
+    body = request.get_json(force=True, silent=True) or {}
+    result, code = rename_policy((body.get("old") or "").strip(), (body.get("new") or "").strip())
+    return jsonify(result), code
+
+
+@app.route("/api/translator/policies/<name>", methods=["DELETE"])
+def delete_policy_api(name):
+    """删除 Policy。需特权。禁止删除当前使用的与最后一个 Policy。"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    from auditor.translator.policy_manager import delete_policy
+
+    result, code = delete_policy(name)
+    return jsonify(result), code
+
+
+@app.route("/api/translator/policy-path-template", methods=["PUT"])
+def set_policy_path_template_api():
+    """配置路径模板（必须含 {policy} 占位符、必须以 policy_registry 结尾）。需特权。"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    from auditor.translator.policy_manager import set_template
+
+    body = request.get_json(force=True, silent=True) or {}
+    result, code = set_template((body.get("template") or "").strip())
+    return jsonify(result), code
+
+
 @app.route("/api/translator/registry", methods=["GET"])
 def get_registry():
     """Get current policy registry (scenes + tools summary)."""
@@ -3171,6 +3245,15 @@ def main():
                 return jsonify({"ok": False, "error": "日志文件不存在"}), 404
         except Exception as e:
             return jsonify({"ok": False, "error": f"清空失败: {str(e)}"}), 500
+
+    # 启动时确保 registry_path 与「路径模板 + 当前 Policy」一致（迁移/纠错场景）
+    try:
+        from auditor.translator.policy_manager import sync_registry_path
+
+        if sync_registry_path():
+            print("[clawAVC] 已同步当前 Policy 策略库路径")
+    except Exception as e:
+        print(f"[clawAVC] 策略库路径同步跳过：{e}")
 
     print("[clawAVC] Starting backend on http://0.0.0.0:15100")
     socketio.run(app, host="0.0.0.0", port=15100, debug=False, allow_unsafe_werkzeug=True)

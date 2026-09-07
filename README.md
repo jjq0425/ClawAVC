@@ -42,6 +42,7 @@
 - [模拟攻击](#模拟攻击)
 - [页面模块](#页面模块)
 - [异常分析对话（小异）](#异常分析对话小异)
+- [多策略库（Policy）](#多策略库policy)
 - [流量回放](#流量回放)
 - [权限体系](#权限体系)
 - [API 文档](#api-文档)
@@ -640,6 +641,64 @@ GET /api/attack/tool-config?key=tool_injection.filepath
 
 ---
 
+## 多策略库（Policy）
+
+策略库支持**多套并存**（各套场景集合相同，差异在具体策略内容与参数约束）。可在「策略翻译 → 策略库」页切换当前生效的一套，切换后**立即热重载**，无需重启，翻译与监控即时使用新策略。
+
+### 目录约定
+
+```
+backend/auditor/translator/policies/
+├── default/policy_registry/     # 默认策略库（由原 policy_registry 迁移而来）
+│   ├── scenes.json
+│   └── tools/*.json
+└── strict/policy_registry/      # 其他策略库（示例）
+```
+
+每套 Policy 的目录固定命名为 `policy_registry`（沿用既有「路径必须以 `policy_registry` 结尾」校验），内含 `scenes.json` 与 `tools/`。
+
+### 路径模板（{policy} 动态占位符）
+
+路径中代表不同 Policy 的目录段用 `{policy}` 占位符表示：
+
+```
+<backend>/auditor/translator/policies/{policy}/policy_registry
+```
+
+切换 Policy 时，系统将 `{policy}` 替换为当前 Policy 名得到真实路径，并写入 `ir_translator.registry_path`。
+
+| 配置 key | 说明 | 默认 |
+|----------|------|------|
+| `ir_translator.registry_path_template` | 路径模板，必须含 `{policy}`、必须以 `policy_registry` 结尾 | `<backend>/auditor/translator/policies/{policy}/policy_registry` |
+| `ir_translator.current_policy` | 当前生效的 Policy 名 | `default` |
+| `ir_translator.registry_path` | 解析后的真实路径（既有语义，作为单一事实来源） | 由「模板 + 当前 Policy」解析得到 |
+
+### 切换与管理
+
+| 操作 | 权限 | 说明 |
+|------|------|------|
+| 切换当前 Policy | 普通（免特权） | 下拉选择后点「切换」，立即热重载 |
+| 新建 | 特权 | 可留空建空骨架，或选择「复制自」某套已有 Policy 以保证场景一致 |
+| 重命名 | 特权 | 重命名当前生效的 Policy 时会自动同步切换，避免指向失效目录 |
+| 删除 | 特权 | 禁止删除当前正在使用的 Policy；至少保留一个有效 Policy |
+
+场景 / 函数的新增、编辑与删除等既有能力保持不变，自动作用于**当前选中的 Policy**。
+
+### 相关接口
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| `GET` | `/api/translator/policies` | 列出全部 Policy + 当前 Policy + 模板 + 解析路径 | 普通 |
+| `POST` | `/api/translator/policies/switch` | 切换当前 Policy | 普通（免特权） |
+| `POST` | `/api/translator/policies/create` | 新建（`from` 为空建空骨架，否则复制自指定 Policy） | 特权 |
+| `PUT` | `/api/translator/policies/rename` | 重命名 | 特权 |
+| `DELETE` | `/api/translator/policies/<name>` | 删除 | 特权 |
+| `PUT` | `/api/translator/policy-path-template` | 配置路径模板 | 特权 |
+
+> Policy 名仅允许字母、数字、下划线与中划线（1-64 字符），杜绝路径穿越。
+
+---
+
 ## 流量回放
 
 （见 [页面模块 → 流量回放](#流量回放)）
@@ -1039,8 +1098,9 @@ clawAVC/
 │   ├── api_docs.py            # 自动化 API 文档生成
 │   ├── auditor/
 │   │   ├── translator/        # IR 翻译器 (Level-1 场景分类 + Level-2 策略生成)
-│   │   │   ├── core.py        # 翻译核心（LLM 调用/提示词/验证/归一化）
-│   │   │   └── policy_registry/  # 策略注册表 (scenes.json + tools/*.json)
+│   │   │   ├── core.py            # 翻译核心（LLM 调用/提示词/验证/归一化）
+│   │   │   ├── policy_manager.py  # 多 Policy 策略库管理（模板解析/切换/新建/复制/重命名/删除）
+│   │   │   └── policies/          # 多套策略库: policies/<policy>/policy_registry (scenes.json + tools/*.json)
 │   │   └── monitor/           # 内置监控模块
 │   │       ├── watcher.py     # OpenClaw日志监听 + 网关解析 + 调度
 │   │       ├── ir_client.py   # 调用翻译接口获取 IR

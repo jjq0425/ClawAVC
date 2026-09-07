@@ -32,7 +32,7 @@ def _get_config(key: str, default: str = "") -> str:
 
 
 
-_DEFAULT_REGISTRY_DIR = Path(__file__).resolve().parent / "policy_registry"
+_DEFAULT_REGISTRY_DIR = Path(__file__).resolve().parent / "policies" / "default" / "policy_registry"
 
 
 def _get_registry_dir() -> Path:

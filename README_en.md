@@ -42,6 +42,7 @@ Real-time Monitoring · Multi-dimensional Detection · Intent Comparison · Anom
 - [Attack Simulation](#attack-simulation)
 - [Page Modules](#page-modules)
 - [Anomaly Analysis Chat (XiaoYi)](#anomaly-analysis-chat-xiaoyi)
+- [Multi-Registry Policy](#multi-registry-policy)
 - [Traffic Replay](#traffic-replay)
 - [Permission System](#permission-system)
 - [API Documentation](#api-documentation)
@@ -643,6 +644,64 @@ Clearing the chat (top-right "Clear" button) resets to the default greeting so i
 
 ---
 
+## Multi-Registry Policy
+
+Multiple policy registries can **coexist** (each shares the same scene set; they differ in concrete policy content and parameter constraints). Switch the active one on the "Policy Translation → Registry" page; it **hot-reloads immediately** without restarting, so translation and monitoring use the new policy at once.
+
+### Directory Convention
+
+```
+backend/auditor/translator/policies/
+├── default/policy_registry/     # Default registry (migrated from the original policy_registry)
+│   ├── scenes.json
+│   └── tools/*.json
+└── strict/policy_registry/      # Another registry (example)
+```
+
+Each Policy directory is fixed-named `policy_registry` (keeping the existing "path must end with `policy_registry`" validation) and contains `scenes.json` + `tools/`.
+
+### Path Template (the {policy} placeholder)
+
+The directory segment representing a Policy is expressed with the `{policy}` placeholder:
+
+```
+<backend>/auditor/translator/policies/{policy}/policy_registry
+```
+
+When switching, `{policy}` is replaced with the current Policy name to produce the real path, which is then written to `ir_translator.registry_path`.
+
+| Config key | Description | Default |
+|------------|-------------|---------|
+| `ir_translator.registry_path_template` | Path template; must contain `{policy}` and end with `policy_registry` | `<backend>/auditor/translator/policies/{policy}/policy_registry` |
+| `ir_translator.current_policy` | Currently active Policy name | `default` |
+| `ir_translator.registry_path` | Resolved real path (existing semantics, single source of truth) | Resolved from template + current Policy |
+
+### Switching & Management
+
+| Action | Permission | Notes |
+|--------|------------|-------|
+| Switch active Policy | Normal (**no privilege**) | Pick from dropdown and click "Switch"; hot-reloads immediately |
+| Create | Privileged | Create an empty skeleton, or choose "copy from" an existing Policy to keep scenes identical |
+| Rename | Privileged | Renaming the active Policy auto-switches to it, avoiding a dangling path |
+| Delete | Privileged | Cannot delete the active Policy; at least one valid Policy must remain |
+
+Existing scene/function add, edit and delete capabilities are unchanged and apply to the **currently selected Policy**.
+
+### Related Endpoints
+
+| Method | Path | Description | Permission |
+|--------|------|-------------|------------|
+| `GET` | `/api/translator/policies` | List all Policies + active Policy + template + resolved path | Normal |
+| `POST` | `/api/translator/policies/switch` | Switch active Policy | Normal (**no privilege**) |
+| `POST` | `/api/translator/policies/create` | Create (empty if `from` omitted, else copy from given Policy) | Privileged |
+| `PUT` | `/api/translator/policies/rename` | Rename | Privileged |
+| `DELETE` | `/api/translator/policies/<name>` | Delete | Privileged |
+| `PUT` | `/api/translator/policy-path-template` | Configure path template | Privileged |
+
+> Policy names allow only letters, digits, underscores and hyphens (1-64 chars), preventing path traversal.
+
+---
+
 ## Traffic Replay
 
 (See [Page Modules → Traffic Replay](#traffic-replay))
@@ -1043,8 +1102,9 @@ clawAVC/
 │   ├── api_docs.py            # Automated API documentation generator
 │   ├── auditor/
 │   │   ├── translator/        # IR Translator (Level-1 scene classification + Level-2 policy generation)
-│   │   │   ├── core.py        # Translation core (LLM call/prompts/validation/normalization)
-│   │   │   └── policy_registry/  # Policy registry (scenes.json + tools/*.json)
+│   │   │   ├── core.py            # Translation core (LLM call/prompts/validation/normalization)
+│   │   │   ├── policy_manager.py  # Multi-Policy registry management (template resolve/switch/create/copy/rename/delete)
+│   │   │   └── policies/          # Multiple registries: policies/<policy>/policy_registry (scenes.json + tools/*.json)
 │   │   └── monitor/           # Built-in monitoring module
 │   │       ├── watcher.py     # OpenClaw log watcher + gateway parser + scheduler
 │   │       ├── ir_client.py   # Calls translation API for IR

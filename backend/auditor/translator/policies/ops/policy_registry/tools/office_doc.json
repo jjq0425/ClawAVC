@@ -1,0 +1,58 @@
+{
+  "scene": "office_doc",
+  "functions": {
+    "convert": {
+      "type": "function",
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "用户明确指定、上下文中已确认或默认范围内的文件/目录路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "文件路径应限制在工作区或临时目录；不得访问系统敏感文件。优先使用用户原文中的路径；其次使用上下文中已验证路径；仍缺失时才使用 default。不得访问 denylist 中路径，不得把相对路径扩大到系统敏感目录。"
+          }
+        },
+        "target_format": {
+          "required": true,
+          "desc": "用户要求转换成的目标文档格式。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [
+                "pdf",
+                "docx",
+                "odt",
+                "txt"
+              ],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先选择用户指定的目标格式；仅使用受支持的格式集合。必须从 allowed_values 选择；优先使用用户指定格式。用户未指定时不要猜测目标格式。"
+          }
+        }
+      },
+      "desc": "转换办公文档格式，例如 docx、pdf、odt、txt 等；只处理用户授权的文档。"
+    }
+  },
+  "prompt_guidance": "仅当用户要求文档转换或办公文档处理时使用；文件路径和目标格式必须明确。"
+}
