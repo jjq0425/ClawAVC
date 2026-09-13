@@ -1,5 +1,6 @@
 """SQLite data layer for Claw Access-View Compliance."""
 
+import hashlib
 import json
 import sqlite3
 import os
@@ -17,6 +18,34 @@ UPDATABLE_FIELDS = [
     "judge_result_kernel",
     "syscall_judge",
 ]
+
+
+def _normalize_action_json(value) -> str:
+    """将 action_json 统一规范化为最终存入 DB 的字符串。"""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except Exception:
+        return str(value)
+
+
+def action_json_md5(value) -> str:
+    """计算 action_json 的 MD5 摘要（基于规范化后的存储字符串），用于防篡改。"""
+    return hashlib.md5(_normalize_action_json(value).encode("utf-8")).hexdigest()
+
+
+def verify_action_json_integrity(round_id: str):
+    """校验某 round 的 action_json 是否被篡改（比对存储的 MD5）。
+    返回 True=一致(未篡改), False=被篡改, None=记录不存在或无 MD5 可比对。
+    """
+    row = get_round_by_id(round_id)
+    if not row:
+        return None
+    stored = row.get("action_json_md5") or ""
+    if not stored:
+        return None
+    return action_json_md5(row.get("action_json")) == stored
 
 
 def get_conn() -> sqlite3.Connection:
@@ -40,6 +69,7 @@ def init_db():
             user_query TEXT,
             last_llm_message TEXT,
             action_json TEXT,
+            action_json_md5 TEXT DEFAULT '',
             ir_json TEXT,
             judge_result TEXT,
             is_abnormal INTEGER DEFAULT 0,
@@ -76,6 +106,8 @@ def init_db():
         conn.execute("ALTER TABLE rounds ADD COLUMN anomaly_llm_v2_judge_res TEXT DEFAULT ''")
     if "anomaly_llm_v2_chat_session" not in cols:
         conn.execute("ALTER TABLE rounds ADD COLUMN anomaly_llm_v2_chat_session TEXT DEFAULT ''")
+    if "action_json_md5" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN action_json_md5 TEXT DEFAULT ''")
     # 迁移：将旧的 resource_facts 列重命名为 kernel_resource_facts（如果存在）
     if "resource_facts" in cols and "kernel_resource_facts" not in cols:
         try:
@@ -226,12 +258,13 @@ def insert_round(data: Dict[str, Any]) -> Optional[int]:
             if score_match:
                 overall_score = float(score_match.group(1))
 
+        action_json_val = json.dumps(data.get("action", []), ensure_ascii=False)
         cursor = conn.execute("""
             INSERT OR IGNORE INTO rounds
             (round_id, time_start, time_end, session_key, session_id,
-             user_query, last_llm_message, action_json, ir_json,
+             user_query, last_llm_message, action_json, action_json_md5, ir_json,
              judge_result, is_abnormal, overall_score)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.get("round", ""),
             data.get("time_start", "").strip(),
@@ -240,7 +273,8 @@ def insert_round(data: Dict[str, Any]) -> Optional[int]:
             data.get("sessionID", ""),
             data.get("user_query", ""),
             data.get("last_llm_message", ""),
-            json.dumps(data.get("action", []), ensure_ascii=False),
+            action_json_val,
+            action_json_md5(action_json_val),
             json.dumps(data.get("IR", {}), ensure_ascii=False),
             judge_result,
             is_abnormal,
@@ -270,12 +304,12 @@ def insert_round_start(round_id: str, time_start: str, session_key: str, session
         cursor = conn.execute("""
             INSERT OR IGNORE INTO rounds
             (round_id, time_start, time_end, session_key, session_id,
-             user_query, last_llm_message, action_json, ir_json,
+             user_query, last_llm_message, action_json, action_json_md5, ir_json,
              judge_result, is_abnormal, overall_score, attack_config, pid_info, history)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             round_id, time_start, "", session_key, session_id,
-            "", "", "[]", "{}", "", 0, -1.0, attack_config, pid_info, history,
+            "", "", "[]", action_json_md5("[]"), "{}", "", 0, -1.0, attack_config, pid_info, history,
         ))
         conn.commit()
         return cursor.lastrowid if cursor.rowcount > 0 else None
@@ -380,6 +414,8 @@ def update_round_end(round_id: str, data: Dict[str, Any]) -> bool:
         if not action_keep_reason:
             set_parts.append("action_json = ?")
             params.append(v)
+            set_parts.append("action_json_md5 = ?")
+            params.append(action_json_md5(v))
         else:
             skipped.append(f"action_json[{action_keep_reason}]({v!r})")
 
@@ -502,6 +538,12 @@ def update_round_field(round_id: str, field: str, value: str, time_limit_enabled
         # is_abnormal 需要转为整数
         if field == "is_abnormal":
             conn.execute("UPDATE rounds SET is_abnormal = ? WHERE round_id = ?", (1 if value else 0, round_id))
+        elif field == "action_json":
+            # 同步更新防篡改摘要
+            conn.execute(
+                "UPDATE rounds SET action_json = ?, action_json_md5 = ? WHERE round_id = ?",
+                (value, action_json_md5(value), round_id),
+            )
         else:
             conn.execute(f"UPDATE rounds SET {field} = ? WHERE round_id = ?", (value, round_id))
         conn.commit()
