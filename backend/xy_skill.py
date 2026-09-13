@@ -16,6 +16,8 @@ SSE 事件流产出:
 from __future__ import annotations
 
 import json
+import os
+import sys
 from typing import Any, Dict, Generator
 
 import requests as http_requests
@@ -39,7 +41,12 @@ from app import (
 MAX_TOOL_ROUNDS = 6  # 最大工具调用轮次，防止无限循环
 DEFAULT_MAX_TOKENS = 4096
 
-# ─── 12 个工具的 OpenAI-compatible function calling 定义 ─────────
+# 需要完整 arguments 才能执行的工具：这类工具的入参在流式响应中分片到达，
+# 必须等本轮流结束后再执行（见 run_skill_analysis）。其余工具只需 round_id，
+# 可以在拿到函数名的瞬间就执行，保持原有的实时呈现体验。
+ARG_TOOLS = {"search_selinux_knowledge"}
+
+# ─── 13 个工具的 OpenAI-compatible function calling 定义 ─────────
 TOOLS = [
     {
         "type": "function",
@@ -245,6 +252,53 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_selinux_knowledge",
+            "description": (
+                "检索本地 SELinux 知识库：refpolicy 策略源码（类型声明、布尔值、接口、allow 规则、"
+                "文件上下文）、SELinux Notebook 教程、官方 wiki 排错指南。"
+                "凡是要解释 SELinux 标签/类型、判断两个类型之间是否存在 allow 规则、"
+                "确认布尔值名称与默认值、查某个路径对应的文件上下文，"
+                "或者准备给出 SELinux 策略建议之前，都必须先调用本工具核对，"
+                "禁止凭记忆输出类型名、布尔名或规则。"
+                "返回结果带「文件:行号」出处，可在结论中直接引用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "检索关键词，建议用英文技术术语，多个词用空格分隔。"
+                            "例如 'httpd_t var_log_t write'、'apache_read_user_content'、"
+                            "'httpd_can_network_connect'、'/etc/httpd'、"
+                            "'type_transition'、'AVC denied'。"
+                        ),
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["all", "rule", "symbol", "interface", "file_context", "doc"],
+                        "description": (
+                            "结果类型：all=全部（默认）；rule=allow 等访问规则；"
+                            "symbol=类型/布尔值/宏的定义；interface=接口；"
+                            "file_context=路径对应的文件上下文；doc=教程与文档。"
+                        ),
+                    },
+                    "module": {
+                        "type": "string",
+                        "description": "限定 refpolicy 模块名缩小范围，如 apache、container、systemd（可选）",
+                    },
+                    "k": {
+                        "type": "integer",
+                        "description": "返回条数，默认 5，最大 10",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 # ─── 默认系统提示词（可通过 anomaly_llm_skill_prompt 配置覆盖） ──
@@ -255,6 +309,10 @@ DEFAULT_SKILL_SYSTEM_PROMPT = (
     "1. 先获取 round_info 了解基本信息\n"
     "2. 再根据需要获取 user_query、IR 策略、工具调用记录等\n"
     "3. 如有内核数据，可获取 resource_facts、kernel_judge、syscall_judge 等\n\n"
+    "当需要解释 SELinux 标签/类型、核对某条 allow 规则是否存在、确认布尔值名称，"
+    "或给出 SELinux 策略建议时，必须先调用 search_selinux_knowledge 检索本地知识库，"
+    "以检索结果作为依据；禁止凭记忆编造类型名、布尔名、接口名或规则。"
+    "策略建议中引用的类型名必须来自检索结果，并标注出处（文件:行号）。\n\n"
     "获取足够信息后，请综合分析该 Agent 行为是否存在越权访问、越界操作、数据外泄、"
     "后门注入、隐蔽提权等异常。\n\n"
     "最终输出格式要求：\n"
@@ -408,6 +466,92 @@ def _handler_kernel_lsm_hook(round_id: str) -> str:
     return text
 
 
+# ─── SELinux 知识库检索（依赖 backend/selinux_kb/，索引缺失时降级为提示信息） ───
+
+_KB_IMPORT_ERROR: Any = None
+
+
+def _load_kb_search():
+    """延迟导入 selinux_kb.search。
+
+    放在函数内导入，避免索引文件缺失或目录未拷贝时影响 xy_skill 的模块加载。
+    """
+    global _KB_IMPORT_ERROR
+    try:
+        from selinux_kb import search as kb_search
+        return kb_search
+    except Exception as exc:  # 首次导入失败时补齐 sys.path 再试一次
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        if backend_dir not in sys.path:
+            sys.path.insert(0, backend_dir)
+        try:
+            from selinux_kb import search as kb_search
+            return kb_search
+        except Exception as exc2:
+            _KB_IMPORT_ERROR = exc2
+            return None
+
+
+def _handler_selinux_knowledge(round_id: str, query: str = "", kind: str = "all",
+                               module: str = "", k: int = 5) -> str:
+    """检索本地 SELinux 知识库（refpolicy 源码 / SELinux Notebook / 官方 wiki）。
+
+    与其它工具不同，本工具不使用 round_id，而是按 query 检索静态知识库，
+    为「策略建议」提供可引用、可核查的依据。
+    """
+    query = str(query or "").strip()
+    if not query:
+        return (
+            "错误：query 不能为空。请传入要查证的关键词，例如 "
+            '{"query": "httpd_t var_log_t write"} 或 {"query": "httpd_can_network_connect"}；'
+            "也可用 kind 指定 rule / symbol / interface / file_context / doc。"
+        )
+    try:
+        k = int(k)
+    except (TypeError, ValueError):
+        k = 5
+    k = max(1, min(k, 10))
+    kind = str(kind or "all").strip().lower() or "all"
+    module = str(module or "").strip()
+
+    kb_search = _load_kb_search()
+    if kb_search is None:
+        return ("SELinux 知识库不可用（导入失败：%s）。请确认 backend/selinux_kb/ 已随代码一起拷贝，"
+                "且 infos/selinux_kb/selinux_kb.db 已生成。" % _KB_IMPORT_ERROR)
+    try:
+        return kb_search.search(query, kind=kind, module=module or None, k=k)
+    except Exception as exc:
+        return "SELinux 知识库检索失败：%s" % exc
+
+
+# 参数类工具的合法入参名，多余字段会被忽略
+_ARG_TOOL_KEYS = {"query", "kind", "module", "k"}
+
+
+def _call_tool_handler(func_name: str, round_id: str, arguments_json: str) -> str:
+    """分发工具调用。
+
+    Round 类工具只需要 round_id；ARG_TOOLS 里的工具需要解析 JSON 参数后再调用。
+    """
+    handler = TOOL_HANDLERS.get(func_name)
+    if handler is None:
+        return f"错误：未知工具 '{func_name}'"
+    if func_name not in ARG_TOOLS:
+        return handler(round_id)
+    try:
+        args = json.loads(arguments_json) if arguments_json else {}
+    except Exception:
+        return ('错误：工具参数不是合法 JSON。请重新调用，例如 '
+                '{"query": "httpd_t var_log_t", "kind": "rule"}')
+    if not isinstance(args, dict):
+        return "错误：工具参数必须是 JSON 对象。"
+    kwargs = {k: v for k, v in args.items() if k in _ARG_TOOL_KEYS and v not in (None, "")}
+    try:
+        return handler(round_id, **kwargs)
+    except TypeError as exc:
+        return "错误：工具参数不正确（%s）" % exc
+
+
 # 工具名 → 处理函数 registry
 TOOL_HANDLERS: Dict[str, Any] = {
     "get_round_info": _handler_round_info,
@@ -422,6 +566,7 @@ TOOL_HANDLERS: Dict[str, Any] = {
     "get_previous_llm_analysis": _handler_previous_llm_analysis,
     "get_syscall_sequence": _handler_syscall_sequence,
     "get_kernel_lsm_hook": _handler_kernel_lsm_hook,
+    "search_selinux_knowledge": _handler_selinux_knowledge,
 }
 
 
@@ -699,8 +844,12 @@ def run_skill_analysis(
         indices_final: list = []
         results_by_idx: Dict[int, str] = {}   # 原始 index -> 工具返回文本
 
-        def _run_tool(func_name: str):
-            """执行单个工具，yield SSE 事件，返回追加到 messages 的结果文本。"""
+        def _run_tool(func_name: str, arguments: str = "{}"):
+            """执行单个工具，yield SSE 事件，返回追加到 messages 的结果文本。
+
+            Round 类工具在 tool_start 阶段（只拿到函数名）即可执行；
+            ARG_TOOLS 里的参数类工具必须等 arguments 完整接收后再调用。
+            """
             yield {"type": "tool_call", "name": func_name, "status": "started"}
             handler = TOOL_HANDLERS.get(func_name)
             if handler is None:
@@ -709,7 +858,7 @@ def run_skill_analysis(
                 yield ("__result__", rt)
                 return
             try:
-                raw_text = handler(round_id)
+                raw_text = _call_tool_handler(func_name, round_id, arguments)
                 processed_text, was_compressed = _process_tool_result(raw_text, llm_url, max_tokens)
                 preview = processed_text
                 if len(preview) > 1000:
@@ -732,6 +881,9 @@ def run_skill_analysis(
                 elif kind == "tool_start":
                     idx, slot = ev[1], ev[2]
                     func_name = slot["name"]
+                    if func_name in ARG_TOOLS:
+                        # 参数仍在流式接收中，推迟到 final 事件（arguments 完整后）再执行
+                        continue
                     result_text = ""
                     for item in _run_tool(func_name):
                         if isinstance(item, tuple) and item[0] == "__result__":
@@ -743,6 +895,19 @@ def run_skill_analysis(
                     content_final = ev[1]["content"]
                     tool_calls_final = ev[1]["tool_calls"]
                     indices_final = ev[1]["indices"]
+                    # arguments 已接收完整，执行参数类工具
+                    for i, tc in enumerate(tool_calls_final):
+                        fname = (tc.get("function") or {}).get("name")
+                        if fname not in ARG_TOOLS:
+                            continue
+                        args_json = (tc.get("function") or {}).get("arguments") or "{}"
+                        result_text = ""
+                        for item in _run_tool(fname, args_json):
+                            if isinstance(item, tuple) and item[0] == "__result__":
+                                result_text = item[1]
+                            else:
+                                yield item
+                        results_by_idx[indices_final[i]] = result_text
         except Exception as e:
             yield {"type": "error", "message": f"LLM 调用失败（第 {tool_round} 轮）: {e}"}
             return
