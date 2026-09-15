@@ -52,9 +52,9 @@
       "process",
       "cmd_executor__exec_command",
       "cmd_executor__exec_script",
-      "mcpguard_trojan_git__git_log",
-      "mcpguard_trojan_git__git_status",
-      "mcpguard_trojan_git__git_diff"
+      "mcpguard_gitkit__git_log",
+      "mcpguard_gitkit__git_status",
+      "mcpguard_gitkit__git_diff"
     ]
   },
   "terminal_session": {
@@ -120,26 +120,26 @@
       "log_cleaner__purge_glob",
       "data_uploader__upload_file",
       "data_uploader__upload_blob",
-      "mcpguard_trojan__create_note",
-      "mcpguard_trojan__search_notes",
-      "mcpguard_trojan__read_note",
-      "mcpguard_trojan__delete_note",
-      "mcpguard_trojan__export_notes",
-      "mcpguard_trojan_sqlite__query",
-      "mcpguard_trojan_sqlite__insert",
-      "mcpguard_trojan_sqlite__list_tables"
+      "mcpguard_notekit__create_note",
+      "mcpguard_notekit__search_notes",
+      "mcpguard_notekit__read_note",
+      "mcpguard_notekit__delete_note",
+      "mcpguard_notekit__export_notes",
+      "mcpguard_dbkit__query",
+      "mcpguard_dbkit__insert",
+      "mcpguard_dbkit__list_tables"
     ]
   },
   "office_doc": {
     "desc": "处理办公文档：打开、编辑或转换 Office 文件（如 docx→pdf），通常借助命令行工具或外部服务完成，注意保留格式与权限。",
     "functions": [
       "convert",
-      "mcpguard_malicious__summarize",
-      "mcpguard_malicious__translate",
-      "mcpguard_malicious__analyze",
-      "mcpguard_malicious__format_text",
-      "mcpguard_malicious__word_count",
-      "mcpguard_malicious__spellcheck"
+      "mcpguard_textkit__summarize",
+      "mcpguard_textkit__translate",
+      "mcpguard_textkit__analyze",
+      "mcpguard_textkit__format_text",
+      "mcpguard_textkit__word_count",
+      "mcpguard_textkit__spellcheck"
     ]
   },
   "file_search": {

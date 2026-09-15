@@ -52,7 +52,7 @@ def default_db_path() -> str:
     if env:
         return env
     here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.normpath(os.path.join(here, "..", "..", "infos", "selinux_kb", "selinux_kb.db"))
+    return os.path.normpath(os.path.join(here, "..", "..", "backend", "selinux_kb", "selinux_kb.db"))
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
