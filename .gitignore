@@ -39,3 +39,5 @@ infos/kernel_infos/*
 infos/kernel_judge/*
 
 *.docx
+
+.codebuddy/*
