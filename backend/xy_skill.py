@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from typing import Any, Dict, Generator
 
 import requests as http_requests
@@ -38,7 +39,7 @@ from app import (
 )
 
 # ─── 常量 ────────────────────────────────────────────────────────
-MAX_TOOL_ROUNDS = 6  # 最大工具调用轮次，防止无限循环
+MAX_TOOL_ROUNDS = 20  # 最大工具调用轮次，防止无限循环
 DEFAULT_MAX_TOKENS = 4096
 
 # 需要完整 arguments 才能执行的工具：这类工具的入参在流式响应中分片到达，
@@ -62,54 +63,6 @@ TOOLS = [
                     }
                 },
                 "required": ["round_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_selinux_knowledge",
-            "description": (
-                "检索本地 SELinux 知识库：refpolicy 策略源码（类型声明、布尔值、接口、allow 规则、"
-                "文件上下文）、SELinux Notebook 教程、官方 wiki 排错指南。"
-                "凡是要解释 SELinux 标签/类型、判断两个类型之间是否存在 allow 规则、"
-                "确认布尔值名称与默认值、查某个路径对应的文件上下文，"
-                "或者准备给出 SELinux 策略建议之前，都必须先调用本工具核对，"
-                "禁止凭记忆输出类型名、布尔名或规则。"
-                "返回结果带「文件:行号」出处，可在结论中直接引用。"
-                "若上下文的「SELinux 知识参考」段落已经覆盖了要查的内容，则不必重复调用。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": (
-                            "检索关键词，建议用英文技术术语，多个词用空格分隔。"
-                            "例如 'httpd_t var_log_t write'、'apache_read_user_content'、"
-                            "'httpd_can_network_connect'、'/etc/httpd'、"
-                            "'type_transition'、'AVC denied'。"
-                        ),
-                    },
-                    "kind": {
-                        "type": "string",
-                        "enum": ["all", "rule", "symbol", "interface", "file_context", "doc"],
-                        "description": (
-                            "结果类型：all=全部（默认）；rule=allow 等访问规则；"
-                            "symbol=类型/布尔值/宏的定义；interface=接口；"
-                            "file_context=路径对应的文件上下文；doc=教程与文档。"
-                        ),
-                    },
-                    "module": {
-                        "type": "string",
-                        "description": "限定 refpolicy 模块名缩小范围，如 apache、container、systemd（可选）",
-                    },
-                    "k": {
-                        "type": "integer",
-                        "description": "返回条数，默认 5，最大 10",
-                    },
-                },
-                "required": ["query"],
             },
         },
     },
@@ -297,6 +250,53 @@ TOOLS = [
                     }
                 },
                 "required": ["round_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_selinux_knowledge",
+            "description": (
+                "检索本地 SELinux 知识库：refpolicy 策略源码（类型声明、布尔值、接口、allow 规则、"
+                "文件上下文）、SELinux Notebook 教程、官方 wiki 排错指南。"
+                "凡是要解释 SELinux 标签/类型、判断两个类型之间是否存在 allow 规则、"
+                "确认布尔值名称与默认值、查某个路径对应的文件上下文，"
+                "或者准备给出 SELinux 策略建议之前，都必须先调用本工具核对，"
+                "禁止凭记忆输出类型名、布尔名或规则。"
+                "返回结果带「文件:行号」出处，可在结论中直接引用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "检索关键词，建议用英文技术术语，多个词用空格分隔。"
+                            "例如 'httpd_t var_log_t write'、'apache_read_user_content'、"
+                            "'httpd_can_network_connect'、'/etc/httpd'、"
+                            "'type_transition'、'AVC denied'。"
+                        ),
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["all", "rule", "symbol", "interface", "file_context", "doc"],
+                        "description": (
+                            "结果类型：all=全部（默认）；rule=allow 等访问规则；"
+                            "symbol=类型/布尔值/宏的定义；interface=接口；"
+                            "file_context=路径对应的文件上下文；doc=教程与文档。"
+                        ),
+                    },
+                    "module": {
+                        "type": "string",
+                        "description": "限定 refpolicy 模块名缩小范围，如 apache、container、systemd（可选）",
+                    },
+                    "k": {
+                        "type": "integer",
+                        "description": "返回条数，默认 5，最大 10",
+                    },
+                },
+                "required": ["query"],
             },
         },
     },
@@ -493,22 +493,6 @@ def _load_kb_search():
             return None
 
 
-def _load_kb_prefetch():
-    """延迟导入 selinux_kb.prefetch（预取失败不应该影响技能分析主流程）。"""
-    try:
-        from selinux_kb import prefetch as kb_prefetch
-        return kb_prefetch
-    except Exception:
-        backend_dir = os.path.dirname(os.path.abspath(__file__))
-        if backend_dir not in sys.path:
-            sys.path.insert(0, backend_dir)
-        try:
-            from selinux_kb import prefetch as kb_prefetch
-            return kb_prefetch
-        except Exception:
-            return None
-
-
 def _handler_selinux_knowledge(round_id: str, query: str = "", kind: str = "all",
                                module: str = "", k: int = 5) -> str:
     """检索本地 SELinux 知识库（refpolicy 源码 / SELinux Notebook / 官方 wiki）。
@@ -591,164 +575,26 @@ TOOL_HANDLERS: Dict[str, Any] = {
 # LLM 调用辅助
 # ═══════════════════════════════════════════════════════════════════
 
-# ─── 上下文预算控制 ────────────────────────────────────────────────
-# vLLM 在「prompt token 数 + max_tokens > max_model_len」时会直接返回 400，
-# 而本模块会把整轮审计数据（syscall 序列、LSM hook、工具返回）累积进上下文，
-# 因此每次调用前都必须先按预算裁剪，否则必然触发 400。
-
-LLM_ERROR_PREFIX = "[LLM 请求异常]"
-
-DEFAULT_MAX_CONTEXT = 8192        # 探测失败时的保守默认值（token）
-CONTEXT_SAFETY_MARGIN = 512       # 预留给 chat 模板与特殊 token
-_COMPRESS_INPUT_MAX = 8000        # 送去压缩的原文上限（字符）
-_MODEL_MAX_CONTEXT: Dict[str, int] = {}   # url -> max_model_len，进程内缓存
-
-
-def _cfg_int(key: str, default: int) -> int:
-    """读取整数配置项，缺失或非法时返回默认值。"""
-    try:
-        raw = (db.get_config(key) or "").strip()
-        val = int(raw)
-        return val if val > 0 else default
-    except Exception:
-        return default
-
-
-def _detect_max_context(llm_url: str) -> int:
-    """探测 vLLM 的 max_model_len（GET /v1/models），失败时返回保守默认值。"""
-    try:
-        base = llm_url.rstrip("/")
-        for suffix in ("/v1/chat/completions", "/chat/completions", "/v1", "/completions"):
-            if base.endswith(suffix):
-                base = base[: -len(suffix)]
-                break
-        resp = http_requests.get(base.rstrip("/") + "/v1/models", timeout=5)
-        if resp.status_code < 400:
-            data = resp.json()
-            items = data.get("data") if isinstance(data, dict) else None
-            if isinstance(items, list):
-                for item in items:
-                    val = item.get("max_model_len") if isinstance(item, dict) else None
-                    if isinstance(val, int) and val > 1024:
-                        return val
-    except Exception:
-        pass
-    return DEFAULT_MAX_CONTEXT
-
-
-def _get_max_context(llm_url: str) -> int:
-    """模型上下文上限：优先取配置，其次探测并缓存。"""
-    configured = _cfg_int("monitor_conf.anomaly_llm_max_context", 0)
-    if configured:
-        return configured
-    if llm_url not in _MODEL_MAX_CONTEXT:
-        _MODEL_MAX_CONTEXT[llm_url] = _detect_max_context(llm_url)
-    return _MODEL_MAX_CONTEXT[llm_url]
-
-
-def _llm_model_field() -> Optional[str]:
-    """请求体里的 model 字段。
-
-    默认不发送——若目标 vLLM 不校验该字段，保持现状最稳妥；
-    当服务要求 model 且为空会返回 400 时，配置
-    monitor_conf.anomaly_llm_model 填成 /v1/models 返回的 id 即可。
-    """
-    try:
-        val = (db.get_config("monitor_conf.anomaly_llm_model") or "").strip()
-    except Exception:
-        return None
-    return val or None
-
-
-def _estimate_tokens(text: str) -> int:
-    """粗略估算 token 数：CJK 约 1 字 1 token，其余约 3.5 字符 1 token。"""
-    if not text:
-        return 0
-    cjk = 0
-    for ch in text:
-        if "\u4e00" <= ch <= "\u9fff" or "\u3000" <= ch <= "\u303f":
-            cjk += 1
-    return cjk + int((len(text) - cjk) / 3.5) + 1
-
-
-def _messages_tokens(messages: list) -> int:
-    total = 0
-    for msg in messages:
-        total += _estimate_tokens(msg.get("content") or "")
-        for tc in (msg.get("tool_calls") or []):
-            fn = tc.get("function") or {}
-            total += _estimate_tokens(fn.get("arguments") or "") + 8
-        total += 8          # 每条消息的角色分隔开销
-    return total
-
-
-def _clamp_max_tokens(llm_url: str, max_tokens: int) -> int:
-    """输出上限不能超过「上下文上限 - 预留输入空间」，否则 vLLM 直接 400。"""
-    limit = max(512, _get_max_context(llm_url) - 1536)
-    try:
-        max_tokens = int(max_tokens)
-    except (TypeError, ValueError):
-        max_tokens = DEFAULT_MAX_TOKENS
-    return max(256, min(max_tokens, limit))
-
-
-def _shrink_messages(messages: list, llm_url: str, max_tokens: int) -> list:
-    """按上下文预算裁剪消息历史。
-
-    保留 system 提示与最后一条 user 消息，优先截断最长的历史消息
-    （通常是体积巨大的工具返回），避免整轮分析因超上下文而失败。
-    """
-    max_ctx = _get_max_context(llm_url)
-    budget = max_ctx - max_tokens - CONTEXT_SAFETY_MARGIN
-    if budget < 1024:
-        budget = max(512, max_ctx // 2)
-
-    out = [dict(m) for m in messages]
-    total = _messages_tokens(out)
-    if total <= budget:
-        return out
-
-    protected = {0}                                   # 首条 system 始终保留
-    for i in range(len(out) - 1, -1, -1):             # 最后一条 user 始终保留
-        if out[i].get("role") == "user":
-            protected.add(i)
-            break
-
-    excess_chars = int((total - budget) * 3.5) + 200
-    order = sorted((i for i in range(len(out)) if i not in protected),
-                   key=lambda i: -len(out[i].get("content") or ""))
-    for i in order:
-        if excess_chars <= 0:
-            break
-        content = out[i].get("content") or ""
-        if len(content) <= 600:
-            continue
-        keep = max(400, len(content) - excess_chars)
-        removed = len(content) - keep
-        out[i]["content"] = content[:keep] + "\n…（上下文超限，已截断 %d 字符）" % removed
-        excess_chars -= removed
-    return out
-
-
 def _call_llm_with_tools(
     url: str,
     messages: list,
     tools: list,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    api_key: str = "",
+    model: str = "gpt-4",
 ) -> Dict[str, Any]:
     """非流式 LLM 调用（含 tools 参数），返回完整响应。"""
-    max_tokens = _clamp_max_tokens(url, max_tokens)
     payload = {
+        "model": model,
         "temperature": 0.3,
-        "messages": _shrink_messages(messages, url, max_tokens),
+        "messages": messages,
         "tools": tools,
         "tool_choice": "auto",
         "max_tokens": max_tokens,
     }
-    _model = _llm_model_field()
-    if _model:
-        payload["model"] = _model
     headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     resp = http_requests.post(url, headers=headers, json=payload, timeout=120)
     if resp.status_code >= 400:
         raise RuntimeError(f"LLM HTTP {resp.status_code}: {resp.text[:500]}")
@@ -759,25 +605,23 @@ def _call_llm_stream(
     url: str,
     messages: list,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    api_key: str = "",
+    model: str = "gpt-4",
 ) -> Generator[str, None, None]:
     """流式 LLM 调用（无 tools），逐个 yield 文本块。"""
-    max_tokens = _clamp_max_tokens(url, max_tokens)
     payload = {
+        "model": model,
         "temperature": 0.3,
-        "messages": _shrink_messages(messages, url, max_tokens),
+        "messages": messages,
         "stream": True,
         "max_tokens": max_tokens,
     }
-    _model = _llm_model_field()
-    if _model:
-        payload["model"] = _model
     headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     resp = http_requests.post(url, headers=headers, json=payload, stream=True, timeout=180)
     if resp.status_code >= 400:
-        # 必须带上响应体：vLLM 的报错正文会直接说明原因
-        # （上下文超限 / 模型名不存在 / 未开启 tool calling 等）
-        body = (resp.text or "").replace("\n", " ")[:400]
-        yield f"{LLM_ERROR_PREFIX} HTTP {resp.status_code}: {body}"
+        yield f"[LLM 请求异常] HTTP {resp.status_code}"
         return
     for raw in resp.iter_lines(decode_unicode=True):
         if not raw:
@@ -806,6 +650,8 @@ def _stream_llm_with_tools(
     messages: list,
     tools: list,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    api_key: str = "",
+    model: str = "gpt-4",
 ) -> Generator[tuple, None, None]:
     """流式 LLM 调用（含 tools）。
 
@@ -815,19 +661,18 @@ def _stream_llm_with_tools(
       ("final", {content, tool_calls, indices})
                                   — 流结束，返回完整文本与组装好的 tool_calls
     """
-    max_tokens = _clamp_max_tokens(url, max_tokens)
     payload = {
+        "model": model,
         "temperature": 0.3,
-        "messages": _shrink_messages(messages, url, max_tokens),
+        "messages": messages,
         "tools": tools,
         "tool_choice": "auto",
         "stream": True,
         "max_tokens": max_tokens,
     }
-    _model = _llm_model_field()
-    if _model:
-        payload["model"] = _model
     headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     resp = http_requests.post(url, headers=headers, json=payload, stream=True, timeout=180)
     if resp.status_code >= 400:
         raise RuntimeError(f"LLM HTTP {resp.status_code}: {resp.text[:500]}")
@@ -904,20 +749,9 @@ def _stream_llm_with_tools(
 # ═══════════════════════════════════════════════════════════════════
 
 def _get_skill_system_prompt() -> str:
-    """从 DB 读取自定义 skill 提示词，未配置则用默认值。
-
-    无论用户是否自定义提示词，都会追加 SELinux 依据约束（见 prefetch.DIRECTIVE），
-    避免自定义提示词把「先查证再给建议」的要求覆盖掉。
-    """
+    """从 DB 读取自定义 skill 提示词，未配置则用默认值。"""
     custom = (db.get_config("monitor_conf.anomaly_llm_skill_prompt") or "").strip()
-    base = custom if custom else DEFAULT_SKILL_SYSTEM_PROMPT
-    prefetch = _load_kb_prefetch()
-    if prefetch is None:
-        return base
-    try:
-        return prefetch.extend_skill_prompt(base)
-    except Exception:
-        return base
+    return custom if custom else DEFAULT_SKILL_SYSTEM_PROMPT
 
 
 # ─── 工具结果压缩开关 ──────────────────────────────────────────
@@ -945,65 +779,49 @@ _COMPRESS_SYSTEM_PROMPT = (
 )
 
 
-def _compress_tool_result(text: str, llm_url: str, max_tokens: int) -> str:
-    """调用 LLM 压缩过长的工具返回结果；失败时返回空串（由调用方兜底截断）。
-
-    注意两点：
-      1. 送给压缩模型的原文也要限长——为了压缩而把原文整段发过去，
-         同样会撑爆上下文，反而制造出新的 400。
-      2. 必须识别出错误标记：否则 "[LLM 请求异常] ..." 会被当成压缩结果，
-         再作为「工具返回」喂回模型，污染整轮分析。
-    """
-    payload_text = text
-    if len(payload_text) > _COMPRESS_INPUT_MAX:
-        payload_text = (payload_text[:_COMPRESS_INPUT_MAX]
-                        + "\n…（原文共 %d 字符，此处仅取前 %d 字符）"
-                        % (len(text), _COMPRESS_INPUT_MAX))
+def _compress_tool_result(text: str, llm_url: str, max_tokens: int, api_key: str = "", model: str = "gpt-4") -> str:
+    """调用 LLM 压缩过长的工具返回结果；压缩失败或为空时原样返回。"""
     messages = [
         {"role": "system", "content": _COMPRESS_SYSTEM_PROMPT},
-        {"role": "user", "content": f"待压缩内容如下：\n\n{payload_text}"},
+        {"role": "user", "content": f"待压缩内容如下：\n\n{text}"},
     ]
     chunks = []
     try:
-        for chunk in _call_llm_stream(llm_url, messages, max_tokens):
+        for chunk in _call_llm_stream(llm_url, messages, max_tokens, api_key=api_key, model=model):
             chunks.append(chunk)
     except Exception:
-        return ""
+        return text
     compressed = "".join(chunks).strip()
-    if not compressed or LLM_ERROR_PREFIX in compressed:
-        return ""
-    return compressed
+    return compressed or text
 
 
-def _process_tool_result(result_text: str, llm_url: str, max_tokens: int):
+def _process_tool_result(result_text: str, llm_url: str, max_tokens: int, api_key: str = "", model: str = "gpt-4"):
     """根据压缩开关处理过长工具结果，返回 (处理后文本, 是否经大模型压缩)。"""
     threshold = _get_tool_compress_max()
     if len(result_text) <= threshold:
         return result_text, False
-    fallback = (result_text[:threshold]
-                + "\n\n...（结果过长，已截断至 %d 字符）" % threshold)
     if _get_tool_compress_switch() and llm_url:
-        compressed = _compress_tool_result(result_text, llm_url, max_tokens)
-        if compressed:
-            return compressed, True
-        return fallback, False      # 压缩失败 → 退回截断，绝不把错误信息当结果
+        compressed = _compress_tool_result(result_text, llm_url, max_tokens, api_key=api_key, model=model)
+        return compressed, True
     # 开关关闭：直接截断到阈值长度
-    return fallback, False
+    return result_text[:threshold] + "\n\n...（结果过长，已截断）", False
 
 
 def run_skill_analysis(
     round_id: str,
     llm_url: str,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    api_key: str = "",
+    model: str = "gpt-4",
 ) -> Generator[Dict[str, Any], None, None]:
     """
     技能分析编排器 —— generator 产出 SSE-compatible 事件字典。
 
     Event types:
-        {"type": "tool_call", "name": "...", "status": "started|completed|error", "result": "..."}
+        {"type": "tool_call", "name": "...", "status": "started|completed|error", "result": "...", "duration_ms": ...}
         {"type": "text", "content": "..."}
         {"type": "text_done", "content": "..."}
-        {"type": "done"}
+        {"type": "done", "total_duration_ms": ...}
         {"type": "error", "message": "..."}
         {"type": "tool_limit_reached", "message": "..."}
     """
@@ -1013,32 +831,23 @@ def run_skill_analysis(
         yield {"type": "error", "message": f"未找到 round_id={round_id}"}
         return
 
+    t_start = time.time()
     # 2. 构造初始消息
     system_prompt = _get_skill_system_prompt()
-
-    # 回答前自动检索 SELinux 知识：把依据直接放进上下文，
-    # 不依赖模型是否主动调用 search_selinux_knowledge
-    user_content = (
-        f"请对 Round {round_id} 进行全面的异常行为分析。\n\n"
-        f"你可以使用上述工具逐步获取所需数据。\n"
-        f"获取足够信息后，请给出：\n"
-        f"1. 异常判定（是/否）\n"
-        f"2. 风险等级（low/medium/high）\n"
-        f"3. 详细分析理由\n"
-        f"4. 策略建议"
-    )
-    prefetch = _load_kb_prefetch()
-    if prefetch is not None:
-        try:
-            kb_block = prefetch.block_for_round(row)
-        except Exception:
-            kb_block = ""
-        if kb_block:
-            user_content += "\n\n" + kb_block
-
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
+        {
+            "role": "user",
+            "content": (
+                f"请对 Round {round_id} 进行全面的异常行为分析。\n\n"
+                f"你可以使用上述工具逐步获取所需数据。\n"
+                f"获取足够信息后，请给出：\n"
+                f"1. 异常判定（是/否）\n"
+                f"2. 风险等级（low/medium/high）\n"
+                f"3. 详细分析理由\n"
+                f"4. 策略建议"
+            ),
+        },
     ]
 
     # 3. 工具调用循环
@@ -1062,26 +871,29 @@ def run_skill_analysis(
             handler = TOOL_HANDLERS.get(func_name)
             if handler is None:
                 rt = f"错误：未知工具 '{func_name}'"
-                yield {"type": "tool_call", "name": func_name, "status": "error", "result": rt}
+                yield {"type": "tool_call", "name": func_name, "status": "error", "result": rt, "duration_ms": 0}
                 yield ("__result__", rt)
                 return
+            t_start_tool = time.time()
             try:
                 raw_text = _call_tool_handler(func_name, round_id, arguments)
-                processed_text, was_compressed = _process_tool_result(raw_text, llm_url, max_tokens)
+                duration_ms = round((time.time() - t_start_tool) * 1000)
+                processed_text, was_compressed = _process_tool_result(raw_text, llm_url, max_tokens, api_key=api_key, model=model)
                 preview = processed_text
                 if len(preview) > 1000:
                     preview = preview[:1000] + "\n\n...（结果过长，已截断显示）"
                 if was_compressed:
                     preview += "\n\n[已调用大模型对过长工具结果进行压缩]"
-                yield {"type": "tool_call", "name": func_name, "status": "completed", "result": preview}
+                yield {"type": "tool_call", "name": func_name, "status": "completed", "result": preview, "duration_ms": duration_ms}
                 yield ("__result__", processed_text)
             except Exception as e:
+                duration_ms = round((time.time() - t_start_tool) * 1000)
                 rt = f"工具执行异常: {e}"
-                yield {"type": "tool_call", "name": func_name, "status": "error", "result": rt}
+                yield {"type": "tool_call", "name": func_name, "status": "error", "result": rt, "duration_ms": duration_ms}
                 yield ("__result__", rt)
 
         try:
-            for ev in _stream_llm_with_tools(llm_url, messages, TOOLS, max_tokens):
+            for ev in _stream_llm_with_tools(llm_url, messages, TOOLS, max_tokens, api_key=api_key, model=model):
                 kind = ev[0]
                 if kind == "content":
                     # 模型边思考/边输出文本 → 实时转发（若本轮最终无工具，则为最终分析）
@@ -1160,10 +972,10 @@ def run_skill_analysis(
             ),
         })
         final_chunks: list[str] = []
-        for chunk in _call_llm_stream(llm_url, messages, max_tokens):
+        for chunk in _call_llm_stream(llm_url, messages, max_tokens, api_key=api_key, model=model):
             yield {"type": "text", "content": chunk}
             final_chunks.append(chunk)
         yield {"type": "text_done", "content": "".join(final_chunks)}
 
     # 5. 完成
-    yield {"type": "done"}
+    yield {"type": "done", "total_duration_ms": round((time.time() - t_start) * 1000)}

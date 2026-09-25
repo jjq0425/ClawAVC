@@ -717,6 +717,13 @@ def analyze_shell_command(command: str, workdir: Optional[str] = None) -> ShellA
         behaviors.extend(analysis.behaviors)
         notes.extend(analysis.notes)
 
+    # 空设备/标准流重定向（如 > /dev/null、2>&1）丢弃输出，不计入文件写行为
+    void_devices = {"/dev/null", "/dev/stdout", "/dev/stdin", "/dev/stderr"}
+    behaviors = [
+        b for b in behaviors
+        if not (b.resource_kind == "file" and b.identifier in void_devices)
+    ]
+
     if not behaviors:
         overall_status: InferenceStatus = "unresolved"
     else:

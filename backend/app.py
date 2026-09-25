@@ -1382,10 +1382,13 @@ def monitor_anomaly_llm_skill():
     if max_tokens <= 0:
         max_tokens = 4096
 
+    api_key = (db.get_config("monitor_conf.anomaly_llm_api_key") or "").strip()
+    model = (db.get_config("monitor_conf.anomaly_llm_model") or "").strip() or "gpt-4"
+
     from xy_skill import run_skill_analysis
 
     def generate():
-        for event in run_skill_analysis(round_id, llm_url, max_tokens):
+        for event in run_skill_analysis(round_id, llm_url, max_tokens, api_key=api_key, model=model):
             yield f"event: {event['type']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return Response(

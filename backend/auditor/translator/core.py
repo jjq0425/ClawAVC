@@ -70,15 +70,24 @@ def get_llm_config() -> Dict[str, Any]:
 # Registry
 # ---------------------------------------------------------------------------
 def load_scene_registry() -> Dict[str, Any]:
-    with open(REGISTRY_DIR / "scenes.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+    """加载场景注册表；缺失/非法时降级为空集合并告警，不阻断主链路。"""
+    try:
+        with open(REGISTRY_DIR / "scenes.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[core] load_scene_registry degraded (dir={REGISTRY_DIR}): {e}", flush=True)
+        return {}
 
 
 def load_tool_registry() -> Dict[str, Any]:
     registry: Dict[str, Any] = {}
     for path in sorted((REGISTRY_DIR / "tools").glob("*.json")):
-        with open(path, "r", encoding="utf-8") as f:
-            obj = json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                obj = json.load(f)
+        except Exception as e:
+            print(f"[core] skip invalid tool json {path.name}: {e}", flush=True)
+            continue
         scene = obj.get("scene")
         if scene:
             registry[scene] = obj
@@ -155,14 +164,36 @@ def call_llm(
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
-    text = text.strip()
+    text = (text or "").strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1:
-        raise ValueError("LLM 响应中未找到 JSON 对象")
-    return json.loads(text[start:end + 1])
+    if not text:
+        raise ValueError("LLM 响应为空")
+    # 1) 整体直接解析
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    # 2) 宽松修复：去尾随逗号 / 单引号转双引号
+    relaxed = re.sub(r",\s*([}\]])", r"\1", text)
+    for cand in (relaxed, relaxed.replace("'", '"')):
+        try:
+            obj = json.loads(cand)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            continue
+    # 3) 多 JSON 块 / 前后夹带解释文字：扫描取第一个可解析的 JSON 对象
+    decoder = json.JSONDecoder()
+    for idx, ch in enumerate(text):
+        if ch == "{":
+            try:
+                obj, _ = decoder.raw_decode(text[idx:])
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                continue
+    raise ValueError("LLM 响应中未找到 JSON 对象")
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +366,10 @@ def normalize_ir(ir: Dict[str, Any]) -> Dict[str, Any]:
         if "subject" in policy and "objects" in policy:
             subj = policy["subject"]
             objs = policy.get("objects", [])
+            if isinstance(objs, dict):
+                objs = [objs]  # 单对象形态归一为数组
+            if not isinstance(objs, list):
+                objs = []
             if subj in TOOL_REGISTRY:
                 fn_defs = TOOL_REGISTRY[subj].get("functions", {})
                 for obj in objs:
@@ -393,6 +428,53 @@ def normalize_ir(ir: Dict[str, Any]) -> Dict[str, Any]:
             normalized.append({"subject": scene, "objects": objects, "effect": "allow"})
 
     ir["policies"] = normalized
+    return ir
+
+
+def _apply_static_deny(ir: Dict[str, Any]) -> Dict[str, Any]:
+    """静态策略 denylist 优先于 IR（S-1-1）。
+
+    工具对象的参数值命中所在函数定义的 constraint_spec.static.denylist 时，
+    该工具对象整体从 IR 中删除（相当于阻断），并打印告警；不影响其余允许项。
+    """
+    if not isinstance(ir, dict):
+        return ir
+    denied: List[str] = []
+    kept_policies: List[Dict[str, Any]] = []
+    for policy in ir.get("policies", []) or []:
+        if not isinstance(policy, dict):
+            continue
+        subj = policy.get("subject")
+        fn_defs = TOOL_REGISTRY.get(subj, {}).get("functions", {}) if subj else {}
+        new_objs: List[Dict[str, Any]] = []
+        for obj in policy.get("objects") or []:
+            blocked = False
+            if isinstance(obj, dict) and obj.get("type") == "tool":
+                fn_def = fn_defs.get(obj.get("identifier")) or {}
+                params_def = fn_def.get("params") or {}
+                for p in obj.get("params") or []:
+                    if not isinstance(p, dict):
+                        continue
+                    pval = str(p.get("identifier", ""))
+                    if not pval:
+                        continue
+                    for st in _static_spec(params_def.get(p.get("name"), {})):
+                        denylist = [str(x) for x in (st.get("denylist") or [])]
+                        if pval in denylist:
+                            blocked = True
+                            break
+                    if blocked:
+                        break
+            if blocked:
+                denied.append(str(obj.get("identifier")))
+            else:
+                new_objs.append(obj)
+        if new_objs:
+            policy["objects"] = new_objs
+            kept_policies.append(policy)
+    ir["policies"] = kept_policies
+    if denied:
+        print(f"[core] static denylist blocked tools: {denied}", flush=True)
     return ir
 
 
@@ -469,7 +551,8 @@ def validate_ir(ir: Dict[str, Any]) -> ValidationReport:
         fn_defs = TOOL_REGISTRY.get(subject, {}).get("functions", {}) if has_tool_registry else {}
 
         if not is_known_scene and subject not in ("default_fallback", "file_access"):
-            rep.warnings.append(f"policy[{i}] subject '{subject}' 不在已知场景列表中")
+            rep.ok = False
+            rep.errors.append(f"policy[{i}] subject '{subject}' 不在已知场景列表中")
 
         # resource_type check (for backward compat with old format)
         if "resource_type" in policy and has_tool_registry:
@@ -508,7 +591,8 @@ def validate_ir(ir: Dict[str, Any]) -> ValidationReport:
 
                 # Check identifier against registry (skip * wildcard)
                 if identifier != "*" and fn_defs and identifier not in fn_defs:
-                    rep.warnings.append(f"policy[{i}].objects[{j}] 工具 '{identifier}' 不在场景 '{subject}' 的注册表中")
+                    rep.ok = False
+                    rep.errors.append(f"policy[{i}].objects[{j}] 工具 '{identifier}' 不在场景 '{subject}' 的注册表中")
 
                 # Validate params
                 params = obj.get("params")
@@ -584,6 +668,10 @@ def translate(query: str, config: Optional[Dict[str, Any]] = None, is_ui_test: b
     if ir:
         ir = normalize_ir(ir)
 
+    # 静态策略 denylist 优先于 IR（S-1-1）：命中即删除，不影响主链路
+    if ir:
+        ir = _apply_static_deny(ir)
+
     # Validate
     validation = validate_ir(ir) if ir else ValidationReport(ok=True)
 
@@ -611,6 +699,7 @@ def normalize_and_validate(ir_dict: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize and validate an IR dict without LLM call. For default policy saving."""
     if ir_dict:
         ir_dict = normalize_ir(ir_dict)
+        ir_dict = _apply_static_deny(ir_dict)
     validation = validate_ir(ir_dict) if ir_dict else ValidationReport(ok=True)
     return {
         "ir": ir_dict,

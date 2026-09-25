@@ -47,7 +47,7 @@ _STOPWORDS = {
 
 
 def default_db_path() -> str:
-    """默认索引位置：clawAVC/infos/selinux_kb/selinux_kb.db（可用环境变量覆盖）。"""
+    """默认索引位置：clawAVC/backend/selinux_kb/selinux_kb.db（可用环境变量覆盖）。"""
     env = os.environ.get("SELINUX_KB_PATH")
     if env:
         return env

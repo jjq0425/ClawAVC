@@ -41,3 +41,10 @@ infos/kernel_judge/*
 *.docx
 
 .codebuddy/*
+
+node_modules/*
+
+test/*
+*.docx
+figures/*
+scripts/*

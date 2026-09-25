@@ -250,13 +250,13 @@ def insert_round(data: Dict[str, Any]) -> Optional[int]:
         overall_score = 1.0
 
         if isinstance(judge_result, str):
-            if overall_score < 0.5:
-                is_abnormal = 1
-            # Extract score from text like "整体得分: 0.3333"
+            # 先解析得分，再做阈值判断（原实现顺序颠倒导致 is_abnormal 恒为 0）
             import re
             score_match = re.search(r"整体得分:\s*([\d.]+)", judge_result)
             if score_match:
                 overall_score = float(score_match.group(1))
+            if overall_score < 0.5:
+                is_abnormal = 1
 
         action_json_val = json.dumps(data.get("action", []), ensure_ascii=False)
         cursor = conn.execute("""
@@ -527,13 +527,18 @@ def update_round_field(round_id: str, field: str, value: str, time_limit_enabled
         if not existing:
             return "not_found"
         # 检查创建时间是否超过 15 分钟（仅当开关启用时）
+        # created_at 由 SQLite CURRENT_TIMESTAMP 生成（UTC），比较基准统一用 UTC，
+        # 避免本地时区（如东八区）差 8 小时导致全部命中 too_old。
         if time_limit_enabled:
             created_at = existing[0]
             if created_at:
-                from datetime import datetime, timedelta
-                created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
-                now = datetime.now()
-                if now - created_dt > timedelta(minutes=15):
+                from datetime import datetime, timedelta, timezone
+                try:
+                    created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S.%f")
+                except ValueError:
+                    created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - created_dt > timedelta(minutes=15):
                     return "too_old"
         # is_abnormal 需要转为整数
         if field == "is_abnormal":
@@ -637,13 +642,18 @@ def update_kernel_info(round_id: str, kernel_syscall_seq_path: str, kernel_lsm_h
             return "not_found"
         
         # 检查创建时间是否超过 15 分钟（仅当开关启用时）
+        # created_at 由 SQLite CURRENT_TIMESTAMP 生成（UTC），比较基准统一用 UTC，
+        # 避免本地时区（如东八区）差 8 小时导致全部命中 too_old。
         if time_limit_enabled:
             created_at = existing[0]
             if created_at:
-                from datetime import datetime, timedelta
-                created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
-                now = datetime.now()
-                if now - created_dt > timedelta(minutes=15):
+                from datetime import datetime, timedelta, timezone
+                try:
+                    created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S.%f")
+                except ValueError:
+                    created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - created_dt > timedelta(minutes=15):
                     return "too_old"
         
         # 更新内核态信息
@@ -905,13 +915,18 @@ def update_judge_result_kernel(round_id: str, judge_result_kernel_md_path: str, 
         if not existing:
             return "not_found"
         # 检查创建时间是否超过 15 分钟（仅当开关启用时）
+        # created_at 由 SQLite CURRENT_TIMESTAMP 生成（UTC），比较基准统一用 UTC，
+        # 避免本地时区（如东八区）差 8 小时导致全部命中 too_old。
         if time_limit_enabled:
             created_at = existing[0]
             if created_at:
-                from datetime import datetime, timedelta
-                created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
-                now = datetime.now()
-                if now - created_dt > timedelta(minutes=15):
+                from datetime import datetime, timedelta, timezone
+                try:
+                    created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S.%f")
+                except ValueError:
+                    created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - created_dt > timedelta(minutes=15):
                     return "too_old"
         # 更新 judge_result_kernel 字段
         conn.execute(
@@ -1063,13 +1078,18 @@ def update_syscall_judge_json(round_id: str, syscall_judge_data, time_limit_enab
         if not existing:
             return "not_found"
         # 检查创建时间是否超过 15 分钟（仅当开关启用时）
+        # created_at 由 SQLite CURRENT_TIMESTAMP 生成（UTC），比较基准统一用 UTC，
+        # 避免本地时区（如东八区）差 8 小时导致全部命中 too_old。
         if time_limit_enabled:
             created_at = existing[0]
             if created_at:
-                from datetime import datetime, timedelta
-                created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
-                now = datetime.now()
-                if now - created_dt > timedelta(minutes=15):
+                from datetime import datetime, timedelta, timezone
+                try:
+                    created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S.%f")
+                except ValueError:
+                    created_dt = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S")
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - created_dt > timedelta(minutes=15):
                     return "too_old"
         # 更新 syscall_judge 字段
         conn.execute(

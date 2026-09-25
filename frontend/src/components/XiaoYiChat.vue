@@ -64,6 +64,9 @@
                     {{ step.status === 'completed' ? '完成' : step.status === 'error' ? '失败' : '调用中...' }}
                   </t-tag>
                 </span>
+                <span v-if="step.duration_ms != null" class="xy-skill-step__duration">
+                  {{ step.duration_ms >= 1000 ? (step.duration_ms / 1000).toFixed(1) + 's' : step.duration_ms + 'ms' }}
+                </span>
                 <t-icon
                   :name="step._expanded ? 'chevron-up' : 'chevron-down'"
                   class="xy-skill-step__chev"
@@ -73,6 +76,15 @@
                 <pre class="code-shell" v-html="highlightShell(step.result_preview)"></pre>
               </div>
             </div>
+          </div>
+          <div v-if="m.meta.total_duration_ms != null" class="xy-skill-summary">
+            <span class="xy-skill-summary__label">总耗时</span>
+            <span class="xy-skill-summary__value">
+              {{ m.meta.total_duration_ms >= 1000 ? (m.meta.total_duration_ms / 1000).toFixed(1) + 's' : m.meta.total_duration_ms + 'ms' }}
+            </span>
+            <span class="xy-skill-summary__sep">·</span>
+            <span class="xy-skill-summary__label">工具调用</span>
+            <span class="xy-skill-summary__value">{{ m.meta.tool_steps.length }} 次</span>
           </div>
           <t-chat-item
             :role="m.role"
@@ -426,7 +438,7 @@ async function sendSkillRound() {
     content: "",
     loading: true,
     status: "",
-    meta: { type: "skill_analysis", round_id: rid, tool_steps: [] },
+    meta: { type: "skill_analysis", round_id: rid, tool_steps: [], total_duration_ms: null },
   })
   messages.push(assistantMsg)
   busy.value = true
@@ -480,13 +492,18 @@ async function sendSkillRound() {
                   name: data.name,
                   status: "started",
                   result_preview: "",
+                  duration_ms: null,
                   _expanded: false,
                 })
               } else {
-                const step = assistantMsg.meta.tool_steps.find((s) => s.name === data.name)
+                const steps = assistantMsg.meta.tool_steps
+                const step = steps.findLast
+                  ? steps.findLast((s) => s.name === data.name && s.status === "started")
+                  : [...steps].reverse().find((s) => s.name === data.name && s.status === "started")
                 if (step) {
                   step.status = data.status
                   step.result_preview = data.result || ""
+                  step.duration_ms = data.duration_ms ?? null
                 }
               }
               break
@@ -505,7 +522,9 @@ async function sendSkillRound() {
               MessagePlugin.error(data.message)
               break
             case "done":
-              // 分析完成
+              if (data.total_duration_ms != null) {
+                assistantMsg.meta.total_duration_ms = data.total_duration_ms
+              }
               break
           }
         } catch (e) {
@@ -759,6 +778,12 @@ async function sendRound() {
   white-space: nowrap;
 }
 .xy-skill-step__tag { flex: 0 0 auto; }
+.xy-skill-step__duration {
+  font-size: 12px;
+  color: #8a94a6;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
 .xy-skill-step__chev { color: #aab2c0; font-size: 14px; flex: 0 0 auto; }
 .xy-skill-step__detail {
   margin-top: 8px;
@@ -801,4 +826,19 @@ async function sendRound() {
 .xy-skill-step__detail pre.code-shell .tok-string {
   color: #c3e88d;
 }
+.xy-skill-summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0 8px;
+  font-size: 12px;
+  color: #8a94a6;
+}
+.xy-skill-summary__label { color: #8a94a6; }
+.xy-skill-summary__value {
+  color: #2a354a;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.xy-skill-summary__sep { margin: 0 4px; color: #d0d5dd; }
 </style>
