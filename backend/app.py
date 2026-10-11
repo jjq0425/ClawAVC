@@ -1222,6 +1222,193 @@ def set_policy_path_template_api():
     return jsonify(result), code
 
 
+
+# ==================== AI 帮写（ai-writer）：角色策略库生成 ====================
+def _aiw():
+    from auditor.translator import ai_writer
+    return ai_writer
+
+
+def _aiw_admin():
+    """写操作统一特权校验（与 /api/translator/config PUT 一致）。"""
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    return None
+
+
+def _aiw_sse(worker):
+    """把生成器包装为 SSE 响应，事件模型沿用 xy_skill：stage/text/done/error。"""
+    def gen():
+        try:
+            for ev in worker():
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return Response(stream_with_context(gen()), mimetype="text/event-stream")
+
+
+@app.route("/api/translator/ai-writer/config", methods=["GET"])
+def get_ai_writer_config():
+    """AI 帮写的独立模型配置（API Token 不回显）。"""
+    return jsonify(_aiw().get_config())
+
+
+@app.route("/api/translator/ai-writer/config", methods=["PUT"])
+def put_ai_writer_config():
+    """更新 AI 帮写配置；api_key 传空表示不修改。"""
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    return jsonify(_aiw().set_config(request.get_json(force=True)))
+
+
+@app.route("/api/translator/ai-writer/test", methods=["POST"])
+def test_ai_writer_llm():
+    """连通性自检：用当前配置做一次最小调用。"""
+    return jsonify(_aiw().test_connection())
+
+
+@app.route("/api/translator/ai-writer/skill-doc", methods=["GET"])
+def get_ai_writer_skill_doc():
+    """读取 SKILL.md（AI 系统提示词基座）正文与备份列表。"""
+    return jsonify(_aiw().read_skill_doc())
+
+
+@app.route("/api/translator/ai-writer/skill-doc", methods=["PUT"])
+def put_ai_writer_skill_doc():
+    """写入 SKILL.md，写前自动备份。"""
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    data = request.get_json(force=True)
+    return jsonify(_aiw().write_skill_doc(data.get("content", "")))
+
+
+@app.route("/api/translator/ai-writer/skill-doc/restore", methods=["POST"])
+def restore_ai_writer_skill_doc():
+    """恢复 SKILL.md（git HEAD 版本优先，其次备份）。"""
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    data = request.get_json(force=True) or {}
+    return jsonify(_aiw().restore_skill_doc(data.get("backup", "")))
+
+
+@app.route("/api/translator/ai-writer/base-scenes", methods=["GET"])
+def get_ai_writer_base_scenes():
+    """基线场景清单（阶段 B 的可选项来源）。"""
+    return jsonify(_aiw().list_base_scenes(request.args.get("base", "default")))
+
+
+@app.route("/api/translator/ai-writer/state", methods=["GET"])
+def get_ai_writer_state():
+    """当前角色的 spec 与逐场景补丁。"""
+    return jsonify(_aiw().get_state(request.args.get("role", "")))
+
+
+@app.route("/api/translator/ai-writer/scaffold", methods=["POST"])
+def ai_writer_scaffold():
+    """阶段 A：按基线创建角色目录（基线只读）。"""
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True)
+    return jsonify(_aiw().scaffold(d.get("role", ""), d.get("base", "default"),
+                                   d.get("title", ""), d.get("instruction", ""),
+                                   bool(d.get("force", False))))
+
+
+@app.route("/api/translator/ai-writer/generate-scenes", methods=["POST"])
+def ai_writer_generate_scenes():
+    """阶段 B（SSE）：AI 依据用户指令规划场景增删。"""
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True)
+    role, base = d.get("role", ""), d.get("base", "default")
+
+    def worker():
+        yield {"type": "stage", "stage": "B", "message": f"正在为角色 {role} 规划场景…"}
+        res = _aiw().generate_scenes(role, base, d.get("instruction", ""), d.get("hint", ""), d.get("title", ""))
+        if not res.get("ok"):
+            yield {"type": "error", "message": res.get("error", "生成失败")}
+            return
+        data = res["data"]
+        yield {"type": "text", "data": json.dumps({"disable": data["disable"], "reason": data["reason"]},
+                                                  ensure_ascii=False, indent=2)}
+        yield {"type": "done", "data": data}
+
+    return _aiw_sse(worker)
+
+
+@app.route("/api/translator/ai-writer/generate-scene", methods=["POST"])
+def ai_writer_generate_scene():
+    """阶段 C（SSE）：AI 依据用户提示填充单个场景的权限约束。"""
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True)
+    role, scene = d.get("role", ""), d.get("scene", "")
+
+    def worker():
+        yield {"type": "stage", "stage": "C", "scene": scene, "message": f"正在生成场景 {scene} 的约束…"}
+        res = _aiw().generate_scene(role, scene, d.get("instruction", ""), d.get("hint", ""),
+                                    d.get("title", ""), d.get("base", "default"))
+        if not res.get("ok"):
+            yield {"type": "error", "message": res.get("error", "生成失败")}
+            return
+        data = res["data"]
+        yield {"type": "text", "data": json.dumps(data["patch"], ensure_ascii=False, indent=2)}
+        yield {"type": "done", "data": data}
+
+    return _aiw_sse(worker)
+
+
+@app.route("/api/translator/ai-writer/patch", methods=["PUT"])
+def put_ai_writer_patch():
+    """保存（覆盖）某场景的补丁；body 传空 patch 表示删除该场景补丁。"""
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True)
+    role, scene, patch = d.get("role", ""), d.get("scene", ""), d.get("patch")
+    aw = _aiw()
+    store = aw.delete_patch(role, scene) if not patch else aw.save_patch(role, scene, patch)
+    return jsonify({"ok": True, "data": {"role": role, "scene": scene, "patches": store}})
+
+
+@app.route("/api/translator/ai-writer/apply", methods=["POST"])
+def ai_writer_apply():
+    """阶段 C 落盘：合并全部场景补丁 → 按基线重建 → 落盘 → 校验。"""
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True) or {}
+    return jsonify(_aiw().apply_patches(d.get("role", ""), reset=bool(d.get("reset", True))))
+
+
+@app.route("/api/translator/ai-writer/validate", methods=["POST"])
+def ai_writer_validate():
+    """校验角色策略库结构（E 级阻断 / W 级提示）。"""
+    d = request.get_json(force=True) or {}
+    return jsonify(_aiw().validate(d.get("role", "")))
+
+
+@app.route("/api/translator/ai-writer/snapshots", methods=["GET"])
+def get_ai_writer_snapshots():
+    return jsonify(_aiw().list_snapshots(request.args.get("role", "")))
+
+
+@app.route("/api/translator/ai-writer/rollback", methods=["POST"])
+def ai_writer_rollback():
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True) or {}
+    return jsonify(_aiw().rollback(d.get("role", ""), d.get("ts", "")))
+
 @app.route("/api/translator/registry", methods=["GET"])
 def get_registry():
     """Get current policy registry (scenes + tools summary)."""

@@ -1,0 +1,19 @@
+{
+  "role_name": "dev-nogit",
+  "base_policy": "default",
+  "title": "禁用 git 的开发角色",
+  "description": "可构建/测试/运行代码，但一切 git 操作被禁止；docker 一并禁用。",
+  "no_git": true,
+  "files": {
+    "read_paths": ["/workspace/**", "/tmp/**"],
+    "write_paths": ["/workspace/**"],
+    "deny_paths": ["/etc/**", "/root/**", "~/.ssh/**"]
+  },
+  "bash": {
+    "mode": "replace",
+    "allowed_commands": ["ls", "cat", "head", "tail", "grep", "find", "wc", "diff", "make", "cmake", "gcc", "g++", "python", "python3", "node", "npm run", "npm test", "npm install", "pytest", "jest", "go build", "go test", "cargo build"],
+    "denied_commands": ["git", "docker", "sudo"],
+    "workdir_allowlist": ["/workspace/**"],
+    "hint": "本角色禁止一切版本控制（git）与容器（docker）操作。"
+  }
+}

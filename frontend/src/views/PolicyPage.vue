@@ -17,6 +17,9 @@
       <t-tab-panel value="logs" label="翻译日志">
         <LogsTab />
       </t-tab-panel>
+      <t-tab-panel value="ai-writer" label="AI 帮写">
+        <AiWriterTab />
+      </t-tab-panel>
       <t-tab-panel value="default" label="默认策略">
         <DefaultPolicyTab />
       </t-tab-panel>
@@ -32,6 +35,7 @@ import ConfigTab from "./policy/ConfigTab.vue"
 import RegistryTab from "./policy/RegistryTab.vue"
 import LogsTab from "./policy/LogsTab.vue"
 import DefaultPolicyTab from "./policy/DefaultPolicyTab.vue"
+import AiWriterTab from "./policy/AiWriterTab.vue"
 
 const activeTab = ref("translate")
 </script>

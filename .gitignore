@@ -40,7 +40,9 @@ infos/kernel_judge/*
 
 *.docx
 
-.codebuddy/*
+.codebuddy/fonts/*
+.codebuddy/skills/test-expert/*
+.codebuddy/ref_figures/*
 
 node_modules/*
 
@@ -52,3 +54,7 @@ scripts/*
 *.pptx
 *.ppt
 *.pdf
+# AI 帮写运行时产物（快照 / 工作状态 / SKILL.md 备份）
+backend/auditor/translator/.ai_writer_snapshots/
+backend/auditor/translator/.ai_writer_state/
+.codebuddy/skills/clawavc-policy-creator/backups/

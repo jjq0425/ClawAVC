@@ -1,0 +1,23 @@
+{
+  "role_name": "analyst",
+  "base_policy": "default",
+  "title": "只读数据分析师",
+  "description": "只能读取工作区与 /data、仅可写 outputs、外网仅限查询、Bash 限只读命令与 python，禁用 IM/邮件/日历场景。",
+  "files": {
+    "read_paths": ["/workspace/**", "/data/**"],
+    "write_paths": ["/workspace/outputs/**"],
+    "deny_paths": ["/etc/**", "/root/**", "~/.ssh/**", "~/.aws/**"]
+  },
+  "network": {
+    "enabled": true,
+    "allowed_domains": ["api.example.com"],
+    "deny_hosts": ["169.254.169.254", "metadata.google.internal", "localhost"]
+  },
+  "bash": {
+    "mode": "replace",
+    "allowed_commands": ["ls", "cat", "head", "tail", "grep", "find", "wc", "stat", "diff", "md5sum", "sha256sum", "python", "python3", "ps", "df", "free"],
+    "workdir_allowlist": ["/workspace/**", "/data/**"],
+    "hint": "本角色只允许数据分析相关命令；数据产物只写入 /workspace/outputs。"
+  },
+  "scenes": { "disable": ["im_chat", "email", "calendar"] }
+}
