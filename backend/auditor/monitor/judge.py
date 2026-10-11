@@ -220,6 +220,39 @@ def _match_identifier(actual: str, expected: str, match_mode: str = "auto") -> b
     return False
 
 
+class _FirstMatchIndex:
+    """按原始顺序返回第一个与标识匹配的 IR 对象（P-2-1 性能优化）。
+
+    普通标识（非 regex / glob、不含 *）只能精确相等匹配，放入哈希表 O(1) 查找；
+    通配 / 正则对象保留顺序逐个比对。返回结果与按序线性扫描完全一致。
+    """
+
+    __slots__ = ("objs", "exact", "patterns")
+
+    def __init__(self, objs: Sequence["IRObject"]):
+        self.objs = list(objs)
+        self.exact: Dict[str, int] = {}
+        self.patterns: List[int] = []
+        for i, obj in enumerate(self.objs):
+            ident = str(obj.identifier or "")
+            mode = obj.identifier_match
+            if mode in ("regex", "glob") or "*" in ident or _is_regex_pattern(ident, mode):
+                self.patterns.append(i)
+            else:
+                self.exact.setdefault(ident, i)
+
+    def first(self, actual: str) -> Optional["IRObject"]:
+        actual = str(actual or "")
+        best = self.exact.get(actual)
+        for i in self.patterns:
+            if best is not None and i > best:
+                break
+            obj = self.objs[i]
+            if _match_identifier(actual, obj.identifier, obj.identifier_match):
+                return obj
+        return self.objs[best] if best is not None else None
+
+
 def _glob_param_to_regex(pattern: str) -> str:
     parts: List[str] = []
     index = 0
@@ -255,7 +288,9 @@ def _match_param_value(actual: str, expected: str) -> bool:
 
 def _action_allowed(resource_type: ResourceType, event_action: Action, allowed_actions: set[Action]) -> bool:
     if not allowed_actions:
-        return True
+        # fail-close（R1 修复）：文件 / 网络等资源对象未声明任何允许动作时拒绝一切操作；
+        # 工具对象的动作语义固定为 invoke，列入 IR 白名单即视为授权调用。
+        return resource_type == "tool" and event_action == "invoke"
     if event_action in allowed_actions:
         return True
     # Some gateway/tool parsers only know that a network connection happened,
@@ -395,12 +430,20 @@ def load_ir_policies(json_path: str | Path) -> List[IRPolicy]:
 def _evaluate_event(
     event: BehaviorEvent,
     allow_policies: Sequence[IRPolicy],
+    type_index: Optional[Dict[str, "_FirstMatchIndex"]] = None,
 ) -> tuple[bool, List[str], List[str]]:
     event_action = _normalize_action(event.action)
     matched_rules: List[str] = []
 
-    for policy in allow_policies:
-        for obj in policy.objects:
+    if type_index is not None:
+        index = type_index.get(event.resource_type)
+        hit = index.first(event.identifier) if index is not None else None
+        candidates = [[hit]] if hit is not None else []
+    else:
+        candidates = [policy.objects for policy in allow_policies]
+
+    for objects in candidates:
+        for obj in objects:
             if obj.type != event.resource_type:
                 continue
 
@@ -417,17 +460,16 @@ def _evaluate_event(
                     [],
                 )
 
-            if obj.actions:
-                allowed_actions = {_normalize_action(action) for action in obj.actions}
-                if not _action_allowed(event.resource_type, event_action, allowed_actions):
-                    return (
-                        False,
-                        [
-                            f"action over-privilege: {event_action} on {event.identifier}, "
-                            f"allowed={sorted(allowed_actions)}"
-                        ],
-                        [],
-                    )
+            allowed_actions = {_normalize_action(action) for action in (obj.actions or [])}
+            if not _action_allowed(event.resource_type, event_action, allowed_actions):
+                return (
+                    False,
+                    [
+                        f"action over-privilege: {event_action} on {event.identifier}, "
+                        f"allowed={sorted(allowed_actions)}"
+                    ],
+                    [],
+                )
 
             matched_rules.extend(obj.selinux_rules)
             return True, [], matched_rules
@@ -764,6 +806,11 @@ def Resource_Consistency_Check_Layered(
     allow_policies = [policy for policy in ir_policies if policy.effect == "allow"]
     all_objects = [obj for policy in allow_policies for obj in policy.objects]
     allowed_tool_objects = [obj for obj in all_objects if obj.type == "tool"]
+    tool_index = _FirstMatchIndex(allowed_tool_objects)
+    type_index = {
+        rtype: _FirstMatchIndex([obj for obj in all_objects if obj.type == rtype])
+        for rtype in {obj.type for obj in all_objects}
+    }
 
     tool_events = [event for event in behaviors if event.resource_type == "tool"]
     resource_events = [event for event in behaviors if event.resource_type != "tool"]
@@ -775,10 +822,8 @@ def Resource_Consistency_Check_Layered(
     tool_call_violations: List[str] = []
     for event in tool_events:
         matched = False
-        for obj in allowed_tool_objects:
-            if not _match_identifier(event.identifier, obj.identifier, obj.identifier_match):
-                continue
-            allowed_actions = {_normalize_action(action) for action in obj.actions}
+        for obj in filter(None, [tool_index.first(event.identifier)]):
+            allowed_actions = {_normalize_action(action) for action in (obj.actions or [])}
             if not _action_allowed(event.resource_type, _normalize_action(event.action), allowed_actions):
                 tool_call_violations.append(
                     f"tool action over-privilege: {event.action} on {event.identifier}, allowed={sorted(allowed_actions)}"
@@ -797,7 +842,7 @@ def Resource_Consistency_Check_Layered(
     parameter_total = 0
     parameter_violations: List[str] = []
     for event in tool_events:
-        matched_obj = next((obj for obj in allowed_tool_objects if _match_identifier(event.identifier, obj.identifier, obj.identifier_match)), None)
+        matched_obj = tool_index.first(event.identifier)
         if matched_obj is None:
             continue
         parameter_total += 1
@@ -811,7 +856,7 @@ def Resource_Consistency_Check_Layered(
     resource_matched = 0
     resource_violations: List[str] = []
     for event in resource_events:
-        matched, event_violations, event_rules = _evaluate_event(event, allow_policies)
+        matched, event_violations, event_rules = _evaluate_event(event, allow_policies, type_index)
         if matched:
             resource_matched += 1
             matched_rules.extend(event_rules)

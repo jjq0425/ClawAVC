@@ -5,6 +5,9 @@
       <t-tab-panel value="translate" label="翻译与提示词">
         <TranslateTab />
       </t-tab-panel>
+      <t-tab-panel value="advice" label="可替代工具引导">
+        <AdviceTab />
+      </t-tab-panel>
       <t-tab-panel value="config" label="模型配置">
         <ConfigTab />
       </t-tab-panel>
@@ -24,6 +27,7 @@
 <script setup>
 import { ref } from "vue"
 import TranslateTab from "./policy/TranslateTab.vue"
+import AdviceTab from "./policy/AdviceTab.vue"
 import ConfigTab from "./policy/ConfigTab.vue"
 import RegistryTab from "./policy/RegistryTab.vue"
 import LogsTab from "./policy/LogsTab.vue"

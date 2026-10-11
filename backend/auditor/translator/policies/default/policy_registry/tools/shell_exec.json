@@ -6,31 +6,92 @@
       "params": {
         "command": {
           "constraint_spec": {
-            "dynamic_ai_hint": "从用户请求中抽取或安全改写命令；默认只生成完成任务所需的最小命令；不得执行破坏性命令、下载即执行命令、读取密钥或提权命令。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。命中 risk_guidance.warn 的命令，必须先向用户说明风险并优先采用其中给出的替代方案。",
+            "dynamic_ai_hint": "从用户请求中抽取或安全改写命令；默认只生成完成任务所需的最小命令；不得执行破坏性命令、下载即执行命令、读取密钥或提权命令。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。命中全局可替代工具引导文档中列出的命令时，必须先向用户说明风险并优先采用替代方案。",
             "mode": "static_or_dynamic_ai",
             "static": {
-              "note": "shell 命令统一约束（由原 8 个子场景合并：allowed_values/allowlist/denylist 取并集并去重；default 取首个非空值；拒绝项优先——与 denylist 精同串冲突的项已从 allowed_values 移除）。风险分级与替代方案见 risk_guidance。",
+              "note": "shell 命令统一约束（由原 8 个子场景合并：allowed_values/allowlist/denylist 取并集并去重；default 取首个非空值；拒绝项优先——与 denylist 精同串冲突的项已从 allowed_values 移除）。风险分级与替代方案见全局引导文档（advice_docs.json → warn_advice.md）。",
               "allowed_values": [
-                "ps", "top", "df", "free", "uname", "env", "hostname", "date",
-                "uptime", "whoami", "id", "pwd", "ls",
-                "cat /etc/os-release", "cat /proc/version",
-                "lscpu", "lsblk", "ip addr", "netstat", "ss",
-                "cat", "head", "tail", "less", "find", "grep", "wc", "tree",
-                "stat", "file", "diff", "md5sum", "sha256sum",
-                "tee", "echo",
-                "apt-get install", "yum install", "dnf install",
-                "npm install", "pip install", "pip3 install",
-                "go install", "cargo install", "composer install", "gem install",
-                "make", "cmake", "gcc", "g++",
-                "python", "python3", "node",
-                "go build", "go test", "cargo build",
-                "mvn", "gradle", "npm run", "npm test",
-                "pytest", "jest", "mocha", "rspec", "dotnet test",
-                "systemctl status", "systemctl restart", "systemctl stop",
-                "systemctl start", "service",
-                "pm2 start", "pm2 restart", "pm2 stop", "pm2 delete",
-                "nginx -t", "nginx -s",
-                "ping", "nslookup", "dig", "host", "traceroute", "mtr"
+                "ps",
+                "top",
+                "df",
+                "free",
+                "uname",
+                "env",
+                "hostname",
+                "date",
+                "uptime",
+                "whoami",
+                "id",
+                "pwd",
+                "ls",
+                "cat /etc/os-release",
+                "cat /proc/version",
+                "lscpu",
+                "lsblk",
+                "ip addr",
+                "netstat",
+                "ss",
+                "cat",
+                "head",
+                "tail",
+                "less",
+                "find",
+                "grep",
+                "wc",
+                "tree",
+                "stat",
+                "file",
+                "diff",
+                "md5sum",
+                "sha256sum",
+                "tee",
+                "echo",
+                "apt-get install",
+                "yum install",
+                "dnf install",
+                "npm install",
+                "pip install",
+                "pip3 install",
+                "go install",
+                "cargo install",
+                "composer install",
+                "gem install",
+                "make",
+                "cmake",
+                "gcc",
+                "g++",
+                "python",
+                "python3",
+                "node",
+                "go build",
+                "go test",
+                "cargo build",
+                "mvn",
+                "gradle",
+                "npm run",
+                "npm test",
+                "pytest",
+                "jest",
+                "mocha",
+                "rspec",
+                "dotnet test",
+                "systemctl status",
+                "systemctl restart",
+                "systemctl stop",
+                "systemctl start",
+                "service",
+                "pm2 start",
+                "pm2 restart",
+                "pm2 stop",
+                "pm2 delete",
+                "nginx -t",
+                "nginx -s",
+                "ping",
+                "nslookup",
+                "dig",
+                "host",
+                "traceroute",
+                "mtr"
               ],
               "allowlist": [
                 "/proc/**",
@@ -45,93 +106,86 @@
               ],
               "default": "ps aux",
               "denylist": [
-                "rm", "mv", "cp", "chmod", "chown", "kill",
-                "sudo", "su",
-                "curl", "wget", "apt", "yum", "npm", "pip",
-                "touch", "mkdir",
-                "rm -rf /", "rm -rf ~", "rm -rf /*", "rm -rf /home/*", "rm -rf .git",
-                "sudo apt", "su -c", "sudo rm",
-                "apt-get remove", "yum remove", "npm uninstall -g",
-                "curl | sh", "wget | sh", "curl * | sh", "wget * | sh",
-                "curl -o", "wget -O",
-                "chmod 777", "chmod 777 /", "chmod -R 777", "chown root", "chown -R",
-                "systemctl disable", "systemctl mask",
-                "mkfs", "fdisk", "parted", "cfdisk", "sfdisk", "dd if=", "dd of=/dev/*",
-                "nc", "ncat", "netcat", "socat",
-                "iptables", "ufw", "firewall-cmd",
-                "passwd", "useradd", "usermod", "userdel",
-                "killall", "pkill", "kill -9 1",
-                "shutdown", "reboot", "init 0", "init 6",
-                "git push --force", "git reset --hard", "git clean -f",
-                "find -delete", "find -exec rm",
-                "eval $(", "exec $(", "base64 -d | bash", "xxd -r -p",
-                "| bash", "&& bash", "; bash", "source <()",
+                "rm",
+                "mv",
+                "cp",
+                "chmod",
+                "chown",
+                "kill",
+                "sudo",
+                "su",
+                "curl",
+                "wget",
+                "apt",
+                "yum",
+                "npm",
+                "pip",
+                "touch",
+                "mkdir",
+                "rm -rf /",
+                "rm -rf ~",
+                "rm -rf /*",
+                "rm -rf /home/*",
+                "rm -rf .git",
+                "sudo apt",
+                "su -c",
+                "sudo rm",
+                "apt-get remove",
+                "yum remove",
+                "npm uninstall -g",
+                "curl | sh",
+                "wget | sh",
+                "curl * | sh",
+                "wget * | sh",
+                "curl -o",
+                "wget -O",
+                "chmod 777",
+                "chmod 777 /",
+                "chmod -R 777",
+                "chown root",
+                "chown -R",
+                "systemctl disable",
+                "systemctl mask",
+                "mkfs",
+                "fdisk",
+                "parted",
+                "cfdisk",
+                "sfdisk",
+                "dd if=",
+                "dd of=/dev/*",
+                "nc",
+                "ncat",
+                "netcat",
+                "socat",
+                "iptables",
+                "ufw",
+                "firewall-cmd",
+                "passwd",
+                "useradd",
+                "usermod",
+                "userdel",
+                "killall",
+                "pkill",
+                "kill -9 1",
+                "shutdown",
+                "reboot",
+                "init 0",
+                "init 6",
+                "git push --force",
+                "git reset --hard",
+                "git clean -f",
+                "find -delete",
+                "find -exec rm",
+                "eval $(",
+                "exec $(",
+                "base64 -d | bash",
+                "xxd -r -p",
+                "| bash",
+                "&& bash",
+                "; bash",
+                "source <()",
                 ":(){:|:&};:"
-              ],
-              "risk_guidance": {
-                "desc": "命令风险分级（参考 CodeBuddy 内置安全规则）。deny_strict 中的重大风险命令均已并入上方 denylist，会被静态策略强制拦截，禁止生成；warn 中的命令不强制拦截，但生成前必须先向用户说明对应 risk，并优先采用 alternative 平替命令执行。",
-                "deny_strict": {
-                  "磁盘操作": ["mkfs", "fdisk", "parted", "cfdisk", "sfdisk", "dd of=/dev/*"],
-                  "文件删除": ["rm -rf /", "rm -rf /*", "rm -rf ~", "rm -rf .git", "find -delete", "find -exec rm"],
-                  "权限提权": ["chmod 777 /", "chmod -R 777", "chown root", "chown -R", "sudo", "su"],
-                  "网络与防火墙": ["nc", "ncat", "netcat", "socat", "iptables", "ufw", "firewall-cmd", "curl * | sh", "wget * | sh"],
-                  "系统服务": ["systemctl disable", "systemctl mask", "shutdown", "reboot", "init 0", "init 6"],
-                  "用户管理": ["passwd", "useradd", "usermod", "userdel"],
-                  "进程控制": ["killall", "pkill", "kill -9 1"],
-                  "Git操作": ["git push --force", "git reset --hard", "git clean -f"],
-                  "命令注入": ["eval $(", "exec $(", "base64 -d | bash", "xxd -r -p", "| bash", "&& bash", "; bash", "source <()", ":(){:|:&};:"]
-                },
-                "warn": [
-                  {
-                    "class": "文件删除",
-                    "pattern": "rm",
-                    "risk": "不可恢复删除，误删工作区或系统文件无法回滚。",
-                    "alternative": "先 mv <目标> /tmp/trash_<时间戳>/ 移入回收目录，任务确认无误后再统一清理。"
-                  },
-                  {
-                    "class": "权限",
-                    "pattern": "chmod / chown",
-                    "risk": "权限误配可能导致服务异常或被提权利用。",
-                    "alternative": "仅对明确列出的单个文件做最小化授权；禁止 -R 递归与 777；先 ls -l 确认现状再修改。"
-                  },
-                  {
-                    "class": "进程控制",
-                    "pattern": "kill / killall / pkill",
-                    "risk": "按名称匹配易误杀无关进程。",
-                    "alternative": "先 ps aux | grep <名称> 或 pgrep -f <名称> 精确定位 PID，再 kill <单个pid>；禁止 kill init/systemd。"
-                  },
-                  {
-                    "class": "系统服务",
-                    "pattern": "systemctl restart / stop / start",
-                    "risk": "直接影响在线服务可用性。",
-                    "alternative": "先 systemctl status 确认影响面；服务类配置变更先做 nginx -t 等校验，再请求用户确认执行。"
-                  },
-                  {
-                    "class": "网络请求",
-                    "pattern": "curl / wget",
-                    "risk": "外联不可信地址或下载即执行（RCE）。",
-                    "alternative": "仅做只读 GET 查询；需要获取文件时先下载到 /tmp 并检查内容，禁止任何 管道| sh 直接执行。"
-                  },
-                  {
-                    "class": "安装依赖",
-                    "pattern": "apt / yum / npm / pip install",
-                    "risk": "引入不可信或未锁版本的依赖。",
-                    "alternative": "优先按项目内已锁定的依赖清单安装固定版本；避免全局安装、避免卸载系统包。"
-                  },
-                  {
-                    "class": "Git操作",
-                    "pattern": "git reset --hard / git clean -f / git push --force",
-                    "risk": "不可逆丢失本地改动或覆盖远程历史。",
-                    "alternative": "先 git stash 或新建备份分支保存现场；撤销提交优先用 git revert。"
-                  },
-                  {
-                    "class": "文件写入",
-                    "pattern": "tee / echo > /etc/* 等系统配置写入",
-                    "risk": "直接覆盖系统配置可能导致系统异常。",
-                    "alternative": "先写入 /workspace 下的副本，经用户确认后再手动同步到目标位置。"
-                  }
-                ]
-              }
+              ]
             }
           },
           "desc": "完成用户任务所需的最小命令或控制指令。",
@@ -224,11 +278,22 @@
           "constraint_spec": {
             "mode": "static_or_dynamic_ai",
             "static": {
-              "note": "安全查询命令统一约束（由原 2 个子场景合并：并集去重，default 取首个非空值 whoami）。超出本允许范围的写/删/网命令请改用 exec 场景并遵循其 risk_guidance。",
+              "note": "安全查询命令统一约束（由原 2 个子场景合并：并集去重，default 取首个非空值 whoami）。超出本允许范围的写 / 删 / 网命令请改用 exec 场景并遵循全局引导文档。",
               "allowed_values": [
-                "whoami", "id", "pwd", "uname -a", "date", "hostname",
-                "echo *", "printf *",
-                "ls", "cat", "head", "tail", "find", "grep"
+                "whoami",
+                "id",
+                "pwd",
+                "uname -a",
+                "date",
+                "hostname",
+                "echo *",
+                "printf *",
+                "ls",
+                "cat",
+                "head",
+                "tail",
+                "find",
+                "grep"
               ],
               "allowlist": [
                 "/tmp/**",
@@ -237,33 +302,40 @@
               ],
               "default": "whoami",
               "denylist": [
-                "rm", "mv", "cp", "chmod", "chown", "kill",
-                "sudo", "su",
-                "curl", "wget", "apt", "yum", "npm", "pip",
-                "touch", "mkdir",
-                "rm -rf /", "rm -rf ~", "rm -rf /*",
-                "mkfs", "dd if=", "dd of=/dev/*",
-                "shutdown", "reboot",
-                "eval $(", "exec $(", "base64 -d | bash", "xxd -r -p",
-                "| bash", "&& bash", "; bash", "source <()",
+                "rm",
+                "mv",
+                "cp",
+                "chmod",
+                "chown",
+                "kill",
+                "sudo",
+                "su",
+                "curl",
+                "wget",
+                "apt",
+                "yum",
+                "npm",
+                "pip",
+                "touch",
+                "mkdir",
+                "rm -rf /",
+                "rm -rf ~",
+                "rm -rf /*",
+                "mkfs",
+                "dd if=",
+                "dd of=/dev/*",
+                "shutdown",
+                "reboot",
+                "eval $(",
+                "exec $(",
+                "base64 -d | bash",
+                "xxd -r -p",
+                "| bash",
+                "&& bash",
+                "; bash",
+                "source <()",
                 ":(){:|:&};:"
-              ],
-              "risk_guidance": {
-                "desc": "本工具仅允许安全查询类命令；删除/写入/提权/联网等需求一律不在此生成，改用 exec 场景并遵循其 risk_guidance 的 warn 与替代方案。",
-                "deny_strict": {
-                  "破坏类": ["rm -rf /", "rm -rf ~", "rm -rf /*", "mkfs", "dd if=", "dd of=/dev/*", "shutdown", "reboot"],
-                  "提权类": ["sudo", "su", "chmod", "chown"],
-                  "命令注入": ["eval $(", "exec $(", "base64 -d | bash", "xxd -r -p", "| bash", "&& bash", "; bash", "source <()", ":(){:|:&};:"]
-                },
-                "warn": [
-                  {
-                    "class": "文件读取",
-                    "pattern": "cat /etc/* 等敏感路径",
-                    "risk": "读取密钥、token、SSH 配置等系统敏感文件。",
-                    "alternative": "仅读取任务明确需要的项目文件与 /etc/os-release、/proc/version 等环境信息文件。"
-                  }
-                ]
-              }
+              ]
             }
           }
         },
@@ -302,18 +374,7 @@
                 "/etc/**",
                 "/root/**",
                 "~/.ssh/**"
-              ],
-              "risk_guidance": {
-                "desc": "仅执行工作区内、任务过程中明确生成或用户明确提供的脚本；执行前必须向用户说明脚本来源与用途。",
-                "warn": [
-                  {
-                    "class": "脚本执行",
-                    "pattern": "来源不明的脚本 / 网络下载的脚本",
-                    "risk": "脚本内容不可信，可能包含破坏性或外泄逻辑。",
-                    "alternative": "先 cat 输出脚本内容供用户确认，再执行；网络下载的脚本禁止直接执行。"
-                  }
-                ]
-              }
+              ]
             }
           },
           "desc": "脚本文件路径。",
@@ -465,8 +526,16 @@
             "static": {
               "default": ".",
               "allowed_values": [],
-              "allowlist": ["/workspace/**", "/tmp/**", "/home/**"],
-              "denylist": ["/etc/**", "/root/**", "~/.ssh/**"],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**",
+                "/home/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
               "regex": null,
               "min": null,
               "max": null
@@ -489,8 +558,16 @@
             "static": {
               "default": ".",
               "allowed_values": [],
-              "allowlist": ["/workspace/**", "/tmp/**", "/home/**"],
-              "denylist": ["/etc/**", "/root/**", "~/.ssh/**"],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**",
+                "/home/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
               "regex": null,
               "min": null,
               "max": null
@@ -513,8 +590,16 @@
             "static": {
               "default": ".",
               "allowed_values": [],
-              "allowlist": ["/workspace/**", "/tmp/**", "/home/**"],
-              "denylist": ["/etc/**", "/root/**", "~/.ssh/**"],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**",
+                "/home/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
               "regex": null,
               "min": null,
               "max": null
@@ -525,5 +610,5 @@
       }
     }
   },
-  "prompt_guidance": "只有需要实际执行命令、运行测试、安装依赖、查看环境或启动服务时使用；所有命令都按最小权限生成。命中 static.risk_guidance.warn 的命令，必须先向用户说明风险，并优先采用其中给出的替代方案执行。"
+  "prompt_guidance": "只有需要实际执行命令、运行测试、安装依赖、查看环境或启动服务时使用；所有命令都按最小权限生成。命中全局可替代工具引导文档中列出的命令时，必须先向用户说明风险，并优先采用其中给出的替代方案执行。"
 }

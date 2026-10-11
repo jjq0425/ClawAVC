@@ -141,6 +141,9 @@
           placeholder="搜索 round_id 或用户查询"
           clearable
           style="width: 280px"
+          @enter="onSearch"
+          @clear="onSearch"
+          @change="onSearchDebounced"
         >
           <template #prefix-icon><t-icon name="search" /></template>
         </t-input>
@@ -286,6 +289,18 @@ async function loadRounds() {
   } finally {
     loading.value = false
   }
+}
+
+// 搜索框：回车 / 清空立即查询，输入时 400 ms 防抖自动查询（无需再点刷新按钮）
+let _searchTimer = null
+function onSearch() {
+  if (_searchTimer) clearTimeout(_searchTimer)
+  pagination.value.current = 1
+  loadRounds()
+}
+function onSearchDebounced() {
+  if (_searchTimer) clearTimeout(_searchTimer)
+  _searchTimer = setTimeout(onSearch, 400)
 }
 
 function onPageChange(pageInfo) {

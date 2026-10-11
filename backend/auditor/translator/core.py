@@ -12,6 +12,7 @@ Config stored in SQLite config table with prefix: ir_translator.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -53,15 +54,20 @@ REGISTRY_DIR = _get_registry_dir()
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_LLM_TIMEOUT = 180
+
+
 def get_llm_config() -> Dict[str, Any]:
     temp_str = _get_config("temperature", "0")
-    timeout_str = _get_config("timeout", "60")
+    # 默认读超时 180 s（R7 修复）：生产日志中 Level-2 成功调用的耗时紧贴 60 s 上限（P99 55.5 s、最大 59.0 s），
+    # 说明原 60 s 默认值截断了长尾请求，导致「Read timed out」整轮失败
+    timeout_str = _get_config("timeout", str(DEFAULT_LLM_TIMEOUT))
     return {
         "api_base_url": _get_config("api_base_url", "https://api.longcat.chat/openai"),
         "api_key": _get_config("api_key", ""),
         "model": _get_config("model", "LongCat-2.0-Preview"),
         "temperature": float(temp_str) if temp_str.strip() else 0.0,
-        "timeout": int(timeout_str) if timeout_str.strip() else 60,
+        "timeout": int(timeout_str) if timeout_str.strip() else DEFAULT_LLM_TIMEOUT,
         "json_mode": _get_config("json_mode", "1") in ("1", ""),
     }
 
@@ -92,6 +98,30 @@ def load_tool_registry() -> Dict[str, Any]:
         if scene:
             registry[scene] = obj
     return registry
+
+
+def registry_file_errors(registry_dir: Any) -> List[str]:
+    """逐个解析策略库中的 scenes.json 与 tools/*.json，返回可定位到文件与行列的错误列表（供健康检查）。"""
+    base = Path(registry_dir)
+    errors: List[str] = []
+    files = [base / "scenes.json"] + sorted((base / "tools").glob("*.json"))
+    for f in files:
+        rel = f.relative_to(base).as_posix()
+        if not f.exists():
+            continue
+        try:
+            obj = json.loads(f.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            errors.append(f"{rel} 不是合法 JSON（第 {e.lineno} 行第 {e.colno} 列：{e.msg}）")
+            continue
+        except Exception as e:  # 编码错误 / 无读权限
+            errors.append(f"{rel} 无法读取：{e}")
+            continue
+        if not isinstance(obj, dict):
+            errors.append(f"{rel} 顶层必须是 JSON 对象")
+        elif rel != "scenes.json" and not obj.get("scene"):
+            errors.append(f"{rel} 缺少顶层 scene 字段，加载时会被忽略")
+    return errors
 
 
 SCENE_REGISTRY = load_scene_registry()
@@ -145,8 +175,11 @@ def call_llm(
     last_err: Optional[Exception] = None
     for attempt in range(max_retry + 1):
         t0 = time.time()
+        rate_wait: Optional[float] = None
         try:
             resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
+            if resp.status_code == 429:
+                rate_wait = _rate_limit_wait(resp, attempt)
             if resp.status_code >= 400:
                 raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:500]}")
             data = resp.json()
@@ -159,8 +192,53 @@ def call_llm(
         except Exception as e:
             last_err = e
             if attempt < max_retry:
-                time.sleep(1.5 ** attempt)
+                # 上游限流（429）按 Retry-After / 更长退避等待（R7 修复），其余错误保持 1.5 的指数退避
+                time.sleep(rate_wait if rate_wait is not None else 1.5 ** attempt)
     raise RuntimeError(f"LLM 调用失败（共 {max_retry + 1} 次）: {last_err}")
+
+
+RATE_LIMIT_BASE_WAIT = 5.0
+RATE_LIMIT_MAX_WAIT = 30.0
+
+
+def _rate_limit_wait(resp: Any, attempt: int) -> float:
+    """429 退避时长：优先采用 Retry-After（秒），否则 5 s × 2^attempt，上限 30 s。"""
+    try:
+        ra = float((resp.headers or {}).get("Retry-After", ""))
+    except (TypeError, ValueError, AttributeError):
+        ra = 0.0
+    return min(max(ra, RATE_LIMIT_BASE_WAIT * (2 ** attempt)), RATE_LIMIT_MAX_WAIT)
+
+
+def _strip_trailing_commas(text: str) -> str:
+    """去掉 JSON 中 } / ] 前的尾随逗号；跳过字符串字面量内部，避免改写字符串内容。"""
+    out: List[str] = []
+    in_str = False
+    esc = False
+    quote = ""
+    n = len(text)
+    for i, ch in enumerate(text):
+        if in_str:
+            out.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == quote:
+                in_str = False
+            continue
+        if ch in "\"'":
+            in_str, quote = True, ch
+            out.append(ch)
+            continue
+        if ch == ",":
+            j = i + 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j < n and text[j] in "}]":
+                continue
+        out.append(ch)
+    return "".join(out)
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -175,7 +253,7 @@ def _extract_json(text: str) -> Dict[str, Any]:
     except Exception:
         pass
     # 2) 宽松修复：去尾随逗号 / 单引号转双引号
-    relaxed = re.sub(r",\s*([}\]])", r"\1", text)
+    relaxed = _strip_trailing_commas(text)
     for cand in (relaxed, relaxed.replace("'", '"')):
         try:
             obj = json.loads(cand)
@@ -183,16 +261,18 @@ def _extract_json(text: str) -> Dict[str, Any]:
                 return obj
         except Exception:
             continue
-    # 3) 多 JSON 块 / 前后夹带解释文字：扫描取第一个可解析的 JSON 对象
+    # 3) 多 JSON 块 / 前后夹带解释文字：扫描取第一个可解析的 JSON 对象；
+    #    原文失败时再在去尾随逗号的文本上扫描一次（R4 修复：夹带文字 + 尾随逗号）
     decoder = json.JSONDecoder()
-    for idx, ch in enumerate(text):
-        if ch == "{":
-            try:
-                obj, _ = decoder.raw_decode(text[idx:])
-                if isinstance(obj, dict):
-                    return obj
-            except Exception:
-                continue
+    for source in (text, relaxed):
+        for idx, ch in enumerate(source):
+            if ch == "{":
+                try:
+                    obj, _ = decoder.raw_decode(source[idx:])
+                    if isinstance(obj, dict):
+                        return obj
+                except Exception:
+                    continue
     raise ValueError("LLM 响应中未找到 JSON 对象")
 
 
@@ -327,8 +407,268 @@ def level1_classify(query: str, config: Optional[Dict[str, Any]] = None) -> Tupl
 # ---------------------------------------------------------------------------
 # Level-2
 # ---------------------------------------------------------------------------
+# advice 文档缓存：{真实路径: (mtime, 加载结果)}——同一文档被多个配置引用时只读一次盘，
+# 热重载后 mtime 变化自动失效。
+_ADVICE_DOC_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+
+def _resolve_advice_path(path: str) -> Path:
+    """advice 文档路径解析：绝对路径原样；相对路径相对策略库 tools/ 目录。"""
+    p = Path(path).expanduser()
+    if p.is_absolute():
+        return p
+    return _get_registry_dir() / "tools" / p
+
+
+def _load_advice_doc(path: str) -> Dict[str, Any]:
+    """加载 advice 文档（mtime 缓存）。
+
+    降级行为：路径不存在 / 读取失败时返回 ok=False 与明确占位内容，
+    不抛异常、不影响其余策略规则。
+    """
+    real = _resolve_advice_path(path)
+    try:
+        mtime = real.stat().st_mtime
+    except OSError:
+        return {"ok": False, "path": str(real),
+                "content": f"[advice doc unavailable: {path}]"}
+    cached = _ADVICE_DOC_CACHE.get(str(real))
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        content = real.read_text(encoding="utf-8")
+    except Exception as e:
+        entry = {"ok": False, "path": str(real),
+                 "content": f"[advice doc load failed: {path} ({e})]"}
+    else:
+        entry = {"ok": True, "path": str(real), "content": content}
+    _ADVICE_DOC_CACHE[str(real)] = (mtime, entry)
+    return entry
+
+
+_ADVICE_SECTION_TAG_RE = re.compile(r"<!--\s*applies:\s*([^>]+?)\s*-->", re.I)
+
+
+_ADVICE_REGISTRY_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+
+
+def _advice_registry_path() -> Path:
+    """全局引导文档注册表路径：<策略库>/advice_docs.json。"""
+    return _get_registry_dir() / "advice_docs.json"
+
+
+def _load_advice_registry() -> List[Dict[str, Any]]:
+    """加载全局引导文档注册表（[{role, path, inject}]）；缺失/损坏时降级为空列表。"""
+    p = _advice_registry_path()
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        return []
+    cached = _ADVICE_REGISTRY_CACHE.get(str(p))
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        obj = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        entries: List[Dict[str, Any]] = []
+    else:
+        raw = obj.get("advice_docs") if isinstance(obj, dict) else obj
+        entries = [e for e in (raw or []) if isinstance(e, dict) and e.get("path")]
+    _ADVICE_REGISTRY_CACHE[str(p)] = (mtime, entries)
+    return entries
+
+
+def _advice_docs_for_scene(scene: str) -> List[Dict[str, Any]]:
+    """取得适用于指定场景的引导文档（inject 开启 且 存在适用/全局分块时才返回）。"""
+    out: List[Dict[str, Any]] = []
+    for entry in _load_advice_registry():
+        if not entry.get("inject", True):
+            continue
+        path = str(entry.get("path") or "")
+        if not path:
+            continue
+        loaded = _load_advice_doc(path)
+        content = loaded["content"]
+        sections = _advice_sections_meta(content) if loaded["ok"] else []
+        if not loaded["ok"]:
+            out.append({"path": loaded["path"],
+                        "loaded": False, "inject": True, "scene": scene,
+                        "sections": [], "applicable": False,
+                        "content": f"[advice doc unavailable: {path}]"})
+            continue
+        matched = any(scene in (sec.get("applies") or []) for sec in sections)
+        has_global = any(not (sec.get("applies") or []) for sec in sections)
+        # 有场景匹配分块、有全局分块，或文档本身未分块（整体视为全局）时注入
+        applicable = matched or has_global or (not sections)
+        if not applicable:
+            continue
+        out.append({
+            "path": loaded["path"],
+            "loaded": True,
+            "inject": True,
+            "scene": scene,
+            "sections": sections,
+            "applicable": True,
+            "matched": matched,
+            "content": _filter_advice_for_scene(content, scene),
+        })
+    return out
+
+
+def _parse_advice_sections(content: str) -> Tuple[str, List[Dict[str, Any]]]:
+    """把 advice 文档拆为「前言 + 分节列表」。
+
+    每节结构：{title, applies: [场景名...], body: [行...]}；
+    分节以 `## 标题` 起始，紧随的 `<!-- applies: xxx -->` 标注适用场景（未标注 = 全局）。
+    """
+    preamble: List[str] = []
+    sections: List[Dict[str, Any]] = []
+    cur: Optional[Dict[str, Any]] = None
+    for ln in content.splitlines():
+        if ln.startswith("## "):
+            cur = {"title": ln[3:].strip(), "applies": [], "body": [ln]}
+            sections.append(cur)
+            continue
+        m = _ADVICE_SECTION_TAG_RE.search(ln)
+        if m and cur is not None:
+            cur["applies"].extend(x.strip() for x in m.group(1).split(",") if x.strip())
+            continue
+        (cur["body"] if cur else preamble).append(ln)
+    return "\n".join(preamble).rstrip(), sections
+
+
+def _advice_sections_full(content: str) -> Dict[str, Any]:
+    """分块完整结构：{preamble, sections:[{title, applies, body}]}（body 为标题/标签后的正文）。"""
+    pre, sections = _parse_advice_sections(content)
+    out = []
+    for s in sections:
+        body_lines = s["body"][1:] if s["body"] and s["body"][0].startswith("## ") else s["body"]
+        out.append({"title": s["title"], "applies": s["applies"],
+                    "body": "\n".join(body_lines).strip()})
+    return {"preamble": pre, "sections": out}
+
+
+def _rebuild_advice_doc(preamble: str, sections: List[Dict[str, Any]]) -> str:
+    """由「前言 + 分块」重建 Markdown 文档（保留 applies 标签语义）。"""
+    parts: List[str] = []
+    if preamble and preamble.strip():
+        parts.append(preamble.strip())
+    for sec in sections or []:
+        title = str(sec.get("title") or "").strip()
+        if not title:
+            continue
+        body = str(sec.get("body") or "").strip()
+        applies = [str(x).strip() for x in (sec.get("applies") or []) if str(x).strip()]
+        block = f"## {title}"
+        if applies:
+            block += f"\n\n<!-- applies: {', '.join(applies)} -->"
+        if body:
+            block += f"\n\n{body}"
+        parts.append(block)
+    return ("\n\n".join(parts)).rstrip() + "\n"
+
+
+def _advice_sections_meta(content: str) -> List[Dict[str, Any]]:
+    """分节元信息（标题 + 适用场景），供前端展示分区情况。"""
+    _, sections = _parse_advice_sections(content)
+    return [{"title": s["title"], "applies": s["applies"]} for s in sections]
+
+
+def _filter_advice_for_scene(content: str, scene: str) -> str:
+    """按场景过滤：保留全局分节（未标注）与 applies 命中该场景的分节。"""
+    pre, sections = _parse_advice_sections(content)
+    kept = [s for s in sections if (not s["applies"]) or (scene in s["applies"])]
+    parts = [pre] if pre.strip() else []
+    parts += ["\n".join(s["body"]).rstrip() for s in kept]
+    return "\n\n".join(p for p in parts if p.strip())
+
+
+def _expand_advice_docs(node: Any, scene: Optional[str] = None) -> Any:
+    """深度展开 advice_docs 引用为已加载的文档内容（返回副本，不修改原注册表）。
+
+    每个引用被展开为 {role, path, loaded, sections, content}；加载失败时 loaded=False、
+    content 为降级占位文本，随提示词一并注入，保证 AI 可感知缺档。
+    传入 scene 时按分节过滤（`<!-- applies: <scene> -->`，未标注分节始终保留）；
+    未传 scene（全量场景，如查看/同步接口）时返回整份文档。
+    """
+    if isinstance(node, dict):
+        if isinstance(node.get("advice_docs"), list):
+            docs = []
+            for ref in node["advice_docs"]:
+                path = ref.get("path") if isinstance(ref, dict) else ref
+                if not path or not isinstance(path, str):
+                    docs.append({"role": "", "path": str(ref), "loaded": False,
+                                 "content": "[invalid advice_docs entry]"})
+                    continue
+                loaded = _load_advice_doc(path)
+                content = loaded["content"]
+                sections_meta = _advice_sections_meta(content) if loaded["ok"] else []
+                # 注入开关：entry.inject=false 时不注入提示词（仅供查看与同步）
+                inject = True
+                if isinstance(ref, dict) and "inject" in ref:
+                    inject = bool(ref.get("inject"))
+                if not inject:
+                    docs.append({
+                        "role": (ref.get("role") or "") if isinstance(ref, dict) else "",
+                        "path": loaded["path"], "loaded": loaded["ok"],
+                        "scene": scene or "", "inject": False, "sections": sections_meta,
+                        "content": "[advice 文档未启用注入（inject=false），仅作参考文档]",
+                    })
+                    continue
+                # 发现 advice_docs 即加载（inject=true）；传 scene 时按 applies 标签过滤分节，否则全量
+                if loaded["ok"] and scene:
+                    content = _filter_advice_for_scene(content, scene)
+                docs.append({
+                    "role": (ref.get("role") or "") if isinstance(ref, dict) else "",
+                    "path": loaded["path"],
+                    "loaded": loaded["ok"],
+                    "scene": scene or "",
+                    "inject": True,
+                    "sections": sections_meta,
+                    "content": content,
+                })
+            merged = {k: _expand_advice_docs(v, scene) for k, v in node.items() if k != "advice_docs"}
+            merged["advice_docs"] = docs
+            return merged
+        return {k: _expand_advice_docs(v, scene) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_expand_advice_docs(x, scene) for x in node]
+    return node
+
+
+def advice_docs_status() -> List[Dict[str, Any]]:
+    """汇总全局引导文档注册表的加载状态（供健康检查接口）。"""
+    status: List[Dict[str, Any]] = []
+    for entry in _load_advice_registry():
+        path = str(entry.get("path") or "")
+        if not path:
+            continue
+        loaded = _load_advice_doc(path)
+        status.append({"path": loaded["path"], "loaded": loaded["ok"],
+                       "inject": bool(entry.get("inject", True))})
+    return status
+
+
 def _selected_registry_for_prompt(scenes: List[str]) -> str:
-    selected = {s: TOOL_REGISTRY[s] for s in scenes if s in TOOL_REGISTRY}
+    """按场景组装注入提示词的注册表。
+
+    advice 引导文档不再写在场景 JSON 中，而由全局注册表（advice_docs.json）声明；
+    仅当文档存在适用于该场景（或全局）的分块时才注入，注入内容为按场景过滤后的分块。
+    """
+    selected: Dict[str, Any] = {}
+    for s in scenes:
+        if s not in TOOL_REGISTRY:
+            continue
+        node = dict(TOOL_REGISTRY[s])
+        advice_docs = _advice_docs_for_scene(s)
+        node.pop("advice_docs", None)
+        if advice_docs:
+            node["advice_docs"] = advice_docs
+        selected[s] = node
+    # 注入格式：默认 JSON（与既有模型/用例行为一致）；
+    # 配置 ir_translator.registry_prompt_format=text 时改用结构化 Markdown 提示词。
+    if _get_config("registry_prompt_format", "json").strip().lower() == "text":
+        return _registry_to_prompt_text(selected)
     return json.dumps(selected, ensure_ascii=False, indent=2)
 
 
@@ -338,12 +678,44 @@ def level2_generate(query: str, scenes: List[str], config: Optional[Dict[str, An
     sys_prompt = prompt_template.replace("{SELECTED_REGISTRY}", selected_registry)
     user_prompt = json.dumps({"query": query, "scenes": scenes}, ensure_ascii=False)
     raw, meta = call_llm(sys_prompt, user_prompt, config=config)
-    try:
-        ir = _extract_json(raw)
-    except Exception:
-        ir = {}
+    ir = _safe_extract(raw)
     meta["raw_response"] = raw
+    # R8 修复：已选出场景却返回空 policies 时，带提示重试一次。
+    # 典型原因是某个必填参数（如收件人）在 query 中未给出，模型按规则 10 丢弃了全部 function。
+    if scenes and not _has_policies(ir):
+        retry_prompt = json.dumps({"query": query, "scenes": scenes, "retry_hint": LEVEL2_EMPTY_RETRY_HINT},
+                                  ensure_ascii=False)
+        try:
+            raw2, meta2 = call_llm(sys_prompt, retry_prompt, config=config)
+        except Exception as e:  # 重试失败不影响首轮结果
+            meta["empty_retry"] = {"ok": False, "error": str(e)[:200]}
+        else:
+            ir2 = _safe_extract(raw2)
+            meta["empty_retry"] = {"ok": _has_policies(ir2), "latency_ms": meta2.get("latency_ms"),
+                                   "raw_response": raw2}
+            if _has_policies(ir2):
+                ir = ir2
     return ir, meta
+
+
+LEVEL2_EMPTY_RETRY_HINT = (
+    "上一次输出的 policies 为空，但已确定需要授权的场景。请在遵守全部约束（denylist、只读优先、不编造敏感值）"
+    "的前提下，输出完成该 query 所需的最小授权：query 中明确给出的资源逐字使用；"
+    "必填参数在 query 中未给出时用通配符 `*` 表示，并只授权完成任务必需的动作。"
+    "只有当任务本身被约束明确禁止时，才保持 policies 为空。"
+)
+
+
+def _safe_extract(raw: str) -> Dict[str, Any]:
+    try:
+        obj = _extract_json(raw)
+    except Exception:
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def _has_policies(ir: Any) -> bool:
+    return isinstance(ir, dict) and isinstance(ir.get("policies"), list) and len(ir["policies"]) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +803,111 @@ def normalize_ir(ir: Dict[str, Any]) -> Dict[str, Any]:
     return ir
 
 
+# 命令 / 语句类参数：按「命令名 / 语句前缀」匹配 denylist（R10 修复），其余参数按值 / 通配匹配
+_COMMAND_PARAM_NAMES = {"command", "cmd", "commands", "script", "shell", "sql"}
+_CMD_WRAPPERS = {"sudo", "env", "nohup", "command", "exec", "time", "nice", "xargs", "busybox"}
+
+
+def _split_command_segments(cmd: str) -> List[str]:
+    """按 shell 控制符（; & | 换行）切分为子命令，保留每段原文。"""
+    return [seg.strip() for seg in re.split(r"[;&|\n]+", cmd) if seg.strip()]
+
+
+def _segment_views(segment: str) -> List[List[str]]:
+    """子命令的两种词序列：原始词序列，以及跳过 sudo / env 等包装与 VAR=value 赋值后的词序列。
+    命令名取路径 basename，全部小写。"""
+    raw = [t.strip("'\"").lower() for t in segment.split()]
+    if raw:
+        raw[0] = os.path.basename(raw[0])
+    k = 0
+    while k < len(raw) and (raw[k] in _CMD_WRAPPERS or ("=" in raw[k] and not raw[k].startswith(("-", "/", ".")))):
+        k += 1
+    cmd = raw[k:]
+    if cmd:
+        cmd[0] = os.path.basename(cmd[0])
+    return [raw, cmd] if cmd != raw else [raw]
+
+
+def _token_match(actual: str, ptok: str) -> bool:
+    if actual == ptok:
+        return True
+    if ptok.endswith(("=", "(", "()")):
+        return actual.startswith(ptok.rstrip(")"))
+    if "*" in ptok:
+        return re.fullmatch(_glob_to_regex(ptok), actual) is not None
+    return False
+
+
+def _glob_to_regex(pattern: str) -> str:
+    out, i = [], 0
+    while i < len(pattern):
+        if pattern.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif pattern[i] == "*":
+            out.append(".*")
+            i += 1
+        elif pattern[i] == "?":
+            out.append(".")
+            i += 1
+        else:
+            out.append(re.escape(pattern[i]))
+            i += 1
+    return "".join(out)
+
+
+def _norm_path_like(value: str) -> str:
+    v = os.path.expanduser(value.strip().strip("'\""))
+    if v.startswith("/"):
+        v = os.path.normpath(v)
+    return v
+
+
+def _command_denied(value: str, pattern: str) -> bool:
+    """命令 / 语句类参数的 denylist 匹配（大小写不敏感）：
+    · 含控制符（| ; & ）的禁止项（如「| bash」「curl *| sh」）：在整条命令上做子串 / 通配查找；
+    · 单词禁止项（如 rm、sudo、DROP 之外的 ATTACH）：命中任一子命令的命令名或包装命令名；
+    · 多词禁止项（如「rm -rf /」「git push --force」「DROP TABLE」）：命令名相同且其余各词都出现在该子命令中，
+      「rm -rf /」命中「rm -rf / --no-preserve-root」，不命中「rm -rf /tmp/a」。"""
+    pat = " ".join(pattern.split()).lower()
+    if not pat:
+        return False
+    if re.search(r"[|;&]", pat):
+        squeeze = lambda x: re.sub(r"\s+", "", x).lower()
+        return re.search(_glob_to_regex(squeeze(pat)), squeeze(value)) is not None
+    ptoks = pat.split()
+    for seg in _split_command_segments(value) or [value]:
+        for toks in _segment_views(seg):
+            if not toks or not _token_match(toks[0], ptoks[0]):
+                continue
+            if all(any(_token_match(t, pt) for t in toks[1:]) for pt in ptoks[1:]):
+                return True
+    return False
+
+
+def _value_denied(value: str, pattern: str) -> bool:
+    """路径 / URL / 取值类参数：精确匹配或通配匹配；路径先做 ~ 展开与规范化，防止 ../ 绕过。"""
+    if value == pattern:
+        return True
+    v, pat = _norm_path_like(value), _norm_path_like(pattern) if pattern.startswith(("/", "~")) else pattern
+    if v == pat:
+        return True
+    if "*" in pat or "?" in pat:
+        if pat.endswith("/**") and v == pat[:-3]:
+            return True
+        return re.fullmatch(_glob_to_regex(pat), v) is not None
+    return False
+
+
+def _param_denied(param_name: str, value: str, denylist: List[str]) -> Optional[str]:
+    """返回命中的禁止项，未命中返回 None。"""
+    is_cmd = str(param_name or "").lower() in _COMMAND_PARAM_NAMES
+    for pattern in denylist:
+        if (_command_denied(value, pattern) if is_cmd else _value_denied(value, pattern)):
+            return pattern
+    return None
+
+
 def _apply_static_deny(ir: Dict[str, Any]) -> Dict[str, Any]:
     """静态策略 denylist 优先于 IR（S-1-1）。
 
@@ -460,7 +937,7 @@ def _apply_static_deny(ir: Dict[str, Any]) -> Dict[str, Any]:
                         continue
                     for st in _static_spec(params_def.get(p.get("name"), {})):
                         denylist = [str(x) for x in (st.get("denylist") or [])]
-                        if pval in denylist:
+                        if _param_denied(p.get("name"), pval, denylist) is not None:
                             blocked = True
                             break
                     if blocked:

@@ -241,6 +241,34 @@ def init_db():
     conn.close()
 
 
+ABNORMAL_THRESHOLD = 0.5
+_SCORE_RE = None
+
+
+def abnormal_from_score(score: Any) -> Optional[int]:
+    """is_abnormal 的唯一判定口径（R9 修复）：0 <= 得分 < 0.5 记异常，= 0.5 及以上记正常；
+    得分缺失或为 -1（待判定）返回 None，表示不据此改写。"""
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return None
+    if s < 0:
+        return None
+    return 1 if s < ABNORMAL_THRESHOLD else 0
+
+
+def score_from_judge_text(text: Any) -> Optional[float]:
+    """从判定文本首行「整体得分: x」中解析得分。"""
+    global _SCORE_RE
+    if not isinstance(text, str):
+        return None
+    if _SCORE_RE is None:
+        import re as _re
+        _SCORE_RE = _re.compile(r"整体得分[:：]\s*([\d.]+)")
+    m = _SCORE_RE.search(text)
+    return float(m.group(1)) if m else None
+
+
 def insert_round(data: Dict[str, Any]) -> Optional[int]:
     """Insert a round record. Returns row id or None if duplicate."""
     conn = get_conn()
@@ -255,8 +283,7 @@ def insert_round(data: Dict[str, Any]) -> Optional[int]:
             score_match = re.search(r"整体得分:\s*([\d.]+)", judge_result)
             if score_match:
                 overall_score = float(score_match.group(1))
-            if overall_score < 0.5:
-                is_abnormal = 1
+            is_abnormal = abnormal_from_score(overall_score) or 0
 
         action_json_val = json.dumps(data.get("action", []), ensure_ascii=False)
         cursor = conn.execute("""
@@ -330,6 +357,18 @@ def update_round_end(round_id: str, data: Dict[str, Any]) -> bool:
       - ir_json：额外保护——若入参为 `'{}'`/`'__loading__'` 且 DB 已有真实 IR，也跳过。
       - 其它字段：只更新 data 中存在的、非空的字段。
     """
+    # is_abnormal 由得分统一推导（R9 修复）：异步判定上报体只带 judge_result / overall_score，
+    # 原实现对缺失的 is_abnormal 直接跳过，导致低分轮次一直保持默认值 0。
+    data = dict(data or {})
+    score = data.get("overall_score")
+    if score is None:
+        score = score_from_judge_text(data.get("judge_result"))
+        if score is not None:
+            data["overall_score"] = score
+    derived = abnormal_from_score(score)
+    if derived is not None:
+        data["is_abnormal"] = derived
+
     conn = get_conn()
     try:
         set_parts: list = []
@@ -475,8 +514,9 @@ def get_rounds(limit: int = 50, offset: int = 0, abnormal_only: bool = False,
     if abnormal_only:
         conditions.append("is_abnormal = 1")
     if query:
-        conditions.append("user_query LIKE ?")
-        params.append(f"%{query}%")
+        # 关键字同时匹配用户查询与 round_id（流量回放页搜索框「搜索 round_id 或用户查询」）
+        conditions.append("(user_query LIKE ? OR round_id LIKE ?)")
+        params.extend([f"%{query}%", f"%{query}%"])
     if round_id:
         conditions.append("round_id LIKE ?")
         params.append(f"%{round_id}%")
@@ -543,6 +583,15 @@ def update_round_field(round_id: str, field: str, value: str, time_limit_enabled
         # is_abnormal 需要转为整数
         if field == "is_abnormal":
             conn.execute("UPDATE rounds SET is_abnormal = ? WHERE round_id = ?", (1 if value else 0, round_id))
+        elif field in ("overall_score", "judge_result"):
+            # 得分 / 判定文本更新时同步推导 is_abnormal（R9 修复）
+            conn.execute(f"UPDATE rounds SET {field} = ? WHERE round_id = ?", (value, round_id))
+            score = value if field == "overall_score" else score_from_judge_text(value)
+            if field == "judge_result" and score is not None:
+                conn.execute("UPDATE rounds SET overall_score = ? WHERE round_id = ?", (score, round_id))
+            derived = abnormal_from_score(score)
+            if derived is not None:
+                conn.execute("UPDATE rounds SET is_abnormal = ? WHERE round_id = ?", (derived, round_id))
         elif field == "action_json":
             # 同步更新防篡改摘要
             conn.execute(

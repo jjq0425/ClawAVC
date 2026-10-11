@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import dataclasses
 import glob
+import functools
 import json
 import os
 import re
@@ -203,6 +204,16 @@ class RoundLedger:
 # OpenClaw Event Parsing
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# 解析热路径的预计算结构（P-3-2 性能优化，语义与原逐项比较一致）
+_ID_KEY_SET = frozenset(ID_KEYS)
+# 文本兜底模式的合并预检：任一模式能匹配 ⇔ 合并后的交替式能匹配；不匹配时直接跳过逐个检索
+_TEXT_ANY = re.compile("|".join("(?:%s)" % pat.pattern for _k, pat in TEXT_PATTERNS), re.I)
+_EVENT_ALIAS_LOOKUP: Dict[str, str] = {}
+for _kind, _aliases in EVENT_ALIASES.items():
+    for _alias in _aliases:
+        _EVENT_ALIAS_LOOKUP.setdefault(_alias.lower(), _kind)
+
+
 def sanitize_json(obj: Any) -> Any:
     if isinstance(obj, dict):
         return {k: sanitize_json(v) for k, v in obj.items() if k not in BLOCKED_PAYLOAD_KEYS}
@@ -224,6 +235,25 @@ def flatten_dict(d: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
     return out
 
 
+def _flatten_sanitized(d: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    """等价于 flatten_dict(sanitize_json(d))，一次遍历完成（P-3-2 性能优化）。
+
+    flatten 不进入 list 内部、只记录长度，而 sanitize 不改变 list 长度，
+    因此只需在各级 dict 上跳过 BLOCKED_PAYLOAD_KEYS 即可得到相同结果。"""
+    out: Dict[str, Any] = {}
+    for k, v in d.items():
+        if k in BLOCKED_PAYLOAD_KEYS:
+            continue
+        key = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            out.update(_flatten_sanitized(v, key))
+        elif isinstance(v, list):
+            out[f"{key}.length"] = len(v)
+        else:
+            out[key] = v
+    return out
+
+
 def get_scalar(d: Dict[str, Any], key: str) -> str:
     v = d.get(key)
     if v is None or isinstance(v, (dict, list)):
@@ -231,31 +261,35 @@ def get_scalar(d: Dict[str, Any], key: str) -> str:
     return str(v)
 
 
+_ID_ALIAS_PATHS = (
+    ("details.sessionKey", "sessionKey"),
+    ("details.runId", "run_id"),
+    ("message.details.sessionKey", "sessionKey"),
+    ("message.details.runId", "run_id"),
+    ("message.provenance.sourceSessionKey", "sourceSessionKey"),
+    ("message.toolCallId", "toolCallId"),
+    ("message.toolName", "toolName"),
+)
+
+
 def collect_ids(clean: Dict[str, Any], flat: Dict[str, Any]) -> Dict[str, str]:
     ids: Dict[str, str] = {}
     for k in ID_KEYS:
-        v = get_scalar(clean, k)
-        if v:
-            ids[k] = v
-    for fk, v in flat.items():
-        if isinstance(v, (dict, list)) or v is None:
+        v = clean.get(k)
+        if v is None or isinstance(v, (dict, list)):
             continue
-        leaf = fk.split(".")[-1]
-        if leaf in ID_KEYS:
-            sv = str(v)
-            if len(sv) <= 500:
-                ids.setdefault(leaf, sv)
+        sv = str(v)
+        if sv:
+            ids[k] = sv
+    for fk, v in flat.items():
+        leaf = fk.rpartition(".")[2]
+        if leaf not in _ID_KEY_SET or v is None or isinstance(v, (dict, list)):
+            continue
+        sv = str(v)
+        if len(sv) <= 500:
+            ids.setdefault(leaf, sv)
     # Alias paths
-    alias_paths = {
-        "details.sessionKey": "sessionKey",
-        "details.runId": "run_id",
-        "message.details.sessionKey": "sessionKey",
-        "message.details.runId": "run_id",
-        "message.provenance.sourceSessionKey": "sourceSessionKey",
-        "message.toolCallId": "toolCallId",
-        "message.toolName": "toolName",
-    }
-    for path, alias in alias_paths.items():
+    for path, alias in _ID_ALIAS_PATHS:
         if path in flat and flat[path] is not None:
             sv = str(flat[path])
             if len(sv) <= 500:
@@ -289,13 +323,14 @@ def classify_event(clean: Dict[str, Any], flat: Dict[str, Any]) -> Tuple[str, st
         return "tool_completed", f"toolResult.{tool_name or 'unknown'}"
 
     event_name = get_scalar(clean, "event") or get_scalar(clean, "type") or get_scalar(clean, "name")
-    event_lower = event_name.lower()
-    for kind, aliases in EVENT_ALIASES.items():
-        if event_lower in {a.lower() for a in aliases}:
-            return kind, event_name
+    kind = _EVENT_ALIAS_LOOKUP.get(event_name.lower())
+    if kind is not None:
+        return kind, event_name
 
     # Fallback: text pattern matching
     haystack = " ".join(f"{k}={v}" for k, v in flat.items() if not isinstance(v, (dict, list)) and v is not None and len(str(v)) <= 120)
+    if not _TEXT_ANY.search(haystack):
+        return "unknown", event_name
     for kind, pat in TEXT_PATTERNS:
         if pat.search(haystack):
             return kind, event_name
@@ -304,6 +339,15 @@ def classify_event(clean: Dict[str, Any], flat: Dict[str, Any]) -> Tuple[str, st
 
 
 def extract_ids_from_path(source_file: str) -> Dict[str, str]:
+    return dict(_extract_ids_from_path_cached(source_file))
+
+
+@functools.lru_cache(maxsize=1024)
+def _extract_ids_from_path_cached(source_file: str) -> Tuple[Tuple[str, str], ...]:
+    return tuple(_extract_ids_from_path_uncached(source_file).items())
+
+
+def _extract_ids_from_path_uncached(source_file: str) -> Dict[str, str]:
     ids: Dict[str, str] = {}
     m = re.search(r"/agents/([^/]+)/sessions/([0-9a-fA-F-]{20,})", source_file)
     if m:
@@ -323,15 +367,14 @@ def parse_line(line: str, source_file: str) -> Optional[ParsedEvent]:
     if not isinstance(obj, dict):
         return None
 
-    clean = sanitize_json(obj)
-    if not isinstance(clean, dict):
-        return None
-    flat = flatten_dict(clean)
-    ids = collect_ids(clean, flat)
-    ids.update({k: v for k, v in extract_ids_from_path(source_file).items() if not ids.get(k)})
+    # 后续只读取顶层标量（嵌套 dict / list 在 get_scalar 中均视为空），浅过滤即与 sanitize_json 等价
+    clean = {k: v for k, v in obj.items() if k not in BLOCKED_PAYLOAD_KEYS}
+    flat = _flatten_sanitized(obj)
     kind, event_name = classify_event(clean, flat)
     if kind == "unknown":
         return None
+    ids = collect_ids(clean, flat)
+    ids.update({k: v for k, v in extract_ids_from_path(source_file).items() if not ids.get(k)})
 
     session_key = first_id(ids, SESSION_KEYS) or "unknown"
     top_type = get_scalar(clean, "type")
@@ -859,21 +902,56 @@ def resources_from_arguments(tool: str, arguments: dict) -> List[dict]:
                 seen.add(key)
                 resources.append({"path": cleaned, "access": tool_access})
     return resources
+def _block_text(content) -> str:
+    """Anthropic tool_result 的 content 可能是字符串或 [{type:text,text}] 列表。"""
+    if isinstance(content, list):
+        return "\n".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
+    return str(content or "")
+
+
+def _anthropic_tool_calls(msg: dict) -> List[dict]:
+    """把 Anthropic 风格 content 中的 tool_use 块转换为 OpenAI tool_calls 结构（R2 修复）。"""
+    calls = []
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return calls
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "tool_use":
+            calls.append({
+                "id": block.get("id") or "",
+                "function": {"name": block.get("name") or "", "arguments": block.get("input") or {}},
+            })
+    return calls
+
+
 def build_actions_from_trajectory(trajectory: List[dict]) -> List[dict]:
-    """Parse tool calls from trajectory messages into action records."""
+    """Parse tool calls from trajectory messages into action records.
+
+    同时支持 OpenAI 风格（assistant.tool_calls + role=tool 结果）与
+    Anthropic 风格（assistant.content[type=tool_use] + user.content[type=tool_result]）。
+    """
     actions = []
     tool_results: Dict[str, dict] = {}
     for msg in trajectory:
-        if isinstance(msg, dict) and msg.get("role") == "tool":
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("role") == "tool":
             tcid = msg.get("tool_call_id")
             if tcid:
                 tool_results[tcid] = msg
+        elif isinstance(msg.get("content"), list):
+            for block in msg["content"]:
+                if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("tool_use_id"):
+                    tool_results[block["tool_use_id"]] = {"content": _block_text(block.get("content"))}
 
     for msg in trajectory:
         if not isinstance(msg, dict):
             continue
         tool_calls = msg.get("tool_calls")
         if not isinstance(tool_calls, list):
+            tool_calls = []
+        tool_calls = list(tool_calls) + _anthropic_tool_calls(msg)
+        if not tool_calls:
             continue
         for call in tool_calls:
             if not isinstance(call, dict):
@@ -1839,6 +1917,7 @@ class MonitorOrchestrator:
                             "time_end": _fmt_time(),
                             "judge_result": judge_result,
                             "overall_score": judge_score,
+                            "is_abnormal": 1 if 0 <= judge_score < 0.5 else 0,
                         }
                         import json as _json
                         req = urllib.request.Request(
@@ -1989,6 +2068,7 @@ class MonitorOrchestrator:
                             "time_end": _fmt_time(),
                             "judge_result": judge_result,
                             "overall_score": judge_score,
+                            "is_abnormal": 1 if 0 <= judge_score < 0.5 else 0,
                         }
                         import json as _json
                         req = urllib.request.Request(

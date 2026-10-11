@@ -48,3 +48,7 @@ test/*
 *.docx
 figures/*
 scripts/*
+
+*.pptx
+*.ppt
+*.pdf

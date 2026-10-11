@@ -22,9 +22,9 @@
 
     <!-- Cards -->
     <transition-group name="card-slide" tag="div" class="rounds-list">
-      <div v-for="r in rounds" :key="r.round_id" class="round-card" :class="{ abnormal: (r.overall_score ?? -1) <= 0.5 && (r.overall_score ?? -1) >= 0, pending: (r.overall_score ?? -1) < 0 }">
+      <div v-for="r in rounds" :key="r.round_id" class="round-card" :class="{ abnormal: (r.overall_score ?? -1) < 0.5 && (r.overall_score ?? -1) >= 0, pending: (r.overall_score ?? -1) < 0 }">
         <div class="card-header" @click="toggleExpand(r.round_id)">
-          <div class="score-badge" :class="(r.overall_score ?? -1) < 0 ? 'pending' : (r.overall_score ?? 0) > 0.5 ? 'pass' : 'fail'"></div>
+          <div class="score-badge" :class="(r.overall_score ?? -1) < 0 ? 'pending' : (r.overall_score ?? 0) >= 0.5 ? 'pass' : 'fail'"></div>
           <div class="card-info">
             <div class="query-text">{{ r.user_query || '(无查询)' }}</div>
             <div class="card-meta">

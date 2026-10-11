@@ -187,3 +187,61 @@ ClawAVC 的审计链路分两层：**翻译层**（`backend/auditor/translator/`
 | 原文件备份 | `/tmp/shell_exec.json.bak` |
 | 消费端代码 | `backend/auditor/translator/core.py`（L330-332 / L352-357 / L411-419 / L434-478） |
 | 关联测试 | `test/test_module1_translator.py`（F-1-1 / F-1-3 / S-1-1 / R-1-2） |
+
+---
+
+## 8. 后续演进：warn 建议与配置解耦（2026-09-25 第二次调整）
+
+初版将 `risk/alternative` 文本内联在 JSON `warn` 数组中，存在复用性差、维护分散的问题。本轮将其抽象为通用化机制：
+
+### 8.1 机制设计
+
+| 组件 | 位置 | 说明 |
+| --- | --- | --- |
+| 建议文档 | `tools/warn_advice.md` | warn 类建议的**唯一事实来源**：按风险类别组织（10 类），每类含 `pattern / risk / alternative` 结构化条目 + AI 使用规则 |
+| JSON 引用 | `risk_guidance.advice_docs: [{role, path}]` | 数组管理、支持多文档；`warn` 条目瘦身为仅 `{class, pattern}` 标识 |
+| 加载器 | `core.py` `_load_advice_doc()`（mtime 缓存） | 同一文档被多处引用只读一次盘；热重载后 mtime 变化自动失效 |
+| 路径解析 | `_resolve_advice_path()` | 绝对路径原样；相对路径相对 `policy_registry/tools/` |
+| 注入展开 | `_expand_advice_docs()` → `_selected_registry_for_prompt()` | Level-2 提示词注入时把引用展开为 `{role, path, loaded, content}`，建议内容随提示词进入 AI |
+| 状态可见 | `advice_docs_status()` → `GET /api/translator/registry-health` | 健康检查返回各 advice 文档 `loaded` 状态与 warnings |
+
+### 8.2 降级行为（明确保证）
+
+- 路径不存在 / 读取失败：**不抛异常、不影响其余规则**，注入占位文本 `[advice doc unavailable: <path>]`（`loaded: false`），AI 可感知缺档；
+- 健康检查：`ok` 保持 true（属可降级项），但 `warnings` 列出未加载成功的文档路径。
+
+### 8.3 SOUL 注入 API（openclaw 自我认知约束）
+
+新增 `POST /api/openclaw/soul-advice`（app.py）：接收建议文档的 `path` 或 `content`（可选 `target_path`，默认 `~/.openclaw/workspace/SOUL.md`），以标记块 `<!-- clawavc:advice begin/end -->` 幂等写入——**不存在则追加、已存在则覆盖**，原 SOUL 内容保持不动。配套 `GET /api/openclaw/soul-advice` 查询标记块状态。校验：仅 `.md`、1MB 上限、目标目录须存在；错误均返回明确的 4xx JSON。
+
+### 8.4 验证结论
+
+提示词展开含完整建议文档、三处引用仅 1 条缓存、缺档降级占位、SOUL 追加/覆盖幂等（v1→v2 覆盖生效、标记各 1 次）、registry-health 返回 `advice_docs: [{loaded: true}]`；全量回归 **118/118 PASS**。
+
+---
+
+## 9. 演进：advice_docs 上移至场景级 + 文档分区加载
+
+**结构变更**：`advice_docs` 由「函数级」（原先在 `functions.*.params.command.constraint_spec.static.risk_guidance` 内、重复 3 处）上移至**场景级**——与 `"scene": "shell_exec"` 同级，全文件**单处配置**。翻译模型读取场景 JSON 后即按此加载，不再随函数分散定义。
+
+**分区加载**：引导文档按风险类别分节，每节以 `<!-- applies: <场景名> -->` 标注适用场景（未标注 = 全局分节，始终加载）：
+- **注入翻译模型（Level-2 提示词）**：`_filter_advice_for_scene()` 按当前场景过滤，仅注入匹配分节（实测 shell_exec 注入 2147 字符 / 全文 2438 字符；非匹配场景仅注入全局分节 630 字符）；
+- **同步 AGENTS.md / 页签查看**：全量（`filter: "full"` 或未传 scene），保证主模型获得完整引导。
+
+**接口与前端**：`GET /api/translator/advice-docs` 返回场景级引用位置、分区元信息（标题 + applies）、全量内容与各场景「注入视图」；前端「可替代工具引导」页签新增**风险分区 chips** 与**注入视图 / 全量 切换**。
+
+**验证**：场景级键位唯一（1 处，函数级已清零）；分节过滤与全局分节保留符合预期；回归测试 138/138 PASS。
+
+---
+
+## 10. 结构精简：移除 `risk_guidance`
+
+**变更**：删除 `functions.*.params.command.constraint_spec.static.risk_guidance`（exec / cmd_executor__exec_command / cmd_executor__exec_script 三处）。
+
+**原因**：该字段仅作文档性描述，无任何代码消费——真正生效的是 `static.denylist`（由 `_apply_static_deny` 精确匹配拦截）与全局引导文档。其内部的 `warn` 条目此前已瘦身（建议文本全部迁移至 `warn_advice.md`）、`deny_strict` 分类视图也已由 `denylist` 直接承载，保留只会造成「同一语义多处定义」。
+
+**删除后**：`exec.static` 仅保留 `note / allowed_values / allowlist / default / denylist`；denylist 79 条强制拦截条目不变，注入提示词的引导文档由全局 `advice_docs.json` 提供（shell_exec 注入 2164 字符、其他场景仅全局分块 647 字符）。
+
+**文案同步**：`dynamic_ai_hint`、`static.note`、`prompt_guidance` 与 `warn_advice.md` 头部中指向 `risk_guidance` 的描述，统一改为指向「全局可替代工具引导文档（advice_docs.json → warn_advice.md）」。
+
+**验证**：JSON 解析正常；引导文档仍按场景注入；回归测试 138/138 PASS。

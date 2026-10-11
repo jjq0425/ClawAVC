@@ -34,7 +34,26 @@ REDIRECT_READ = {"<"}
 REDIRECT_WRITE = {">", ">>", "1>", "1>>", "2>", "2>>"}
 
 
+_FD_DUP_RE = re.compile(r"(?<![\w/])\d*[<>]&\s*(?:\d+|-)(?![\w/.])")
+_BOTH_TO_FILE_RE = re.compile(r"&>(>?)|>&(?=\s*[^\s\d-])")
+_FD_PREFIX_RE = re.compile(r"(?<![\w/=.-])\d+(?=>>?|<)")
+
+
+def _normalize_redirections(command: str) -> str:
+    """规整重定向写法，避免 fd 复制被误判为文件读写（R3）。
+
+    · 2>&1、1>&2、>&2、2>&- 等 fd 复制 / 关闭：只改变输出流向，不访问文件，直接去除；
+    · &>file、&>>file、>&file：标准输出与错误一起写入文件，等价于 > / >>；
+    · 2>file、1>>file：fd 编号与文件读写语义无关，去掉编号保留 > / >>，
+      防止 shlex 把编号拆成独立参数。
+    """
+    command = _FD_DUP_RE.sub(" ", command)
+    command = _BOTH_TO_FILE_RE.sub(lambda m: ">" + (m.group(1) or ""), command)
+    return _FD_PREFIX_RE.sub("", command)
+
+
 def _tokenize(command: str) -> List[str]:
+    command = _normalize_redirections(command)
     try:
         lexer = shlex.shlex(
             command,

@@ -625,7 +625,8 @@ def set_admin_ttl():
 @app.route("/api/translator/config", methods=["GET"])
 def get_translator_config():
     """Get current IR translator LLM config. API Key 不返回（安全考虑）。"""
-    keys = ["api_base_url", "model", "temperature", "timeout", "json_mode"]
+    keys = ["api_base_url", "model", "temperature", "timeout", "json_mode",
+            "registry_prompt_format"]
     config = {}
     for k in keys:
         val = db.get_config(f"ir_translator.{k}")
@@ -645,7 +646,7 @@ def set_translator_config():
     if not _check_admin_session(token):
         return jsonify({"ok": False, "error": "需要特权验证"}), 403
     data = request.get_json(force=True)
-    allowed_keys = ["api_base_url", "api_key", "model", "temperature", "timeout", "json_mode", "prompt_level1", "prompt_level2"]
+    allowed_keys = ["api_base_url", "api_key", "model", "temperature", "timeout", "json_mode", "prompt_level1", "prompt_level2", "registry_prompt_format"]
     for k, v in data.items():
         if k in allowed_keys:
             # api_key 特殊处理：空值不更新，避免误覆盖
@@ -880,7 +881,237 @@ def registry_health():
         return jsonify({"ok": False, "error": "目录中缺少 scenes.json", "path": path})
     if not os.path.isdir(os.path.join(path, "tools")):
         return jsonify({"ok": False, "error": "目录中缺少 tools 文件夹", "path": path})
-    return jsonify({"ok": True, "path": path})
+    # 文件内容合法性：非法 JSON / 缺少 scene 字段的文件逐个列出，便于定位（R-1-2）
+    try:
+        from auditor.translator.core import registry_file_errors
+        file_errors = registry_file_errors(path)
+    except Exception as e:
+        file_errors = [f"策略库文件检查失败: {e}"]
+    if file_errors:
+        return jsonify({"ok": False, "error": "策略库文件内容异常: " + "；".join(file_errors[:3]),
+                        "invalid_files": file_errors, "path": path})
+    # advice 建议文档加载状态（缺档不致命：提示词自动降级为占位，但需在健康检查中可见）
+    try:
+        from auditor.translator.core import advice_docs_status
+        advice = advice_docs_status()
+    except Exception as e:
+        advice = [{"path": "?", "loaded": False, "error": str(e)}]
+    warnings = [f"advice 文档未加载成功: {a.get('path')}" for a in advice if not a.get("loaded")]
+    resp = {"ok": True, "path": path, "advice_docs": advice}
+    if warnings:
+        resp["warnings"] = warnings
+    return jsonify(resp)
+
+# ---------------------------------------------------------------------------
+# OpenClaw 自我认知约束（SOUL.md）最小权限提示注入
+# ---------------------------------------------------------------------------
+_DEFAULT_SOUL_PATH = os.path.expanduser("~/.openclaw/workspace/SOUL.md")
+_SOUL_ADVICE_BEGIN = "<!-- clawavc:advice begin -->"
+_SOUL_ADVICE_END = "<!-- clawavc:advice end -->"
+
+
+def _apply_soul_advice(advice_text: str, target_path: str) -> Dict[str, Any]:
+    """将 advice 内容写入 SOUL 文件的标记块（幂等）。
+
+    - 标记块不存在 → 追加到文件末尾；
+    - 标记块已存在 → 以新内容覆盖旧内容（保证重复调用可更新）。
+    """
+    block = f"\n{_SOUL_ADVICE_BEGIN}\n{advice_text.rstrip()}\n{_SOUL_ADVICE_END}\n"
+    with open(target_path, "r", encoding="utf-8") as f:
+        old = f.read()
+    if _SOUL_ADVICE_BEGIN in old and _SOUL_ADVICE_END in old:
+        pre = old.split(_SOUL_ADVICE_BEGIN, 1)[0].rstrip() + "\n"
+        post = old.split(_SOUL_ADVICE_END, 1)[1].lstrip("\n")
+        new = pre + block.strip("\n") + "\n" + (post if post else "")
+        action = "replaced"
+    else:
+        new = old.rstrip() + "\n" + block
+        action = "appended"
+    with open(target_path, "w", encoding="utf-8") as f:
+        f.write(new)
+    return {"action": action, "target": target_path, "bytes": len(new.encode("utf-8"))}
+
+
+@app.route("/api/openclaw/soul-advice", methods=["POST"])
+def openclaw_soul_advice():
+    """将最小权限提示 Markdown 注入 openclaw 自我认知约束（SOUL.md）末尾。
+
+    Body(JSON):
+      - path: 提示文档路径（与 content 二选一，path 优先；支持策略库相对路径语义由调用方决定，此处按文件系统路径读取）
+      - content: 提示文档内容（字符串，与 path 二选一）
+      - target_path: 目标 SOUL 文件（可选，默认 ~/.openclaw/workspace/SOUL.md）
+
+    幂等语义：标记块已存在时以新内容覆盖旧内容；不存在时直接追加写入。
+    """
+    data = request.get_json(force=True) or {}
+    advice_path = (data.get("path") or "").strip()
+    content = data.get("content")
+    if advice_path:
+        p = Path(advice_path).expanduser()
+        if not p.is_file():
+            return jsonify({"ok": False, "error": f"提示文档不存在: {p}"}), 400
+        if p.suffix.lower() != ".md":
+            return jsonify({"ok": False, "error": "提示文档必须是 .md 文件"}), 400
+        try:
+            content = p.read_text(encoding="utf-8")
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"提示文档读取失败: {e}"}), 400
+    if not isinstance(content, str) or not content.strip():
+        return jsonify({"ok": False, "error": "必须提供有效的 path 或 content"}), 400
+    if len(content.encode("utf-8")) > 1024 * 1024:
+        return jsonify({"ok": False, "error": "提示内容超过 1MB 限制"}), 400
+
+    target = os.path.expanduser((data.get("target_path") or "").strip() or _DEFAULT_SOUL_PATH)
+    tp = Path(target)
+    if tp.suffix.lower() != ".md":
+        return jsonify({"ok": False, "error": "目标必须是 .md 文件"}), 400
+    if not tp.parent.is_dir():
+        return jsonify({"ok": False, "error": f"目标目录不存在: {tp.parent}"}), 400
+    if not tp.is_file():
+        try:
+            tp.touch()
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"目标文件不可创建: {e}"}), 400
+    try:
+        result = _apply_soul_advice(content, target)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"写入失败: {e}"}), 500
+    return jsonify({"ok": True, "data": result})
+
+
+@app.route("/api/openclaw/soul-advice", methods=["GET"])
+def openclaw_soul_advice_status():
+    """查询 SOUL 文件中 advice 标记块状态（可选 query: target_path）。"""
+    target = os.path.expanduser((request.args.get("target_path") or "").strip() or _DEFAULT_SOUL_PATH)
+    tp = Path(target)
+    if not tp.is_file():
+        return jsonify({"ok": True, "data": {"target": target, "exists": False, "present": False, "bytes": 0}})
+    try:
+        text = tp.read_text(encoding="utf-8")
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"读取失败: {e}"}), 500
+    present = _SOUL_ADVICE_BEGIN in text and _SOUL_ADVICE_END in text
+    block = ""
+    if present:
+        block = text.split(_SOUL_ADVICE_BEGIN, 1)[1].split(_SOUL_ADVICE_END, 1)[0].strip()
+    return jsonify({"ok": True, "data": {"target": target, "exists": True,
+                                        "present": present, "bytes": len(block.encode("utf-8"))}})
+
+
+@app.route("/api/translator/advice-docs", methods=["GET"])
+def translator_advice_docs():
+    """列出全局引导文档（advice_docs.json）中的文档与分块信息。
+
+    返回：role、path、inject（是否注入）、loaded、适用场景（按分块 applies 汇总）、
+    完整内容与分块正文、以及各场景实际注入的视图。
+    """
+    from auditor.translator.core import (_load_advice_registry, _load_advice_doc,
+                                         _advice_sections_full, _filter_advice_for_scene)
+    data = []
+    for entry in _load_advice_registry():
+        p = str(entry.get("path") or "")
+        if not p:
+            continue
+        loaded = _load_advice_doc(p)
+        content = loaded["content"]
+        full = _advice_sections_full(content) if loaded["ok"] else {"preamble": "", "sections": []}
+        scenes = sorted({sc for sec in full["sections"]
+                         for sc in (sec.get("applies") or []) if sc})
+        ent = {
+            "path": p,
+            "resolved_path": loaded["path"],
+            "loaded": loaded["ok"],
+            "inject": bool(entry.get("inject", True)),
+            "source": "全局配置（advice_docs.json）",
+            "content": content,
+            "preamble": full["preamble"],
+            "sections": full["sections"],
+            "scenes": scenes,
+            "refs": ["全局配置（advice_docs.json）"],
+            "injected": ({sc: _filter_advice_for_scene(content, sc) for sc in scenes}
+                         if loaded["ok"] else {}),
+        }
+        data.append(ent)
+    return jsonify({"ok": True, "data": data})
+
+
+def _advice_path_guard(path: str):
+    """校验 advice 文档路径：必须解析到当前策略库目录内且为 .md（返回 (resolved, error)）。"""
+    from auditor.translator.core import _resolve_advice_path, _get_registry_dir
+    real = _resolve_advice_path(path).resolve()
+    root = _get_registry_dir().resolve()
+    try:
+        real.relative_to(root)
+    except ValueError:
+        return None, f"路径必须在当前策略库目录内: {root}"
+    if real.suffix.lower() != ".md":
+        return None, "引导文档必须是 .md 文件"
+    return real, ""
+
+
+@app.route("/api/translator/advice-docs/content", methods=["PUT"])
+def save_advice_content():
+    """保存分块编辑后的引导文档。
+
+    Body(JSON): {path, preamble?, sections:[{title, applies:[], body}]}
+    由「前言 + 分块」重建 Markdown 写回文档（保留 <!-- applies: --> 标签语义）。
+    """
+    from auditor.translator.core import _rebuild_advice_doc
+    data = request.get_json(force=True) or {}
+    path = (data.get("path") or "").strip()
+    sections = data.get("sections")
+    if not path or not isinstance(sections, list):
+        return jsonify({"ok": False, "error": "必须提供 path 与 sections"}), 400
+    real, err = _advice_path_guard(path)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    for sec in sections:
+        if not isinstance(sec, dict) or not str(sec.get("title") or "").strip():
+            return jsonify({"ok": False, "error": "分块标题不能为空"}), 400
+    content = _rebuild_advice_doc(str(data.get("preamble") or ""), sections)
+    try:
+        real.write_text(content, encoding="utf-8")
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"写入失败: {e}"}), 500
+
+    return jsonify({"ok": True, "data": {"path": str(real), "bytes": len(content.encode("utf-8")),
+                                         "sections": len(sections)}})
+
+
+@app.route("/api/translator/advice-docs/inject", methods=["PUT"])
+def set_advice_inject():
+    """切换全局引导文档的注入开关（写入 advice_docs.json 的 inject 字段）。
+
+    Body(JSON): {path, inject: bool}
+    """
+    from auditor.translator.core import _advice_registry_path, reload_registry
+    data = request.get_json(force=True) or {}
+    path = (data.get("path") or "").strip()
+    inject = bool(data.get("inject"))
+    if not path:
+        return jsonify({"ok": False, "error": "必须提供 path"}), 400
+    reg = _advice_registry_path()
+    try:
+        obj = json.loads(reg.read_text(encoding="utf-8")) if reg.is_file() else {}
+    except Exception:
+        obj = {}
+    docs = obj.get("advice_docs") or []
+    hit = False
+    for d in docs:
+        if isinstance(d, dict) and d.get("path") == path:
+            d["inject"] = inject
+            hit = True
+    if not hit:
+        return jsonify({"ok": False, "error": f"全局注册表中未找到该文档: {path}"}), 404
+    obj["advice_docs"] = docs
+    try:
+        reg.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"写入失败: {e}"}), 500
+    reload_registry()
+    return jsonify({"ok": True, "data": {"path": path, "inject": inject,
+                                         "updated": [reg.name]}})
+
 
 @app.route("/api/translator/registry-path", methods=["GET"])
 def get_registry_path():
