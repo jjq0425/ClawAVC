@@ -1,0 +1,25 @@
+###############################################################################
+# openclaw / MCP 工具调用审计规则（auditd）
+# 安装：cp 到 /etc/audit/rules.d/openclaw_agent.rules 后 augenrules --load
+# 说明：SELinux 自身的 AVC/USER_AVC 记录由内核产生（permissive 下拒绝即留痕），
+#       本文件补充「工具目录访问」与「工具进程执行」的 syscall 级审计。
+###############################################################################
+
+## ① MCP 工具目录：任何读写执行属性变更都记录
+-w /home/hx/jjq/agent_perm_audit/tools -p rwxa -k agent_tool_access
+
+## ② openclaw 自带基础工具 / 技能载体
+-w /root/.openclaw/skills -p rwxa -k agent_builtin_tool_access
+
+## ③ openclaw 入口与包体
+-w /usr/bin/openclaw -p rwxa -k openclaw_entry_access
+-w /usr/lib/node_modules/openclaw -p rwxa -k openclaw_pkg_access
+
+## ④ 工具进程执行（execve）——记录「谁调用了哪个工具」
+-a always,exit -F arch=b64 -S execve -F dir=/home/hx/jjq/agent_perm_audit/tools -k agent_tool_exec
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/openclaw -k openclaw_exec
+-a always,exit -F arch=b64 -S execve -F exe=/usr/local/bin/openclaw-tool-e2e -k openclaw_collector_exec
+
+## ⑤ openclaw 配置与采集产物
+-w /root/.openclaw/exec-approvals.json -p rwxa -k agent_conf_access
+-w /var/lib/openclaw-kernel-collector -p rwxa -k agent_log_access

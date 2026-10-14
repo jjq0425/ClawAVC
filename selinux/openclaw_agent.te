@@ -1,0 +1,137 @@
+policy_module(openclaw_agent, 1.0)
+
+###############################################################################
+# OpenClaw Agent 域（agent_t）与工具标签（agent_tool_t）
+#
+# 设计目标：
+#   1. 所有 openclaw 相关进程/二进制统一进入 agent_t 域；
+#   2. MCP 工具（/home/hx/jjq/agent_perm_audit/tools）与 openclaw 自带基础工具
+#      统一打 agent_tool_t 标签；
+#   3. 以「最小允许 + permissive + auditallow」实现行为可追溯：
+#      - 未被显式允许的访问：permissive 下放行但产生 AVC 审计记录；
+#      - 被显式允许的访问：用 auditallow 强制留痕（granted=yes）。
+###############################################################################
+
+## ── 类型声明 ────────────────────────────────────────────────────────────────
+type agent_t;                 # openclaw 进程域
+type agent_exec_t;            # openclaw 入口二进制/脚本
+type agent_tool_t;            # MCP 工具与 openclaw 自带基础工具
+type agent_conf_t;            # openclaw 配置（exec-approvals.json 等）
+type agent_log_t;             # 采集产物 / 运行日志
+
+# 声明为文件/设备类型，使其可被 semanage fcontext 与 restorecon 正确使用
+files_type(agent_exec_t)
+files_type(agent_tool_t)
+files_type(agent_conf_t)
+files_type(agent_log_t)
+
+# 以下类型/角色来自其它模块，需显式 require
+gen_require(`
+	type unconfined_t, initrc_t, init_t, proc_t, bin_t;
+	role unconfined_r;
+')
+
+role system_r types agent_t;
+# 允许从管理员会话（unconfined_r）启动的进程也进入 agent_t
+role unconfined_r types agent_t;
+
+## ── 域定义与入口 ────────────────────────────────────────────────────────────
+domain_type(agent_t)
+domain_entry_file(agent_t, agent_exec_t)
+
+# 从常见父域执行 agent_exec_t 时自动进入 agent_t
+# unconfined_t 属于独立模块，需显式 require（其余域类型在 base 中可见）
+domain_auto_trans(unconfined_t, agent_exec_t, agent_t)
+domain_auto_trans(initrc_t, agent_exec_t, agent_t)
+domain_auto_trans(init_t, agent_exec_t, agent_t)
+# systemd 以 SELinuxContext= 启动服务时，允许 init_t 直接切换到 agent_t
+allow init_t agent_t:process transition;
+
+## ── 进程自身必需的权限 ──────────────────────────────────────────────────────
+allow agent_t self:process { fork signal sigchld sigkill getattr setpgid getsched setsched getcap setcap execmem execstack };
+allow agent_t self:fifo_file { read write getattr ioctl };
+allow agent_t self:unix_stream_socket { create connect listen accept read write getattr shutdown setopt };
+allow agent_t self:unix_dgram_socket { create connect read write getattr };
+allow agent_t self:tcp_socket { create connect bind listen accept read write getattr shutdown setopt getopt };
+allow agent_t self:udp_socket { create connect read write getattr };
+allow agent_t self:netlink_route_socket { create bind read write getattr nlmsg_read };
+
+## ── 执行解释器与基础命令（node/python/bash 等）──────────────────────────────
+corecmd_search_bin(agent_t)
+corecmd_exec_bin(agent_t)
+corecmd_exec_shell(agent_t)
+libs_exec_ld_so(agent_t)
+libs_use_ld_so(agent_t)
+
+# /usr/bin/env（openclaw.mjs 的 shebang 为 #!/usr/bin/env node）
+allow agent_t bin_t:lnk_file { read getattr };
+
+## ── 工具调用：MCP 工具 + openclaw 自带基础工具（agent_tool_t）───────────────
+allow agent_t agent_tool_t:dir  { search read open getattr lock ioctl };
+allow agent_t agent_tool_t:file { read open getattr lock ioctl execute execute_no_trans };
+allow agent_t agent_tool_t:lnk_file { read getattr };
+
+## ── 自有配置与日志 ──────────────────────────────────────────────────────────
+allow agent_t agent_conf_t:dir  manage_dir_perms;
+allow agent_t agent_conf_t:file manage_file_perms;
+allow agent_t agent_conf_t:lnk_file manage_lnk_file_perms;
+allow agent_t agent_log_t:dir  manage_dir_perms;
+allow agent_t agent_log_t:file manage_file_perms;
+allow agent_t agent_log_t:lnk_file manage_lnk_file_perms;
+
+## ── 运行期最低系统交互（/proc、/dev/null、临时文件）────────────────────────
+allow agent_t proc_t:dir  { search read open getattr };
+allow agent_t proc_t:file { read open getattr };
+allow agent_t proc_t:lnk_file { read getattr };
+dev_read_rand(agent_t)
+dev_read_urand(agent_t)
+dev_rw_null(agent_t)
+dev_rw_zero(agent_t)
+files_read_etc_files(agent_t)
+files_search_tmp(agent_t)
+files_manage_generic_tmp_files(agent_t)
+
+###############################################################################
+# 高权限模式：与系统默认（unconfined）域一致
+# 说明：业务侧要求 agent_t 不因 SELinux 受限，故赋予与 unconfined 等同的权限；
+#       留痕不依赖「拒绝」，改由下面的 auditallow + auditd 规则 + permissive 保证。
+# 警告：本段仅适用于日志/审计场景；切到 enforcing 前必须收敛为最小权限。
+###############################################################################
+unconfined_domain(agent_t)
+
+# 可执行任意可执行文件，并允许进入其对应域（node / bash / python / docker 等子进程）
+allow agent_t exec_type:file { getattr open read map ioctl lock execute execute_no_trans entrypoint };
+allow agent_t exec_type:lnk_file { read getattr };
+allow agent_t domain:process { transition sigchld signal signull sigkill ptrace getattr setpgid getpgid getsched setsched share };
+
+# 对文件/目录/套接字等不做限制（含 relabel），确保业务行为不被 SELinux 改变
+# 按对象类分别授权（entrypoint/execute 仅对 file 类有效，不能与其它类合并）
+allow agent_t file_type:file { create open getattr setattr read write append rename link unlink ioctl lock watch watch_reads relabelfrom relabelto execute execute_no_trans entrypoint };
+allow agent_t file_type:lnk_file { create read getattr setattr rename unlink relabelfrom relabelto };
+allow agent_t file_type:sock_file { create open getattr setattr read write append rename link unlink relabelfrom relabelto };
+allow agent_t file_type:fifo_file { create open getattr setattr read write append rename link unlink ioctl lock relabelfrom relabelto };
+allow agent_t file_type:{ blk_file chr_file } { getattr open read write append ioctl lock relabelfrom relabelto };
+allow agent_t file_type:dir manage_dir_perms;
+allow agent_t file_type:dir { relabelfrom relabelto };
+
+###############################################################################
+# 审计强化
+###############################################################################
+# 1) 工具调用即使被允许也记录（granted=yes），保证「读了哪个工具」可追溯
+auditallow agent_t agent_tool_t:dir  { search read open getattr };
+auditallow agent_t agent_tool_t:file { read open getattr execute execute_no_trans };
+auditallow agent_t agent_tool_t:lnk_file { read getattr };
+
+# 2) 对配置/日志的写入留痕
+auditallow agent_t agent_conf_t:file { read write append create open getattr };
+auditallow agent_t agent_log_t:file  { read write append create open getattr };
+
+# 3) 对其它类型文件的「变更类」操作一律留痕（防止绕过工具目录的越权写入）
+#    读类访问由 permissive 的 AVC 拒绝记录兜底，避免日志量不可控
+auditallow agent_t file_type:file { write append create unlink rename setattr link };
+auditallow agent_t file_type:dir  { write add_name remove_name rmdir };
+
+###############################################################################
+# 日志模式：permissive —— 记录而不阻断
+###############################################################################
+permissive agent_t;

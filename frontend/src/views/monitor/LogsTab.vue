@@ -29,6 +29,7 @@
             <div class="query-text">{{ r.user_query || '(无查询)' }}</div>
             <div class="card-meta">
               <t-tag size="small" variant="outline">{{ r.round_id }}</t-tag>
+              <t-tag v-if="r.session_id" size="small" variant="outline" theme="primary" :title="r.session_id">会话 {{ shortSid(r.session_id) }}</t-tag>
               <span class="meta-time">{{ fmtTime(r.time_start) }} → {{ fmtTime(r.time_end) }}</span>
             </div>
           </div>
@@ -427,6 +428,7 @@ async function fetchRounds() {
 function resetFilters() { filters.value = { query: "", round_id: "", dateRange: [] }; currentPage.value = 1; fetchRounds() }
 function onPageSizeChange() { currentPage.value = 1; fetchRounds() }
 function toggleExpand(id) { expandedId.value = expandedId.value === id ? null : id }
+function shortSid(v) { if (!v) return ""; return v.length > 14 ? v.slice(0, 8) + "…" + v.slice(-4) : v }
 function fmtTime(t) { if (!t) return ""; return t.replace(/\+\d{4}\s*$/, "").trim() }
 function parseJSON(str) { try { return JSON.parse(str || "[]") } catch { return [] } }
 function getIRPolicies(irStr) { try { const ir = JSON.parse(irStr || "{}"); const level2 = ir.level2 || ir; return level2.policies || [] } catch { return [] } }

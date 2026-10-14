@@ -359,7 +359,20 @@ def report_round():
             record = db.get_round_by_id(round_id)
             if record:
                 socketio.emit("new_round_info", record)
-                push_data = {"push_type": "round_start", "round_id": round_id, "time_start": data.get("time_start", ""), "session_key": data.get("session_key", ""), "push_time": data.get("time_start", "")}
+                # session_id：agent 本次会话 ID（由 monitor 从 /agents/<id>/sessions/<uuid>
+                # 或日志字段解析后上报，已落库 rounds.session_id）；优先取库内记录，
+                # 缺失时回退到上报 body 的 session_id / sessionID。
+                session_id = (record.get("session_id") or "") if record else ""
+                if not session_id:
+                    session_id = data.get("session_id") or data.get("sessionID") or ""
+                push_data = {
+                    "push_type": "round_start",
+                    "round_id": round_id,
+                    "time_start": data.get("time_start", ""),
+                    "session_key": data.get("session_key") or data.get("sessionKey") or "",
+                    "session_id": session_id,
+                    "push_time": data.get("time_start", ""),
+                }
                 broadcast_push(push_data)
         return jsonify({"ok": True, "inserted": row_id is not None})
 
@@ -1408,6 +1421,166 @@ def ai_writer_rollback():
         return guard
     d = request.get_json(force=True) or {}
     return jsonify(_aiw().rollback(d.get("role", ""), d.get("ts", "")))
+
+
+# ==================== RSI 自进化：策略库迭代优化 ====================
+def _rsi():
+    from auditor.translator import rsi
+    return rsi
+
+
+def _rsi_admin():
+    token = request.headers.get("X-Admin-Session", "")
+    if not _check_admin_session(token):
+        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    return None
+
+
+@app.route("/api/translator/rsi/config", methods=["GET"])
+def get_rsi_config():
+    """RSI 独立模型配置（API Token 不回显）。"""
+    return jsonify(_rsi().get_config())
+
+
+@app.route("/api/translator/rsi/config", methods=["PUT"])
+def put_rsi_config():
+    guard = _rsi_admin()
+    if guard:
+        return guard
+    return jsonify(_rsi().set_config(request.get_json(force=True) or {}))
+
+
+@app.route("/api/translator/rsi/test", methods=["POST"])
+def test_rsi_llm():
+    return jsonify(_rsi().test_connection())
+
+
+@app.route("/api/translator/rsi/prompts", methods=["GET"])
+def get_rsi_prompts():
+    """三类分析 Prompt 模板（分析总纲 / 放宽判定 / 改造建议）。"""
+    return jsonify(_rsi().get_prompts())
+
+
+@app.route("/api/translator/rsi/prompts", methods=["PUT"])
+def put_rsi_prompts():
+    guard = _rsi_admin()
+    if guard:
+        return guard
+    return jsonify(_rsi().set_prompts(request.get_json(force=True) or {}))
+
+
+@app.route("/api/translator/rsi/prompts/restore", methods=["POST"])
+def restore_rsi_prompts():
+    guard = _rsi_admin()
+    if guard:
+        return guard
+    return jsonify(_rsi().restore_prompts())
+
+
+@app.route("/api/translator/rsi/context", methods=["POST"])
+def rsi_context():
+    """聚合若干 round 的明细 + 当前策略库摘要。"""
+    d = request.get_json(force=True) or {}
+    return jsonify(_rsi().build_context(d.get("round_ids") or [], d.get("policy"),
+                                        d.get("role_desc", ""), d.get("user_prompt", ""),
+                                        d.get("parent_feedback", "")))
+
+
+@app.route("/api/translator/rsi/analyze", methods=["POST"])
+def rsi_analyze():
+    """SSE 流式：AI 综合分析（越权风险 / 应放宽 / 改造方向）。"""
+    guard = _rsi_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True) or {}
+
+    def worker():
+        yield {"type": "stage", "stage": "analyze", "message": "正在汇聚 round 上下文…"}
+        ctx_res = _rsi().build_context(d.get("round_ids") or [], d.get("policy"),
+                                       d.get("role_desc", ""), d.get("user_prompt", ""),
+                                       d.get("parent_feedback", ""))
+        if not ctx_res.get("ok"):
+            yield {"type": "error", "message": ctx_res.get("error", "上下文构建失败")}
+            return
+        n = len(ctx_res["data"]["items"])
+        yield {"type": "stage", "stage": "analyze", "message": f"已汇聚 {n} 条 round，正在调用模型分析…"}
+        res = _rsi().analyze(ctx_res["data"])
+        if not res.get("ok"):
+            yield {"type": "error", "message": res.get("error", "分析失败")}
+            return
+        data = res["data"]
+        yield {"type": "text", "data": json.dumps(data["result"], ensure_ascii=False, indent=2)}
+        yield {"type": "done", "data": {"result": data["result"], "meta": data["meta"],
+                                        "round_ids": d.get("round_ids") or [],
+                                        "context_items": n,
+                                        "policy_summary": ctx_res["data"]["policy_summary"]}}
+
+    return _aiw_sse(worker)
+
+
+@app.route("/api/translator/rsi/plan", methods=["POST"])
+def rsi_plan():
+    """按勾选项生成结构化变更计划（diff）。"""
+    d = request.get_json(force=True) or {}
+    return jsonify(_rsi().build_plan(d.get("result") or {}, d.get("adopted") or {}))
+
+
+@app.route("/api/translator/rsi/apply", methods=["POST"])
+def rsi_apply():
+    """把采纳项落到新建角色库（基线只读，落盘前快照）。"""
+    guard = _rsi_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True) or {}
+    return jsonify(_rsi().apply_plan(d.get("role", ""), d.get("base", "default"),
+                                     d.get("changes") or [], d.get("title", ""),
+                                     bool(d.get("force", False))))
+
+
+@app.route("/api/translator/rsi/rollback", methods=["POST"])
+def rsi_rollback():
+    guard = _rsi_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True) or {}
+    return jsonify(_rsi().rollback(d.get("role", ""), d.get("ts", "")))
+
+
+@app.route("/api/translator/rsi/validate", methods=["POST"])
+def rsi_validate():
+    d = request.get_json(force=True) or {}
+    return jsonify(_rsi().validate_role(d.get("role", "")))
+
+
+@app.route("/api/translator/rsi/backtest", methods=["POST"])
+def rsi_backtest():
+    """可选回测：改动前后对同一批 round 各判定一次并对比。"""
+    d = request.get_json(force=True) or {}
+    return jsonify(_rsi().backtest(d.get("round_ids") or [], d.get("role", ""), d.get("mode", "static")))
+
+
+@app.route("/api/translator/rsi/runs", methods=["GET"])
+def list_rsi_runs():
+    return jsonify(_rsi().list_runs(int(request.args.get("limit", 50))))
+
+
+@app.route("/api/translator/rsi/runs", methods=["POST"])
+def save_rsi_run():
+    guard = _rsi_admin()
+    if guard:
+        return guard
+    return jsonify(_rsi().save_run(request.get_json(force=True) or {}))
+
+
+@app.route("/api/translator/rsi/runs/<run_id>", methods=["GET"])
+def get_rsi_run(run_id):
+    return jsonify(_rsi().get_run(run_id))
+
+
+@app.route("/api/translator/rsi/runs/<run_id>/next", methods=["POST"])
+def next_rsi_run(run_id):
+    """基于上一轮发起新一轮（继承上下文与回测反馈）。"""
+    return jsonify(_rsi().next_run(run_id))
 
 @app.route("/api/translator/registry", methods=["GET"])
 def get_registry():

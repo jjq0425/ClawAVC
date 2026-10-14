@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ClawAVC · OpenClaw SELinux 标签与规则报告</title>
+<style>
+:root{
+  --brand:#0052D9; --brand-2:#366EF4; --brand-soft:#E8F0FE;
+  --bg:#F5F7FA; --card:#FFFFFF; --line:#E5E7EB;
+  --t1:#1F2329; --t2:#4E5969; --t3:#A6A6A6;
+  --ok:#00A870; --warn:#ED7B2F; --err:#E34D59;
+  --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t1);
+  font-family:"PingFang SC","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:14px;line-height:1.75}
+a{color:var(--brand);text-decoration:none}
+.layout{display:flex;max-width:1400px;margin:0 auto;gap:24px;padding:0 20px}
+.hero{background:linear-gradient(135deg,#0B1B33 0%,#123A72 55%,#0052D9 100%);color:#fff;padding:36px 20px 30px}
+.hero-in{max-width:1400px;margin:0 auto}
+.hero h1{margin:0 0 8px;font-size:26px;font-weight:600;letter-spacing:.5px}
+.hero p{margin:0 0 18px;color:#C7D6F0;max-width:900px}
+.badges{display:flex;flex-wrap:wrap;gap:10px}
+.badge{background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.22);
+  border-radius:999px;padding:5px 14px;font-size:12.5px;color:#EAF1FF}
+.badge b{color:#fff;font-weight:600}
+nav{position:sticky;top:0;align-self:flex-start;width:216px;flex:0 0 216px;padding:22px 0}
+nav .navbox{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+nav h4{margin:0 0 10px;font-size:12px;color:var(--t3);letter-spacing:1px}
+nav a{display:block;padding:6px 10px;border-radius:7px;color:var(--t2);font-size:13.5px}
+nav a:hover{background:var(--brand-soft);color:var(--brand)}
+nav a.on{background:var(--brand-soft);color:var(--brand);font-weight:600}
+main{flex:1;min-width:0;padding:22px 0 60px}
+section{margin-bottom:30px;scroll-margin-top:16px}
+h2{font-size:20px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+h2 .num{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;
+  background:var(--brand);color:#fff;font-size:13px}
+.sub{color:var(--t2);margin:0 0 16px;font-size:13.5px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+.card h3{margin:0 0 12px;font-size:15px;font-weight:600}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#F7F9FC;font-weight:600;color:var(--t1);white-space:nowrap}
+td code,th code{font-family:var(--mono);font-size:12px}
+pre{background:#0F172A;color:#D7E3F4;border-radius:10px;padding:14px 16px;overflow:auto;
+  font-family:var(--mono);font-size:12.2px;line-height:1.7;margin:10px 0}
+pre .c{color:#7C8FA8}
+pre .k{color:#7DD3FC}
+pre .s{color:#FDBA74}
+pre .g{color:#86EFAC}
+pre .y{color:#FDE68A}
+.tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:12px;font-family:var(--mono)}
+.t-exec{background:#E8F0FE;color:#0052D9}
+.t-tool{background:#E3F9F1;color:#00A870}
+.t-conf{background:#F3EAFD;color:#7B3FE4}
+.t-log{background:#FFF1E6;color:#ED7B2F}
+.t-dom{background:#FDE8E8;color:#E34D59}
+.note{border-left:3px solid var(--brand);background:var(--brand-soft);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:13px}
+.warn{border-left:3px solid var(--warn);background:#FFF6EC;padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:13px}
+.danger{border-left:3px solid var(--err);background:#FDECEC;padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:13px}
+.ok{color:var(--ok);font-weight:600}
+.no{color:var(--err);font-weight:600}
+.flow{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;justify-content:center;padding:8px 0}
+.box{border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:#FCFDFF;min-width:150px}
+.box .bt{font-size:12px;color:var(--t3);margin-bottom:4px}
+.box .bv{font-family:var(--mono);font-size:12.5px;color:var(--t1);word-break:break-all}
+.box.hi{border-color:var(--brand);background:var(--brand-soft)}
+.arrow{display:grid;place-items:center;color:var(--brand);font-size:18px}
+.case{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:16px}
+.case-h{background:#F7F9FC;border-bottom:1px solid var(--line);padding:12px 16px;display:flex;
+  align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.case-h b{font-size:14.5px}
+.case-b{padding:14px 16px}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:13px}
+.kv .k{color:var(--t2)}
+.kv .v{font-family:var(--mono);font-size:12.3px;word-break:break-all}
+.stat{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px}
+.stat div{background:#F7F9FC;border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12.5px}
+.stat b{font-size:16px;color:var(--brand)}
+footer{max-width:1400px;margin:0 auto;padding:20px;color:var(--t3);font-size:12.5px;border-top:1px solid var(--line)}
+@media(max-width:1000px){nav{display:none}.grid2,.grid3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="hero">
+  <div class="hero-in">
+    <h1>OpenClaw / MCP 工具 · SELinux 标签与默认规则报告</h1>
+    <p>将 openclaw 相关进程与二进制统一纳入 <b>agent_t</b> 域，MCP 工具与 openclaw 自带基础工具统一打
+       <b>agent_tool_t</b> 标签；SELinux 全程保持 <b>Permissive（日志模式）</b>，并以
+       <b>auditallow + auditd 规则</b> 保证访问行为可追溯。以下数据均来自本机实测。</p>
+    <div class="badges">
+      <span class="badge">模式 <b>Permissive</b></span>
+      <span class="badge">策略 <b>targeted</b></span>
+      <span class="badge">自定义类型 <b>5</b></span>
+      <span class="badge">MCP 工具打标 <b>22 / 22</b></span>
+      <span class="badge">auditd 规则 <b>9</b></span>
+      <span class="badge">agent_t 记录 <b>204</b></span>
+      <span class="badge">agent_tool_t 命中 <b>226</b></span>
+    </div>
+  </div>
+</div>
+
+<div class="layout">
+<nav>
+  <div class="navbox">
+    <h4>目录</h4>
+    <a href="#s1" class="on">1 · 体系概览</a>
+    <a href="#s2">2 · 标签映射（实测）</a>
+    <a href="#s3">3 · 默认规则</a>
+    <a href="#s4">4 · 实测案例</a>
+    <a href="#s5">5 · 主客体拆解</a>
+    <a href="#s6">6 · 覆盖边界</a>
+    <a href="#s7">7 · 产物与复现</a>
+  </div>
+</nav>
+<main>
+
+<section id="s1">
+  <h2><span class="num">1</span>体系概览</h2>
+  <p class="sub">五个自定义类型如何分工，以及进程是怎么进入 agent_t 域的。</p>
+  <div class="grid3">
+    <div class="card"><h3>进程域</h3>
+      <p><span class="tag t-dom">agent_t</span> openclaw 进程运行时所在域。以 <code>permissive agent_t;</code> 声明，只记录不阻断。</p></div>
+    <div class="card"><h3>入口文件</h3>
+      <p><span class="tag t-exec">agent_exec_t</span> 打在 openclaw 二进制/脚本上。执行这类文件即自动切到 agent_t。</p></div>
+    <div class="card"><h3>工具</h3>
+      <p><span class="tag t-tool">agent_tool_t</span> MCP 工具目录与 openclaw 自带基础工具 / 技能。</p></div>
+    <div class="card"><h3>配置</h3>
+      <p><span class="tag t-conf">agent_conf_t</span> <code>/root/.openclaw</code>、<code>exec-approvals.json</code> 等配置。</p></div>
+    <div class="card"><h3>运行产物</h3>
+      <p><span class="tag t-log">agent_log_t</span> <code>/var/lib/openclaw-kernel-collector</code> 采集产物与日志。</p></div>
+    <div class="card"><h3>审计</h3>
+      <p>AVC（SELinux）＋ auditd 规则（syscall 级）双通道；permissive 让“拒绝”留痕，auditallow 让“允许”也留痕。</p></div>
+  </div>
+  <div class="card">
+    <h3>进程如何进入 agent_t（域切换链路）</h3>
+    <div class="flow">
+      <div class="box"><div class="bt">父进程域</div><div class="bv">unconfined_t<br>initrc_t / init_t</div></div>
+      <div class="arrow">→</div>
+      <div class="box hi"><div class="bt">执行入口文件</div><div class="bv">type=agent_exec_t<br>/usr/bin/openclaw</div></div>
+      <div class="arrow">→</div>
+      <div class="box hi"><div class="bt">type_transition</div><div class="bv">:process agent_t</div></div>
+      <div class="arrow">→</div>
+      <div class="box"><div class="bt">运行域</div><div class="bv">unconfined_u:unconfined_r:<br>agent_t:s0-s0:c0.c1023</div></div>
+    </div>
+    <div class="note"><b>已实测</b>：直接执行 <code>/usr/bin/openclaw --help</code>（未强制上下文）后进程即为
+      <code>unconfined_u:unconfined_r:agent_t</code>。早期版本因缺少 <code>role unconfined_r types agent_t;</code>
+      导致从管理员会话启动无法切域，补齐后恢复正常。</div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="num">2</span>标签映射（实测 ls -Z / stat -c %C）</h2>
+  <p class="sub">下列上下文为本机实际生效值，均通过 <code>setfiles</code> 落标并可用 <code>matchpathcon</code> 校验。</p>
+  <div class="card">
+    <table>
+      <thead><tr><th>路径</th><th>类型</th><th>实际安全上下文</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>/usr/bin/openclaw</code>（符号链接）</td><td><span class="tag t-exec">agent_exec_t</span></td><td><code>system_u:object_r:agent_exec_t:s0</code></td><td>CLI 入口</td></tr>
+        <tr><td><code>/usr/lib/node_modules/openclaw/openclaw.mjs</code></td><td><span class="tag t-exec">agent_exec_t</span></td><td><code>system_u:object_r:agent_exec_t:s0</code></td><td>真实脚本</td></tr>
+        <tr><td><code>/usr/lib/node_modules/openclaw/dist/index.js</code></td><td><span class="tag t-exec">agent_exec_t</span></td><td><code>system_u:object_r:agent_exec_t:s0</code></td><td>网关入口</td></tr>
+        <tr><td><code>/usr/local/bin/openclaw-tool-e2e</code></td><td><span class="tag t-exec">agent_exec_t</span></td><td><code>system_u:object_r:agent_exec_t:s0</code></td><td>tracee 采集器</td></tr>
+        <tr><td><code>/usr/local/libexec/openclaw-round-id-listener.py</code></td><td><span class="tag t-exec">agent_exec_t</span></td><td><code>system_u:object_r:agent_exec_t:s0</code></td><td>Round 监听</td></tr>
+        <tr><td><code>/usr/local/libexec/run-openclaw-tracee-collector-service</code></td><td><span class="tag t-exec">agent_exec_t</span></td><td><code>system_u:object_r:agent_exec_t:s0</code></td><td>采集服务脚本</td></tr>
+        <tr><td><code>/home/hx/jjq/agent_perm_audit/tools/**</code></td><td><span class="tag t-tool">agent_tool_t</span></td><td><code>system_u:object_r:agent_tool_t:s0</code></td><td>MCP 工具（22/22 个 .py）</td></tr>
+        <tr><td><code>/root/.openclaw/skills/**</code></td><td><span class="tag t-tool">agent_tool_t</span></td><td><code>system_u:object_r:agent_tool_t:s0</code></td><td>自带基础工具/技能</td></tr>
+        <tr><td><code>/root/.openclaw</code>、<code>exec-approvals.json</code></td><td><span class="tag t-conf">agent_conf_t</span></td><td><code>system_u:object_r:agent_conf_t:s0</code></td><td>配置与审批</td></tr>
+        <tr><td><code>/var/lib/openclaw-kernel-collector/**</code></td><td><span class="tag t-log">agent_log_t</span></td><td><code>system_u:object_r:agent_log_t:s0</code></td><td>采集产物</td></tr>
+      </tbody>
+    </table>
+    <div class="warn"><b>踩坑记录</b>：<code>/home</code> 下的路径会被 <code>file_contexts.homedirs</code> 的
+      <code>/home/[^/]+/.+</code>（user_home_t）覆盖，模块内 <code>.fc</code> 规则无效。解决办法是再用
+      <code>semanage fcontext</code> 登记到 <code>file_contexts.local</code>，并用 <code>setfiles</code>（而非 restorecon）落标签。</div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="num">3</span>默认规则</h2>
+  <p class="sub">策略源：<code>openclaw_agent.te / .fc / .if</code>；审计源：<code>audit/openclaw_agent.rules</code>；域注入：<code>systemd/*.conf</code>。</p>
+
+  <div class="card">
+    <h3>3.1 域与入口（openclaw_agent.te）</h3>
+<pre><span class="c"># 类型声明</span>
+<span class="k">type</span> agent_t; agent_exec_t; agent_tool_t; agent_conf_t; agent_log_t;
+<span class="k">files_type</span>(agent_exec_t) <span class="k">files_type</span>(agent_tool_t) <span class="k">files_type</span>(agent_conf_t) <span class="k">files_type</span>(agent_log_t)
+
+<span class="c"># 角色：system_r（系统服务）与 unconfined_r（管理员会话）都能进入 agent_t</span>
+<span class="k">role</span> system_r types agent_t;
+<span class="k">role</span> unconfined_r types agent_t;
+
+<span class="k">domain_type</span>(agent_t)
+<span class="k">domain_entry_file</span>(agent_t, agent_exec_t)
+
+<span class="c"># 从常见父域执行 agent_exec_t 时自动进入 agent_t</span>
+<span class="k">domain_auto_trans</span>(unconfined_t, agent_exec_t, agent_t)
+<span class="k">domain_auto_trans</span>(initrc_t,    agent_exec_t, agent_t)
+<span class="k">domain_auto_trans</span>(init_t,      agent_exec_t, agent_t)</pre>
+    <div class="note"><code>unconfined_t / initrc_t / init_t / proc_t / bin_t</code> 与 <code>role unconfined_r</code> 属于其它模块，需
+      <code>gen_require(...)</code> 显式声明，否则 <code>checkmodule</code> 报 unknown type / unknown role。</div>
+  </div>
+
+  <div class="card">
+    <h3>3.2 高权限模式（与系统默认一致）</h3>
+<pre><span class="c"># 业务要求 agent_t 不因 SELinux 受限，故赋予与 unconfined 等同权限</span>
+<span class="k">unconfined_domain</span>(agent_t)
+
+<span class="k">allow</span> agent_t exec_type:file { getattr open read map ioctl lock execute execute_no_trans entrypoint };
+<span class="k">allow</span> agent_t exec_type:lnk_file { read getattr };
+<span class="k">allow</span> agent_t domain:process { transition sigchld signal signull sigkill ptrace getattr ... };
+
+<span class="c"># 按对象类分别授权（entrypoint / execute 仅对 file 类有效，不能与其它类合并）</span>
+<span class="k">allow</span> agent_t file_type:file      { ... manage 类 ... relabelfrom relabelto execute entrypoint };
+<span class="k">allow</span> agent_t file_type:dir       { ... manage 类 ... relabelfrom relabelto };
+<span class="k">allow</span> agent_t file_type:lnk_file  { ... };
+<span class="k">allow</span> agent_t file_type:{ sock_file fifo_file blk_file chr_file } { ... };</pre>
+    <div class="danger"><b>禁止直接切 enforcing</b>：该段等同对该域关闭 SELinux 保护。若要强制生效，必须按 AVC 反推收敛成最小权限集。</div>
+  </div>
+
+  <div class="card">
+    <h3>3.3 审计强化与日志模式</h3>
+<pre><span class="c"># ① 工具调用即使被允许也记录（granted），保证「读了/执行了哪个工具」可追溯</span>
+<span class="k">auditallow</span> agent_t agent_tool_t:file { read open getattr execute execute_no_trans };
+<span class="k">auditallow</span> agent_t agent_tool_t:dir  { search read open getattr };
+
+<span class="c"># ② 配置与日志写入留痕</span>
+<span class="k">auditallow</span> agent_t agent_conf_t:file { read write append create open getattr };
+<span class="k">auditallow</span> agent_t agent_log_t:file  { read write append create open getattr };
+
+<span class="c"># ③ 对其它类型文件的「变更类」操作一律留痕（读类不纳入，避免日志量失控）</span>
+<span class="k">auditallow</span> agent_t file_type:file { write append create unlink rename setattr link };
+<span class="k">auditallow</span> agent_t file_type:dir  { write add_name remove_name rmdir };
+
+<span class="c"># ④ 日志模式：记录而不阻断</span>
+<span class="k">permissive</span> agent_t;</pre>
+  </div>
+
+  <div class="card">
+    <h3>3.4 文件上下文与 auditd 规则</h3>
+    <div class="grid2">
+      <div>
+        <h3 style="font-size:13.5px">openclaw_agent.fc（节选）</h3>
+<pre>/usr/bin/openclaw                      <span class="y">-l</span>  system_u:object_r:agent_exec_t:s0
+/usr/lib/node_modules/openclaw(/.*)?        system_u:object_r:agent_exec_t:s0
+/usr/local/bin/openclaw-tool-e2e       <span class="y">--</span>  system_u:object_r:agent_exec_t:s0
+/home/hx/jjq/agent_perm_audit/tools(/.*)?   system_u:object_r:agent_tool_t:s0
+/root/\.openclaw/skills(/.*)?               system_u:object_r:agent_tool_t:s0
+/root/\.openclaw                       <span class="y">-d</span>  system_u:object_r:agent_conf_t:s0
+/var/lib/openclaw-kernel-collector(/.*)?    system_u:object_r:agent_log_t:s0</pre>
+      </div>
+      <div>
+        <h3 style="font-size:13.5px">audit/openclaw_agent.rules（9 条，已装入）</h3>
+<pre>-w /home/hx/jjq/agent_perm_audit/tools -p rwxa -k agent_tool_access
+-w /root/.openclaw/skills             -p rwxa -k agent_builtin_tool_access
+-w /usr/bin/openclaw                  -p rwxa -k openclaw_entry_access
+-w /usr/lib/node_modules/openclaw     -p rwxa -k openclaw_pkg_access
+-a always,exit -F arch=b64 -S execve -F dir=/home/hx/jjq/agent_perm_audit/tools -F key=agent_tool_exec
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/openclaw -F key=openclaw_exec
+-a always,exit -F arch=b64 -S execve -F exe=/usr/local/bin/openclaw-tool-e2e -F key=openclaw_collector_exec
+-w /root/.openclaw/exec-approvals.json -p rwxa -k agent_conf_access
+-w /var/lib/openclaw-kernel-collector  -p rwxa -k agent_log_access</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>3.5 systemd 域注入（drop-in，已安装但未重启服务）</h3>
+<pre><span class="c"># /etc/systemd/system/&lt;service&gt;.d/10-agent-context.conf</span>
+[Service]
+SELinuxContext=system_u:system_r:agent_t:s0
+
+<span class="c"># 适用于：openclaw-kernel-collector.service、openclaw-round-listener.service</span>
+<span class="c"># 手动/其它进程：./run_as_agent.sh &lt;cmd&gt;   （runcon 包装）</span></pre>
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="num">4</span>实测案例</h2>
+  <p class="sub">三个真实执行案例。除案例三的发起方为手动（runcon 包装）外，主体域、客体标签与日志均为真实产物。</p>
+
+  <div class="case">
+    <div class="case-h"><b>案例一 · 直接执行 openclaw（自然切域，未强制上下文）</b><span class="tag t-dom">pid 3689046</span></div>
+    <div class="case-b">
+      <div class="kv">
+        <div class="k">命令</div><div class="v">sh -c 'exec /usr/bin/openclaw --help'</div>
+        <div class="k">主体</div><div class="v">unconfined_u:unconfined_r:agent_t:s0-s0:c0.c1023</div>
+        <div class="k">执行链</div><div class="v">EXECVE argc=4 a0=/usr/bin/env a1=node a2=/usr/bin/openclaw a3=--help</div>
+      </div>
+<pre><span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { write }   comm=openclaw name=openclaw
+               scontext=unconfined_u:unconfined_r:agent_t  tcontext=...user_tmp_t  tclass=dir
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { setattr } comm=openclaw name=openclaw.sqlite
+               scontext=...agent_t  tcontext=...admin_home_t  tclass=file
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { setattr } comm=openclaw name=openclaw.sqlite-shm
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { setattr } comm=openclaw name=openclaw.sqlite-wal
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { write }   comm=openclaw path=/root/.openclaw/state/openclaw.sqlite</pre>
+      <div class="stat"><div>AVC 总数 <b>50</b></div><div>openclaw 自身访问 <b>22</b></div><div>主体为 agent_t <b>32/32</b></div></div>
+      <div class="note">结论：带 <code>#!/usr/bin/env node</code> shebang 的脚本同样能自然切域，此前“shebang 不切域”的判断已被实测推翻。</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="case-h"><b>案例二 · 让 openclaw 真的写一个文件（backup create）</b><span class="tag t-dom">pid 3689844 → 3689852</span></div>
+    <div class="case-b">
+      <div class="kv">
+        <div class="k">命令</div><div class="v">sh -c 'exec /usr/bin/openclaw backup create --only-config --output /tmp/agent_t_backup --json --verify'</div>
+        <div class="k">产物</div><div class="v">/tmp/agent_t_backup/2026-10-12T22-56-17.212+08-00-openclaw-backup.tar.gz（3269 字节，verified=true）</div>
+        <div class="k">进程链</div><div class="v">3689844 (comm=openclaw) → 3689852 (comm=openclaw-backup / libuv-worker)，两者均为 agent_t</div>
+      </div>
+<pre><span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { create }   comm=libuv-worker name=2026-10-12T22-56-17...tar.gz.&lt;uuid&gt;.tmp
+               scontext=...agent_t  tcontext=...user_tmp_t  tclass=file
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { write }    comm=libuv-worker path=/tmp/agent_t_backup/2026-10-12T22-56-17...tmp
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { add_name } comm=libuv-worker name=2026-10-12T22-56-17...tar.gz.&lt;uuid&gt;.tmp
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { link }     comm=libuv-worker name=2026-10-12T22-56-17...tar.gz.&lt;uuid&gt;.tmp
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { write }    comm=libuv-worker name=agent_t_backup  tclass=dir
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { write }    comm=openclaw-backup path=/root/.openclaw/state/openclaw.sqlite</pre>
+      <div class="stat"><div>主进程 <b>12</b> 条</div><div>子进程 <b>59</b> 条</div><div>合计 <b>71</b> 条</div><div>agent_t 占比 <b>59/59</b></div></div>
+      <div class="note">说明：真正落盘由子进程完成，审计按 pid 追踪即可；临时文件 <code>.tmp → rename → 最终名</code> 的全过程都有记录。</div>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="case-h"><b>案例三 · 真实 MCP 工具调用（safe_file_reader，完整 JSON-RPC 握手）</b><span class="tag t-tool">pid 3691487</span></div>
+    <div class="case-b">
+      <div class="kv">
+        <div class="k">命令</div><div class="v">printf '{"jsonrpc":"2.0","id":1,"method":"initialize",...}' | ./run_as_agent.sh sh -c 'exec python3 /home/hx/jjq/agent_perm_audit/tools/safe_file_reader/server.py'</div>
+        <div class="k">工具响应</div><div class="v">{"jsonrpc":"2.0","id":1,"result":{...,"serverInfo":{"name":"safe_file_reader",...}}}</div>
+        <div class="k">主体</div><div class="v">system_u:system_r:agent_t:s0（runcon 包装）</div>
+      </div>
+<pre><span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { search }    comm=python3 name=safe_file_reader
+               scontext=system_u:system_r:agent_t:s0  tcontext=system_u:object_r:<span class="y">agent_tool_t</span>:s0  tclass=dir
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { getattr }   comm=python3 path=/home/hx/.../tools/safe_file_reader/server.py
+               scontext=...agent_t  tcontext=...<span class="y">agent_tool_t</span>  tclass=file
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { read open } comm=python3 path=/home/hx/.../tools/safe_file_reader/server.py
+               scontext=...agent_t  tcontext=...<span class="y">agent_tool_t</span>  tclass=file</pre>
+      <div class="stat"><div>agent_tool_t 记录 <b>120</b></div><div>主体全为 agent_t <b>120/120</b></div><div>当前日志累计 <b>226</b></div></div>
+      <div class="warn"><b>诚实标注</b>：工具代码、标签、握手都是真实的，但发起方是我（run_as_agent.sh），不是 openclaw 网关。
+        要让 openclaw 真实链路产生 <code>agent_t → agent_tool_t</code>，需把网关以 agent_t 运行（重启服务或用 runcon 启动）。</div>
+    </div>
+  </div>
+
+</section>
+
+<section id="s5">
+  <h2><span class="num">5</span>主客体拆解（以案例二中的 rename 记录为例）</h2>
+  <p class="sub">看懂一条 AVC：谁（主体）对什么（客体）做了什么（权限与类别），结果如何。</p>
+  <div class="card">
+<pre><span class="k">type</span>=SYSCALL ... : syscall=rename success=yes comm=openclaw-backup exe=/usr/bin/node
+                   ppid=3689844 pid=3689852 cwd=/home/hx/jjq/clawAVC/selinux
+                   <span class="y">subj=unconfined_u:unconfined_r:agent_t:s0-s0:c0.c1023</span>
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { add_name }    name=b60a449f
+               <span class="y">scontext</span>=unconfined_u:unconfined_r:agent_t  <span class="s">tcontext</span>=unconfined_u:object_r:user_tmp_t  tclass=dir
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { rename }      name=b60a449f.TQGf5W  tclass=file
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { remove_name } name=b60a449f.TQGf5W  tclass=dir
+<span class="k">type</span>=AVC ... : avc: <span class="g">granted</span> { write }       name=v22.22.2-x64-9de703df-0  tclass=dir
+<span class="k">type</span>=PATH  ... : item=0/1 name=/tmp/node-compile-cache/openclaw/2026.6.8/.../v22.22.2-x64-9de703df-0/  nametype=PARENT
+<span class="k">type</span>=PATH  ... : item=2   name=/tmp/node-compile-cache/.../b60a449f.TQGf5W  nametype=<span class="s">DELETE</span>
+<span class="k">type</span>=PATH  ... : item=3   name=/tmp/node-compile-cache/.../b60a449f           nametype=<span class="s">CREATE</span></pre>
+    <div class="grid2">
+      <div>
+        <h3 style="font-size:13.5px">主体（scontext / subj）</h3>
+        <table>
+          <tr><th>用户</th><td><code>unconfined_u</code></td></tr>
+          <tr><th>角色</th><td><code>unconfined_r</code></td></tr>
+          <tr><th>域（类型）</th><td><code>agent_t</code> ← 我们定义的域</td></tr>
+          <tr><th>MLS</th><td><code>s0-s0:c0.c1023</code></td></tr>
+          <tr><th>进程</th><td>pid 3689852，comm=openclaw-backup，exe=/usr/bin/node</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3 style="font-size:13.5px">客体（tcontext / obj）</h3>
+        <table>
+          <tr><th>用户</th><td><code>unconfined_u</code></td></tr>
+          <tr><th>角色</th><td><code>object_r</code>（客体固定）</td></tr>
+          <tr><th>类型</th><td><code>user_tmp_t</code>（/tmp 默认类型，未被 .fc 覆盖）</td></tr>
+          <tr><th>路径</th><td>/tmp/node-compile-cache/openclaw/…/v22.22.2-x64-9de703df-0/</td></tr>
+          <tr><th>文件</th><td>旧 <code>b60a449f.TQGf5W</code>（DELETE）→ 新 <code>b60a449f</code>（CREATE）</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="note"><b>这条在做什么</b>：openclaw 的 node 运行时写 V8 编译缓存——先写临时文件，再 <code>rename</code> 成最终名。
+      内核检查了目录的 <code>add_name / remove_name / write</code> 与文件的 <code>rename</code>，全部 <span class="ok">granted</span>；
+      因 <code>auditallow</code> 覆盖这些操作，所以仍然留下了记录。</div>
+  </div>
+</section>
+
+<section id="s6">
+  <h2><span class="num">6</span>覆盖边界（什么能抓到，什么抓不到）</h2>
+  <p class="sub">当前配置的真实能力清单，含已知缺口与修复方式。</p>
+  <div class="card">
+    <table>
+      <thead><tr><th>场景</th><th>是否留痕</th><th>原因 / 条件</th></tr></thead>
+      <tbody>
+        <tr><td>agent_t 对任意文件的 <b>写 / 建 / 删 / 重命名 / setattr</b></td><td><span class="ok">✔ 留痕（granted）</span></td><td><code>auditallow agent_t file_type:{file,dir}</code> 覆盖变更类操作</td></tr>
+        <tr><td>agent_t 读 / 执行 <b>agent_tool_t</b> 工具</td><td><span class="ok">✔ 留痕（granted）</span></td><td><code>auditallow agent_t agent_tool_t:{file,dir,lnk_file}</code></td></tr>
+        <tr><td>agent_t 读写 <b>agent_conf_t / agent_log_t</b></td><td><span class="ok">✔ 留痕（granted）</span></td><td>单独的 auditallow 规则</td></tr>
+        <tr><td>工具目录 / openclaw 包 / 入口的 syscall 级访问</td><td><span class="ok">✔ 留痕（watch）</span></td><td>auditd 9 条规则（key: agent_tool_access 等）</td></tr>
+        <tr><td>工具进程的 <b>execve</b></td><td><span class="ok">✔ 留痕</span></td><td><code>-a always,exit -S execve -F dir=... -k agent_tool_exec</code></td></tr>
+        <tr><td>agent_t 对普通文件的 <b>读</b>（如读 /etc/xxx）</td><td><span class="no">✘ 不留痕</span></td><td>高权限模式下读不再被 deny，且未纳入 auditallow。修复：在 auditallow 的 file 规则里加 <code>read open getattr</code>（日志量会显著上升）</td></tr>
+        <tr><td>openclaw <b>网关进程</b>自身的工具调用</td><td><span class="no">✘ 当前抓不到</span></td><td>网关 pid 443026 仍是 <code>unconfined_t</code>，主体不是 agent_t。修复：重启网关到 agent_t</td></tr>
+        <tr><td>已有 openclaw 进程的行为</td><td><span class="no">✘ 需重启</span></td><td>域在 exec 时决定；drop-in 已装，重启后生效</td></tr>
+        <tr><td>历史审计记录</td><td><span class="warn">可能丢失</span></td><td>今天已发生日志轮转（8MB 写满），早期记录被丢弃。建议调大 <code>max_log_file</code> / <code>num_logs</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="warn"><b>关于被我误报的数据</b>：此前报告中「agent_t → agent_tool_t 10 条」来自更早的 runcon 探针，
+    那批记录已被日志轮转丢弃，直接 grep 两个日志文件均为 0，无法复现，应视为<b>不可核实</b>。
+    本页所有数字均以 <code>grep / ausearch</code> 现场复核为准。</div>
+</section>
+
+<section id="s7">
+  <h2><span class="num">7</span>产物清单与复现命令</h2>
+  <div class="card">
+    <div class="grid2">
+      <div>
+        <h3 style="font-size:13.5px">文件（均在 <code>/home/hx/jjq/clawAVC/selinux/</code>）</h3>
+        <table>
+          <tr><td><code>openclaw_agent.te</code></td><td>类型强制规则（域 / 切换 / 高权限 / 审计 / permissive）</td></tr>
+          <tr><td><code>openclaw_agent.fc</code></td><td>文件上下文映射</td></tr>
+          <tr><td><code>openclaw_agent.if</code></td><td>对外接口（domtrans / exec_tools / manage_conf）</td></tr>
+          <tr><td><code>openclaw_agent.pp</code></td><td>编译产物（已 <code>semodule -i</code>）</td></tr>
+          <tr><td><code>Makefile / install.sh / verify.sh</code></td><td>构建 / 一键安装 / 18 项验证</td></tr>
+          <tr><td><code>run_as_agent.sh</code></td><td>runcon 包装（以 agent_t 运行任意命令）</td></tr>
+          <tr><td><code>audit/openclaw_agent.rules</code></td><td>auditd 规则（已装入 rules.d）</td></tr>
+          <tr><td><code>systemd/openclaw-agent-context.conf</code></td><td>SELinuxContext=agent_t drop-in</td></tr>
+          <tr><td><code>README.md</code></td><td>说明、限制与实测证据（第 7–9 节）</td></tr>
+        </table>
+      </div>
+      <div>
+        <h3 style="font-size:13.5px">常用命令</h3>
+<pre><span class="c"># 安装 / 验证</span>
+bash install.sh
+bash verify.sh        <span class="c"># 18 项，当前 PASS=18 FAIL=0</span>
+
+<span class="c"># 核查</span>
+getenforce                                  <span class="c"># Permissive</span>
+semodule -l | grep openclaw_agent
+semanage permissive -l | grep agent_t
+stat -c '%C %n' /home/hx/jjq/agent_perm_audit/tools
+auditctl -l | grep -E 'agent_|openclaw_'
+
+<span class="c"># 取日志（按 pid / 按 key）</span>
+ausearch -m AVC -p &lt;pid&gt; -i | grep -v codebuddy
+ausearch -k agent_tool_access -ts today -i
+
+<span class="c"># 让已有进程进入 agent_t</span>
+systemctl restart openclaw-round-listener.service openclaw-kernel-collector.service
+./run_as_agent.sh openclaw gateway --port 18790</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+</div>
+
+<footer>
+  ClawAVC · OpenClaw SELinux 标签与规则报告 ｜ 生成于 2026-10-12 ｜ 环境：CentOS Stream 9 / SELinux targeted / 模式 Permissive<br />
+  所有日志片段取自本机 <code>/var/log/audit/audit.log</code>，可用文末命令复核。未经复核的早期数据已在第 6 节标注。
+</footer>
+
+<script>
+const links = [...document.querySelectorAll('nav a')]
+const secs = links.map(a => document.querySelector(a.getAttribute('href')))
+function spy(){
+  let idx = 0
+  secs.forEach((s,i)=>{ if (s && s.getBoundingClientRect().top <= 120) idx = i })
+  links.forEach((a,i)=>a.classList.toggle('on', i===idx))
+}
+window.addEventListener('scroll', spy, {passive:true})
+spy()
+</script>
+</body>
+</html>

@@ -878,6 +878,26 @@ ws://<host>:15100/wss/<namespace>
 | `round_kernel` | 内核态信息推送 | 内核态信息上报后推送 |
 | `intercept_event` | 拦截事件 | portkey 网关上报工具拦截 |
 
+**`round_start` 推送字段**：
+
+```json
+{
+  "push_type": "round_start",
+  "round_id": "abc12345",
+  "time_start": "2026-05-30 21:20:00.123+0800",
+  "session_key": "agent:main:main",
+  "session_id": "7f3c1e92-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+  "push_time": "2026-05-30 21:20:00.123+0800",
+  "is_mock": false
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `session_key` | Agent 会话标识（如 `agent:main:main`） |
+| `session_id` | Agent 本次会话 ID（monitor 由日志路径 `/agents/<id>/sessions/<uuid>` 或日志字段解析后上报，已落库 `rounds.session_id`） |
+| `is_mock` | 模拟/回放消息为 `true`（经 `/api/wss/mock` 推送） |
+
 ### 接入示例
 
 ```javascript

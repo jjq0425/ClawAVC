@@ -450,6 +450,7 @@ async function pushRoundStart(round, action_json, ir_json, overall_score) {
       round_id: round.round_id,
       time_start: round.time_start,
       session_key: round.session_key,
+      session_id: round.session_id,
     })
   })
   

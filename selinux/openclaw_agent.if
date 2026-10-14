@@ -1,0 +1,52 @@
+## <summary>OpenClaw agent 域与工具标签策略</summary>
+
+###############################################################################
+## <summary>
+##	允许指定域执行 openclaw 入口并进入 agent_t 域。
+## </summary>
+## <param name="domain">
+##	<summary>被授权的父域</summary>
+## </param>
+#
+interface(`openclaw_agent_domtrans',`
+	gen_require(`
+		type agent_t, agent_exec_t;
+	')
+
+	domain_auto_trans($1, agent_exec_t, agent_t)
+')
+
+###############################################################################
+## <summary>
+##	允许指定域读取/执行 agent_tool_t（MCP 工具与 openclaw 自带基础工具）。
+## </summary>
+## <param name="domain">
+##	<summary>被授权的域</summary>
+## </param>
+#
+interface(`openclaw_agent_exec_tools',`
+	gen_require(`
+		type agent_tool_t;
+	')
+
+	allow $1 agent_tool_t:dir { search read open getattr };
+	allow $1 agent_tool_t:file { read open getattr execute execute_no_trans };
+	auditallow $1 agent_tool_t:file { read open getattr execute execute_no_trans };
+')
+
+###############################################################################
+## <summary>
+##	允许指定域管理 openclaw 配置（agent_conf_t）。
+## </summary>
+## <param name="domain">
+##	<summary>被授权的域</summary>
+## </param>
+#
+interface(`openclaw_agent_manage_conf',`
+	gen_require(`
+		type agent_conf_t;
+	')
+
+	allow $1 agent_conf_t:dir manage_dir_perms;
+	allow $1 agent_conf_t:file manage_file_perms;
+')

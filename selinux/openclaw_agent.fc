@@ -1,0 +1,28 @@
+###############################################################################
+# openclaw_agent 文件上下文（file_contexts）
+# 格式： 路径正则    类型标记    安全上下文
+#   --  普通文件   -d  目录   -l  符号链接
+###############################################################################
+
+## ── ① openclaw 入口二进制/脚本 → agent_exec_t（执行即进入 agent_t 域）────────
+/usr/bin/openclaw						-l	system_u:object_r:agent_exec_t:s0
+/usr/lib/node_modules/openclaw/openclaw\.mjs			--	system_u:object_r:agent_exec_t:s0
+/usr/lib/node_modules/openclaw/dist/index\.js			--	system_u:object_r:agent_exec_t:s0
+/usr/lib/node_modules/openclaw(/.*)?				system_u:object_r:agent_exec_t:s0
+/usr/local/bin/openclaw-tool-e2e				--	system_u:object_r:agent_exec_t:s0
+/usr/local/bin/openclaw-selinux-file-search-read		--	system_u:object_r:agent_exec_t:s0
+/usr/local/libexec/openclaw-round-id-listener\.py		--	system_u:object_r:agent_exec_t:s0
+/usr/local/libexec/run-openclaw-tracee-collector-service	--	system_u:object_r:agent_exec_t:s0
+/usr/local/libexec/openclaw-selinux/file-search-probe		--	system_u:object_r:agent_exec_t:s0
+
+## ── ② MCP 工具 → agent_tool_t ──────────────────────────────────────────────
+/home/hx/jjq/agent_perm_audit/tools(/.*)?			system_u:object_r:agent_tool_t:s0
+## ── ③ openclaw 自带基础工具 / 技能载体 → agent_tool_t ───────────────────────
+/root/\.openclaw/skills(/.*)?					system_u:object_r:agent_tool_t:s0
+
+## ── ④ 配置 → agent_conf_t（仅标签入口目录与关键文件，避免大规模重打标签）────
+/root/\.openclaw						-d	system_u:object_r:agent_conf_t:s0
+/root/\.openclaw/exec-approvals\.json				--	system_u:object_r:agent_conf_t:s0
+
+## ── ⑤ 采集产物 / 运行日志 → agent_log_t ─────────────────────────────────────
+/var/lib/openclaw-kernel-collector(/.*)?			system_u:object_r:agent_log_t:s0

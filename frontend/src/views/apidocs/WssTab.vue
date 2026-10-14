@@ -201,6 +201,7 @@ sio.wait()</code></pre>
   "round_id": "abc12345",
   "time_start": "2026-05-30 21:20:00.123+0800",
   "session_key": "agent:main:main",
+  "session_id": "7f3c1e92-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
   "push_time": "2026-05-30 21:20:00.123+0800",
   "is_mock": false
 }</pre>
@@ -211,6 +212,7 @@ sio.wait()</code></pre>
                     <tr><td><code>round_id</code></td><td>string</td><td>本轮唯一标识</td></tr>
                     <tr><td><code>time_start</code></td><td>string</td><td>Round 开始时间</td></tr>
                     <tr><td><code>session_key</code></td><td>string</td><td>Agent 会话标识</td></tr>
+                    <tr><td><code>session_id</code></td><td>string</td><td>Agent 本次会话 ID（monitor 由日志路径 <code>/agents/&lt;id&gt;/sessions/&lt;uuid&gt;</code> 或日志字段解析后上报，已落库 <code>rounds.session_id</code>）</td></tr>
                     <tr><td><code>push_time</code></td><td>string</td><td>消息推送时间</td></tr>
                     <tr><td><code>is_mock</code></td><td>boolean</td><td>是否模拟发送（测试消息自动设为 true）</td></tr>
                   </tbody>
@@ -600,6 +602,7 @@ function fillDefaultPayload() {
         round_id: roundId,
         time_start: now,
         session_key: 'agent:main:main',
+        session_id: '7f3c1e92-4a5b-4c6d-8e9f-0a1b2c3d4e5f',
         push_time: now
       }, null, 2)
       break
