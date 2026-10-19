@@ -10,6 +10,7 @@
 | 用户表达 | spec |
 | --- | --- |
 | "只能读 xx 目录" | `files.read_paths: ["<dir>/**"]` |
+| "只读 / 绝不改动环境（禁止新建、修改、删除）" | `actions: {"file_ops": {"file": ["read"]}, "shell_exec": {"file": ["read"]}}`（→ 产物 `allowed_file_actions`＝动作层白名单；与 `write_paths: []` 并用＝路径层白名单，双保险） |
 | "可以写 xx 目录" | `files.write_paths: ["<dir>/**"]` |
 | "不能动系统文件 / 密钥" | `files.deny_paths: ["/etc/**", "/root/**", "~/.ssh/**", "~/.aws/**"]` |
 | "只能改代码不能删" | `files.write_paths` 收窄 + 保持基线 denylist（删除类靠 deny-wins 与 judge 兜底） |

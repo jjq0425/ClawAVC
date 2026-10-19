@@ -55,7 +55,8 @@ install -m 640 "$D/audit/${NAME}.rules" /etc/audit/rules.d/${NAME}.rules
 augenrules --load >/dev/null 2>&1 || auditctl -R "$D/audit/${NAME}.rules" || true
 echo "  当前 agent 相关规则数: $(auditctl -l 2>/dev/null | grep -c 'agent_\|openclaw_')"
 
-echo "== [6/7] 安装 systemd 域上下文 drop-in（不重启服务）=="
+echo "== [6/7] 安装 systemd 域上下文（不重启服务）=="
+# 6a. 已有服务：装 drop-in
 for svc in openclaw-kernel-collector.service openclaw-round-listener.service; do
   if systemctl list-unit-files 2>/dev/null | grep -qw "$svc"; then
     mkdir -p /etc/systemd/system/${svc}.d
@@ -63,6 +64,24 @@ for svc in openclaw-kernel-collector.service openclaw-round-listener.service; do
     echo "  已配置: $svc → SELinuxContext=agent_t"
   fi
 done
+# 6b. gateway：由 openclaw 自带的 user-level unit 托管（/root/.config/systemd/user/），
+#     只能用 --user 的 drop-in；进程域只能在启动时确定，切换需重启该 unit。
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if systemctl --user list-unit-files 2>/dev/null | grep -qw openclaw-gateway.service; then
+  mkdir -p /root/.config/systemd/user/openclaw-gateway.service.d
+  install -m 644 "$D/systemd/openclaw-agent-context.conf" \
+    /root/.config/systemd/user/openclaw-gateway.service.d/10-agent-context.conf
+  systemctl --user daemon-reload
+  echo "  已配置: openclaw-gateway.service (user) → SELinuxContext=agent_t"
+  if [ "${AUTO_RESTART_GATEWAY:-0}" = "1" ]; then
+    systemctl --user restart openclaw-gateway.service
+    echo "  已重启 gateway（注：会短暂中断会话，且 kernel-collector 会因 gateway PID 变化重建容器）"
+  else
+    echo "  未重启。生效命令: systemctl --user daemon-reload && systemctl --user restart openclaw-gateway.service"
+  fi
+else
+  echo "  跳过: 未发现 user-level openclaw-gateway.service"
+fi
 systemctl daemon-reload 2>/dev/null || true
 
 echo "== [7/7] 验证 =="

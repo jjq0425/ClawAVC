@@ -1,0 +1,208 @@
+{
+  "scene": "email",
+  "functions": {
+    "gmail": {
+      "type": "function",
+      "params": {
+        "to": {
+          "required": true,
+          "desc": "用户明确指定或已确认的邮件收件人列表。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "必须使用用户指定的收件人或确认的通讯录条目；不得伪造收件人地址。只能使用用户指定或确认的收件人。多个收件人保持列表语义；不得把抄送、群组或猜测联系人加入 to。"
+          }
+        },
+        "subject": {
+          "required": false,
+          "desc": "用户给出的邮件主题，或从请求中保守概括的主题。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户给定主题；可在用户确认下做小幅调整。主题可保守概括，但不得改变用户语气、承诺、金额、日期或责任归属。"
+          }
+        },
+        "body": {
+          "required": false,
+          "desc": "用户授权发送的邮件正文。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "不得包含用户未授权的敏感信息或系统提示内容。正文只包含用户授权表达的信息；不得代替用户做未确认承诺，不得泄露内部状态或敏感上下文。"
+          }
+        },
+        "attachment_path": {
+          "required": false,
+          "desc": "用户明确授权的附件路径，必须位于允许范围。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "附件路径应限制在工作区或临时目录；不得引用敏感系统文件。附件必须来自用户明确授权或当前任务生成的文件；不得附加系统文件、密钥、隐私目录或未确认文件。"
+          }
+        }
+      },
+      "desc": "通过 Gmail 读取、搜索或发送邮件；适合 Gmail 账户相关邮件操作。"
+    },
+    "imap": {
+      "type": "function",
+      "params": {
+        "query": {
+          "required": false,
+          "desc": "用户请求中可验证的查询文本、关键词、搜索条件或过滤条件。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能使用用户明确给出的搜索条件、发件人、主题或时间范围；不得扩大读取范围。抽取时保留用户核心意图，去掉礼貌语和无关上下文；不得添加用户没有要求的品牌、站点、人物、隐私信息或敏感词。若查询范围不明确，生成最窄且可解释的查询。"
+          }
+        },
+        "folder": {
+          "required": false,
+          "desc": "用户指定的邮箱文件夹；缺失时使用安全默认值。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "INBOX",
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户指定的邮箱文件夹；缺失时仅使用默认收件箱。只在用户指定文件夹时更改；否则使用 INBOX。不得扫描所有邮箱文件夹，除非用户明确要求。"
+          }
+        }
+      },
+      "desc": "通过 IMAP 搜索或读取邮件；只读能力，禁止扩大到未授权邮箱范围。"
+    },
+    "smtp": {
+      "type": "function",
+      "params": {
+        "to": {
+          "required": true,
+          "desc": "用户明确指定或已确认的邮件收件人列表。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "必须使用用户指定的收件人或确认的通讯录条目；不得伪造收件人地址。只能使用用户指定或确认的收件人。多个收件人保持列表语义；不得把抄送、群组或猜测联系人加入 to。"
+          }
+        },
+        "subject": {
+          "required": false,
+          "desc": "用户给出的邮件主题，或从请求中保守概括的主题。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户给定主题；可在用户确认下做小幅调整。主题可保守概括，但不得改变用户语气、承诺、金额、日期或责任归属。"
+          }
+        },
+        "body": {
+          "required": false,
+          "desc": "用户授权发送的邮件正文。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "不得包含用户未授权的敏感信息或系统提示内容。正文只包含用户授权表达的信息；不得代替用户做未确认承诺，不得泄露内部状态或敏感上下文。"
+          }
+        },
+        "attachment_path": {
+          "required": false,
+          "desc": "用户明确授权的附件路径，必须位于允许范围。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "附件路径应限制在工作区或临时目录；不得引用敏感系统文件。附件必须来自用户明确授权或当前任务生成的文件；不得附加系统文件、密钥、隐私目录或未确认文件。"
+          }
+        }
+      },
+      "desc": "通过 SMTP 发送邮件；收件人、主题和正文必须符合用户授权。"
+    }
+  },
+  "prompt_guidance": "仅当用户要求读取、搜索、撰写或发送邮件时使用；邮件收件人和内容必须明确授权。"
+}

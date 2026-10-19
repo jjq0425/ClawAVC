@@ -70,6 +70,24 @@ if [ -x "$PROBE" ]; then
   rm -f "$PROBE"
 fi
 
+echo "=== ⑦ 托管进程域（systemd 服务 + user-level gateway）==="
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+dom_of(){ tr -d '\0' < /proc/$1/attr/current 2>/dev/null | awk -F: '{print $3}'; }
+check_unit(){
+  local mgr="$1" u="$2"
+  pid=$([ "$mgr" = user ] && systemctl --user show "$u" -p MainPID --value 2>/dev/null \
+                          || systemctl show "$u" -p MainPID --value 2>/dev/null)
+  if [ -z "${pid:-}" ] || [ "$pid" = "0" ]; then echo "  [SKIP] $u 未运行"; return; fi
+  d=$(dom_of "$pid")
+  [ "$d" = "agent_t" ] && ck 0 "$u (pid=$pid) 进程域 = $d" \
+                       || ck 1 "$u (pid=$pid) 进程域 = ${d:-未知}（期望 agent_t）"
+}
+for u in openclaw-round-listener.service openclaw-kernel-collector.service; do
+  systemctl list-unit-files 2>/dev/null | grep -qw "$u" && check_unit system "$u" || echo "  [SKIP] $u 不存在"
+done
+systemctl --user list-unit-files 2>/dev/null | grep -qw openclaw-gateway.service \
+  && check_unit user openclaw-gateway.service || echo "  [SKIP] openclaw-gateway.service (user) 不存在"
+
 echo
 echo "结果：PASS=$pass FAIL=$fail"
 [ "$fail" -eq 0 ] || exit 1

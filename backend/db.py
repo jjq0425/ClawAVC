@@ -74,6 +74,7 @@ def init_db():
             judge_result TEXT,
             is_abnormal INTEGER DEFAULT 0,
             overall_score REAL DEFAULT 1.0,
+            role_name TEXT DEFAULT '',
             attack_config TEXT DEFAULT '',
             pid_info TEXT DEFAULT '',
             kernel_syscall_seq TEXT DEFAULT '',
@@ -108,6 +109,8 @@ def init_db():
         conn.execute("ALTER TABLE rounds ADD COLUMN anomaly_llm_v2_chat_session TEXT DEFAULT ''")
     if "action_json_md5" not in cols:
         conn.execute("ALTER TABLE rounds ADD COLUMN action_json_md5 TEXT DEFAULT ''")
+    if "role_name" not in cols:
+        conn.execute("ALTER TABLE rounds ADD COLUMN role_name TEXT DEFAULT ''")
     # 迁移：将旧的 resource_facts 列重命名为 kernel_resource_facts（如果存在）
     if "resource_facts" in cols and "kernel_resource_facts" not in cols:
         try:
@@ -235,6 +238,27 @@ def init_db():
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_anomaly_chats_time ON anomaly_chats(updated_at DESC)")
+    # SELinux 策略建议表 - 含被校验拒绝的，留作审计痕迹
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS policy_proposals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proposal_id TEXT UNIQUE NOT NULL,
+            round_id TEXT NOT NULL,
+            ok INTEGER DEFAULT 0,
+            decision TEXT DEFAULT '',
+            reason_code TEXT DEFAULT '',
+            module_name TEXT DEFAULT '',
+            source_type TEXT DEFAULT '',
+            target_policy_version TEXT DEFAULT '',
+            confidence TEXT DEFAULT '',
+            te TEXT DEFAULT '',
+            te_sha256 TEXT DEFAULT '',
+            summary TEXT DEFAULT '',
+            result_json TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_policy_proposals_round ON policy_proposals(round_id, id DESC)")
     # 初始化默认配置
     conn.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('round_update_time_limit_enabled', 'True')")
     conn.commit()
@@ -290,8 +314,8 @@ def insert_round(data: Dict[str, Any]) -> Optional[int]:
             INSERT OR IGNORE INTO rounds
             (round_id, time_start, time_end, session_key, session_id,
              user_query, last_llm_message, action_json, action_json_md5, ir_json,
-             judge_result, is_abnormal, overall_score)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             judge_result, is_abnormal, overall_score, role_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.get("round", ""),
             data.get("time_start", "").strip(),
@@ -306,6 +330,7 @@ def insert_round(data: Dict[str, Any]) -> Optional[int]:
             judge_result,
             is_abnormal,
             overall_score,
+            data.get("role_name", "") or "",
         ))
         conn.commit()
         return cursor.lastrowid if cursor.rowcount > 0 else None
@@ -318,13 +343,16 @@ def insert_round(data: Dict[str, Any]) -> Optional[int]:
 
 
 def insert_round_start(round_id: str, time_start: str, session_key: str, session_id: str,
-                       attack_config: str = "", pid_info: str = "", history: str = "") -> Optional[int]:
+                       attack_config: str = "", pid_info: str = "", history: str = "",
+                       role_name: str = "") -> Optional[int]:
     """Insert a round record at ROUND_START (partial data, no score yet).
 
     attack_config: 当前攻击配置的完整 JSON 快照，在 round 开始时固化保存。
     pid_info: OpenClaw 进程及其安全/隔离上下文（PID、SELinux/AppArmor、capabilities、
               namespaces、cgroup、ancestors 等）的 JSON 快照。
     history: 对话历史 JSON，包含之前的 user/assistant/tool 消息。
+    role_name: 本轮生效的角色（策略库）名，来自 ir_translator.current_policy，
+               round 开始时固化，便于按角色筛选/追溯审计记录。
     """
     conn = get_conn()
     try:
@@ -332,11 +360,13 @@ def insert_round_start(round_id: str, time_start: str, session_key: str, session
             INSERT OR IGNORE INTO rounds
             (round_id, time_start, time_end, session_key, session_id,
              user_query, last_llm_message, action_json, action_json_md5, ir_json,
-             judge_result, is_abnormal, overall_score, attack_config, pid_info, history)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             judge_result, is_abnormal, overall_score, attack_config, pid_info, history,
+             role_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             round_id, time_start, "", session_key, session_id,
             "", "", "[]", action_json_md5("[]"), "{}", "", 0, -1.0, attack_config, pid_info, history,
+            role_name,
         ))
         conn.commit()
         return cursor.lastrowid if cursor.rowcount > 0 else None
@@ -911,6 +941,100 @@ def delete_anomaly_chat(session_id: str) -> bool:
     except Exception as e:
         print(f"[db] delete_anomaly_chat error: {e}")
         return False
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SELinux 策略建议存储
+# ═══════════════════════════════════════════════════════════════════
+
+_PROPOSAL_LIST_COLUMNS = (
+    "proposal_id, round_id, ok, decision, reason_code, module_name, source_type, "
+    "target_policy_version, confidence, te_sha256, summary, created_at"
+)
+
+
+def save_policy_proposal(round_id: str, result: Dict) -> str:
+    """落库一条策略建议校验结果，返回 proposal_id（失败返回空字符串）。
+
+    被 policy_gate 拒绝的建议同样入库：那是 LLM 试图为越权访问放行痕迹，需要可追溯。
+    """
+    import uuid
+    proposal_id = uuid.uuid4().hex[:16]
+    payload = dict(result or {})
+    te_text = str(payload.pop("te", "") or "")
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO policy_proposals (proposal_id, round_id, ok, decision, reason_code, "
+            "module_name, source_type, target_policy_version, confidence, te, te_sha256, "
+            "summary, result_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (proposal_id, round_id, 1 if payload.get("ok") else 0,
+             str(payload.get("decision") or ""), str(payload.get("reason_code") or ""),
+             str(payload.get("module_name") or ""), str(payload.get("source_type") or ""),
+             str(payload.get("target_policy_version") or ""), str(payload.get("confidence") or ""),
+             te_text, str(payload.get("te_sha256") or ""),
+             str(payload.get("summary") or "")[:2000],
+             json.dumps(payload, ensure_ascii=False)),
+        )
+        conn.commit()
+        return proposal_id
+    except Exception as e:
+        print(f"[db] save_policy_proposal error: {e}")
+        return ""
+    finally:
+        conn.close()
+
+
+def list_policy_proposals(round_id: str = None, limit: int = 50) -> List[Dict]:
+    """列出策略建议摘要（不含 .te 正文与完整校验明细）。"""
+    try:
+        limit = max(1, min(int(limit or 50), 200))
+    except (TypeError, ValueError):
+        limit = 50
+    conn = get_conn()
+    try:
+        sql = "SELECT %s FROM policy_proposals " % _PROPOSAL_LIST_COLUMNS
+        params: List[Any] = []
+        if round_id:
+            sql += "WHERE round_id = ? "
+            params.append(round_id)
+        sql += "ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        out = []
+        for r in rows:
+            item = dict(r)
+            item["ok"] = bool(item.get("ok"))
+            out.append(item)
+        return out
+    except Exception as e:
+        print(f"[db] list_policy_proposals error: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def get_policy_proposal(proposal_id: str) -> Optional[Dict]:
+    """按 proposal_id 取完整策略建议（含 .te 正文与校验明细）。"""
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM policy_proposals WHERE proposal_id = ?", (proposal_id,)
+        ).fetchone()
+        if not row:
+            return None
+        out = dict(row)
+        out["ok"] = bool(out.get("ok"))
+        try:
+            out["result"] = json.loads(out.pop("result_json") or "{}")
+        except Exception:
+            out["result"] = {}
+        return out
+    except Exception as e:
+        print(f"[db] get_policy_proposal error: {e}")
+        return None
     finally:
         conn.close()
 

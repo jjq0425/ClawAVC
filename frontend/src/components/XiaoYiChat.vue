@@ -77,6 +77,110 @@
               </div>
             </div>
           </div>
+          <!-- 策略建议：policy_gate 的确定性校验结果。被拒绝的同样展示，那是「模型试图为越权访问放行」的审计痕迹 -->
+          <div v-if="m.meta.proposals && m.meta.proposals.length" class="xy-proposals">
+            <div
+              v-for="(p, pi) in m.meta.proposals"
+              :key="pi"
+              class="xy-proposal"
+              :class="{ expanded: p._expanded, rejected: !p.ok }"
+            >
+              <div class="xy-proposal__head" @click="p._expanded = !p._expanded">
+                <t-icon
+                  :name="p.ok ? 'check-circle-filled' : 'close-circle-filled'"
+                  :class="['xy-proposal__icon', p.ok ? 'ok' : 'bad']"
+                />
+                <span class="xy-proposal__title">
+                  策略建议 · {{ p.decision }}<template v-if="p.reason_code">（{{ p.reason_code }}）</template>
+                </span>
+                <t-tag :theme="p.ok ? 'success' : 'danger'" size="small" variant="light">
+                  {{ p.ok ? '校验通过' : '已拒绝' }}
+                </t-tag>
+                <span v-if="p.module_name" class="xy-proposal__module">{{ p.module_name }}.te</span>
+                <t-icon
+                  :name="p._expanded ? 'chevron-up' : 'chevron-down'"
+                  class="xy-proposal__chev"
+                />
+              </div>
+
+              <div v-if="p._expanded" class="xy-proposal__body">
+                <div v-if="p.summary" class="xy-proposal__summary">{{ p.summary }}</div>
+
+                <div class="xy-proposal__facts">
+                  <span>源域 {{ p.source_type || "-" }}</span>
+                  <span>置信度 {{ p.confidence || "-" }}</span>
+                  <span v-if="p.selinux_posture && p.selinux_posture.mode">
+                    目标机 {{ p.selinux_posture.mode }} / policyvers {{ p.selinux_posture.policyvers || "-" }}
+                  </span>
+                  <span v-if="p.proposal_id">存档 {{ p.proposal_id }}</span>
+                </div>
+
+                <div v-if="p.blocked_note" class="xy-proposal__blocked">{{ p.blocked_note }}</div>
+
+                <div v-if="p.violations && p.violations.length" class="xy-proposal__violations">
+                  <div
+                    v-for="(v, vi) in p.violations"
+                    :key="vi"
+                    class="xy-proposal__violation"
+                    :class="v.level"
+                  >
+                    <span class="xy-proposal__vcode">{{ v.code }}</span>
+                    <span class="xy-proposal__vmsg">{{ v.message }}</span>
+                    <code v-if="v.rule" class="xy-proposal__vrule">
+                      allow {{ v.rule.src }} {{ v.rule.tgt }}:{{ v.rule.tclass }}
+                      { {{ (v.rule.perms || []).join(" ") }} };
+                    </code>
+                  </div>
+                </div>
+
+                <div v-if="p.rules && p.rules.length" class="xy-proposal__rules">
+                  <div class="xy-proposal__label">规则（{{ p.rules.length }}）</div>
+                  <div v-for="(r, ri) in p.rules" :key="ri" class="xy-proposal__rule">
+                    <code>allow {{ r.src }} {{ r.tgt }}:{{ r.tclass }} { {{ (r.perms || []).join(" ") }} };</code>
+                    <em v-if="r.evidence && r.evidence.length">依据 {{ r.evidence.join(", ") }}</em>
+                  </div>
+                </div>
+
+                <div v-if="p.te" class="xy-proposal__te">
+                  <div class="xy-proposal__label">
+                    <span>{{ p.module_name }}.te</span>
+                    <t-button size="small" variant="text" theme="primary" @click="copyTe(p)">
+                      <template #icon><t-icon name="file-copy" /></template>
+                      复制
+                    </t-button>
+                  </div>
+                  <pre class="xy-proposal__code">{{ p.te }}</pre>
+                  <div v-if="p.te_sha256" class="xy-proposal__sha">sha256 {{ p.te_sha256.slice(0, 16) }}</div>
+                </div>
+
+                <div v-if="p.compile && p.compile.attempted" class="xy-proposal__compile">
+                  沙箱编译：{{ p.compile.ok ? "通过" : "失败" }} · {{ p.compile.detail }}
+                </div>
+
+                <div v-if="p.must_not_allow && p.must_not_allow.length" class="xy-proposal__never">
+                  <div class="xy-proposal__label">不得放行</div>
+                  <div v-for="(n, ni) in p.must_not_allow" :key="ni" class="xy-proposal__never-item">
+                    <code>{{ n.access_id }}</code>
+                    <span>{{ n.resource }}</span>
+                    <span v-if="n.reason" class="xy-proposal__never-reason">{{ n.reason }}</span>
+                  </div>
+                </div>
+
+                <div v-if="p.notes && p.notes.length" class="xy-proposal__notes">
+                  <div class="xy-proposal__label">说明</div>
+                  <ul>
+                    <li v-for="(n, ni) in p.notes" :key="ni">{{ n }}</li>
+                  </ul>
+                </div>
+
+                <div class="xy-proposal__disclaimer">
+                  本模块只产出 allow 级建议，不会改动任何目标机策略。{{
+                    p.ok ? "请人工复核后再决定是否采纳。" : "被拒绝的建议同样入库留痕。"
+                  }}
+                </div>
+              </div>
+            </div>
+          </div>
           <div v-if="m.meta.total_duration_ms != null" class="xy-skill-summary">
             <span class="xy-skill-summary__label">总耗时</span>
             <span class="xy-skill-summary__value">
@@ -302,6 +406,29 @@ function toggleExpand(m) {
   m._expanded = !m._expanded
 }
 
+async function copyTe(p) {
+  const text = p.te || ""
+  if (!text) return
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      // 用 http + IP 访问时 clipboard API 不可用，退回临时 textarea
+      const ta = document.createElement("textarea")
+      ta.value = text
+      ta.style.position = "fixed"
+      ta.style.opacity = "0"
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand("copy")
+      document.body.removeChild(ta)
+    }
+    MessagePlugin.success("已复制 .te 文本")
+  } catch {
+    MessagePlugin.error("复制失败，请手动选中复制")
+  }
+}
+
 function persist() {
   const stripped = messages
     .filter((m) => m.role && m.content !== undefined)
@@ -438,7 +565,13 @@ async function sendSkillRound() {
     content: "",
     loading: true,
     status: "",
-    meta: { type: "skill_analysis", round_id: rid, tool_steps: [], total_duration_ms: null },
+    meta: {
+      type: "skill_analysis",
+      round_id: rid,
+      tool_steps: [],
+      proposals: [],
+      total_duration_ms: null,
+    },
   })
   messages.push(assistantMsg)
   busy.value = true
@@ -512,6 +645,12 @@ async function sendSkillRound() {
               break
             case "text_done":
               assistantMsg.content = data.content
+              break
+            case "proposal":
+              // 一轮里可能多次提交（被拒绝后修正再交），逐条留档
+              if (data.proposal) {
+                assistantMsg.meta.proposals.push({ ...data.proposal, _expanded: false })
+              }
               break
             case "tool_limit_reached":
               console.warn("Tool limit:", data.message)
@@ -823,9 +962,6 @@ async function sendRound() {
 .xy-skill-step__detail pre.code-shell .tok-keyword {
   color: #c792ea;
 }
-.xy-skill-step__detail pre.code-shell .tok-string {
-  color: #c3e88d;
-}
 .xy-skill-summary {
   display: flex;
   align-items: center;
@@ -834,11 +970,186 @@ async function sendRound() {
   font-size: 12px;
   color: #8a94a6;
 }
-.xy-skill-summary__label { color: #8a94a6; }
+.xy-skill-summary__label {
+  color: #8a94a6;
+}
 .xy-skill-summary__value {
   color: #2a354a;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
-.xy-skill-summary__sep { margin: 0 4px; color: #d0d5dd; }
+.xy-skill-summary__sep {
+  margin: 0 4px;
+  color: #d0d5dd;
+}
+.xy-skill-step__detail pre.code-shell .tok-string {
+  color: #c3e88d;
+}
+
+/* ── 策略建议卡片（policy_gate 的确定性校验结果） ── */
+.xy-proposals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.xy-proposal {
+  border: 1px solid #d7e3ff;
+  border-radius: 10px;
+  background: #f5f9ff;
+  overflow: hidden;
+}
+.xy-proposal.expanded { background: #fff; }
+.xy-proposal.rejected { border-color: #ffd4d4; background: #fff6f6; }
+.xy-proposal.rejected.expanded { background: #fff; }
+.xy-proposal__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.xy-proposal__icon { font-size: 16px; flex: 0 0 auto; }
+.xy-proposal__icon.ok { color: #36cf9f; }
+.xy-proposal__icon.bad { color: #ff4d4f; }
+.xy-proposal__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1c2b3a;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xy-proposal__module {
+  font-size: 12px;
+  color: #8a94a6;
+  font-family: "SF Mono", "Consolas", monospace;
+  flex: 0 0 auto;
+}
+.xy-proposal__chev { color: #aab2c0; font-size: 14px; flex: 0 0 auto; }
+.xy-proposal__body {
+  padding: 0 12px 12px;
+  border-top: 1px dashed #e3ebff;
+  font-size: 13px;
+  color: #3a4456;
+}
+.xy-proposal.rejected .xy-proposal__body { border-top-color: #ffe0e0; }
+.xy-proposal__summary { padding-top: 10px; line-height: 1.6; }
+.xy-proposal__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding-top: 8px;
+  font-size: 12px;
+  color: #8a94a6;
+}
+.xy-proposal__blocked {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+  color: #a8071a;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.xy-proposal__violations {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.xy-proposal__violation {
+  border-left: 3px solid #faad14;
+  background: #fffbe6;
+  padding: 6px 10px;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.xy-proposal__violation.block { border-left-color: #ff4d4f; background: #fff1f0; }
+.xy-proposal__vcode {
+  font-weight: 600;
+  color: #ad6800;
+  margin-right: 6px;
+  font-family: "SF Mono", "Consolas", monospace;
+}
+.xy-proposal__violation.block .xy-proposal__vcode { color: #a8071a; }
+.xy-proposal__vmsg { color: #4a5a72; }
+.xy-proposal__vrule {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #4a5a72;
+  font-family: "SF Mono", "Consolas", monospace;
+  word-break: break-all;
+}
+.xy-proposal__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7688;
+}
+.xy-proposal__rule { line-height: 1.9; }
+.xy-proposal__rule code,
+.xy-proposal__never-item code {
+  font-family: "SF Mono", "Consolas", monospace;
+  font-size: 12px;
+  background: #f2f5fa;
+  border-radius: 4px;
+  padding: 1px 5px;
+  word-break: break-all;
+}
+.xy-proposal__rule em {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #99a2b3;
+  font-style: normal;
+}
+.xy-proposal__code {
+  margin: 0;
+  padding: 10px 12px;
+  background: #1e1e2e;
+  color: #e4e4e7;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  max-height: 320px;
+  overflow: auto;
+}
+.xy-proposal__sha {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #aab2c0;
+  font-family: "SF Mono", "Consolas", monospace;
+}
+.xy-proposal__compile { margin-top: 8px; font-size: 12px; color: #6b7688; }
+.xy-proposal__never-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+  line-height: 1.9;
+}
+.xy-proposal__never-item code { color: #a8071a; }
+.xy-proposal__never-reason { color: #99a2b3; }
+.xy-proposal__notes ul { margin: 0; padding-left: 18px; }
+.xy-proposal__notes li { font-size: 12px; line-height: 1.7; color: #4a5a72; }
+.xy-proposal__disclaimer {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed #eef1f5;
+  font-size: 12px;
+  color: #99a2b3;
+  line-height: 1.6;
+}
 </style>

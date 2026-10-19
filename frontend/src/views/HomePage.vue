@@ -83,6 +83,24 @@
       </template>
       ClawAVC
     </t-link>
+     <div class="credits-thanks">
+      <svg class="cb-icon" viewBox="0 0 24 24" width="16" height="16" role="img" aria-label="CodeBuddy">
+        <defs>
+          <linearGradient id="cbIconGradient" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#4f8cff" />
+            <stop offset="100%" stop-color="#7c5cff" />
+          </linearGradient>
+        </defs>
+        <rect x="1" y="1" width="22" height="22" rx="6" fill="url(#cbIconGradient)" />
+        <path d="M9.3 8.2 5.5 12l3.8 3.8M14.7 8.2 18.5 12l-3.8 3.8" fill="none"
+              stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <span>
+        感谢腾讯
+        <t-link theme="primary" underline href="https://www.codebuddy.ai" target="_blank">CodeBuddy</t-link>
+        对本平台的支持
+      </span>
+     </div>
     </div>
 </div>
 </template>
@@ -235,5 +253,16 @@
   color: #000;
   margin-top: 48px;
   padding-bottom: 24px;
+}
+.credits-thanks {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.cb-icon {
+  flex: none;
+  display: block;
 }
 </style>

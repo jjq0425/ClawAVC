@@ -99,6 +99,25 @@
             />
           </div>
           <div class="xy-set__field">
+            <label class="xy-set__label">模型名</label>
+            <t-input
+              v-model="settingsModel"
+              placeholder="可留空（留空使用默认模型）"
+              clearable
+            />
+          </div>
+          <div class="xy-set__field">
+            <label class="xy-set__label">API Key</label>
+            <t-input
+              v-model="settingsApiKey"
+              type="password"
+              :placeholder="settingsHasApiKey
+                ? `已配置（${settingsKeyMasked}），留空则不修改`
+                : '可留空（留空则不发送 Authorization）'"
+              clearable
+            />
+          </div>
+          <div class="xy-set__field">
             <label class="xy-set__label">单次输出最大 token 数</label>
             <t-input-number
               v-model="settingsMaxTokens"
@@ -206,6 +225,10 @@ const activeId = ref("")
 const configured = ref(false)
 const settingsVisible = ref(false)
 const settingsUrl = ref("")
+const settingsModel = ref("")
+const settingsApiKey = ref("")
+const settingsHasApiKey = ref(false)
+const settingsKeyMasked = ref("")
 const settingsPrompt = ref("")
 const settingsSystem = ref("")
 const settingsSkill = ref("")
@@ -349,6 +372,9 @@ async function saveSettings() {
   try {
     const saves = [
       { key: "anomaly_llm_url_v2", value: settingsUrl.value },
+      { key: "anomaly_llm_model", value: settingsModel.value },
+      // API Key 留空时后端跳过写入（不修改已配置的值）
+      { key: "anomaly_llm_api_key", value: settingsApiKey.value },
       { key: "anomaly_llm_base_prompt", value: settingsPrompt.value },
       { key: "anomaly_llm_system_prompt", value: settingsSystem.value },
       { key: "anomaly_llm_skill_prompt", value: settingsSkill.value },

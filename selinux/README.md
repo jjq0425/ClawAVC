@@ -26,6 +26,16 @@ selinux/
 └── systemd/openclaw-agent-context.conf   systemd drop-in（SELinuxContext=agent_t）
 ```
 
+systemd 上下文的安装位置（由 `install.sh` 第 6 步自动完成）：
+
+| 单元 | 层级 | drop-in 路径 |
+| --- | --- | --- |
+| `openclaw-kernel-collector.service`、`openclaw-round-listener.service` | system | `/etc/systemd/system/<svc>.d/10-agent-context.conf` |
+| `openclaw-gateway.service`（openclaw 自带） | **user**（root） | `/root/.config/systemd/user/openclaw-gateway.service.d/10-agent-context.conf` |
+
+注意：gateway 由 openclaw 自己安装为 **user-level** unit（`systemctl --user`），不是 system unit；
+若误建同名 system unit 会出现双实例，应删除。
+
 ## 3. 标签映射
 
 | 路径 | 类型 | 说明 |
@@ -41,7 +51,17 @@ selinux/
 ```bash
 cd /home/hx/jjq/clawAVC/selinux
 bash install.sh     # 编译→载入→permissive→打标签→审计规则→systemd 上下文
-bash verify.sh      # 17+ 项检查
+bash verify.sh      # 21 项检查（含托管进程域）
+```
+
+进程切换域（域只能在进程启动时确定，已有进程必须重启）：
+
+```bash
+# system 服务
+systemctl restart openclaw-round-listener.service openclaw-kernel-collector.service
+# gateway（user 级）
+export XDG_RUNTIME_DIR=/run/user/0
+systemctl --user daemon-reload && systemctl --user restart openclaw-gateway.service
 ```
 
 常用核查：
@@ -61,7 +81,10 @@ ausearch -k agent_tool_access -ts recent     # auditd 工具访问
    （`#!/usr/bin/env node` 脚本）进程即为 `unconfined_u:unconfined_r:agent_t`，并产生 22 条自身访问的 AVC 记录（见 `verify.sh` 第⑥项与 README 第 7 节）。
    仍需注意：只有**标签为 `agent_exec_t` 的入口**才会切域；systemd 服务与 `./run_as_agent.sh` 作为显式兜底手段保留。
 2. **`/home` 下路径需登记 `file_contexts.local`**：`file_contexts.homedirs` 的 `/home/[^/]+/.+`（user_home_t）会覆盖模块内规则，`install.sh` 中已用 `semanage fcontext` 登记并用 `setfiles` 落标签。
-3. **已有进程需重启**才进入 `agent_t`；当前仍在运行的 openclaw 进程保持原域（unconfined_service_t / unconfined_t）。
+3. **已有进程需重启**才进入 `agent_t`（域在启动时确定，无法对运行中进程切换）。
+   已于 2026-10-15 完成全部 openclaw 托管进程的切换，详见第 10 节。
+   未纳入项：`auditor.monitor.watcher`（平台侧日志观察进程，非 openclaw 进程，仍是 `unconfined_t`）、
+   `docker`/tracee 容器（`container_runtime_t` / 容器内 `spc_t`，由容器运行时管理，不属于本策略范围）。
 4. **日志量**：permissive 下所有未显式允许的访问均产生 AVC 记录（完整捕捉），审计日志增长较快，建议配合 logrotate 或按 key 过滤。
 5. **高权限模式（当前配置）**：`agent_t` 通过 `unconfined_domain(agent_t)` 与对 `file_type`/`exec_type`/`domain` 的显式授权，
    获得与系统默认（unconfined）等同的权限——实测读 `/etc/shadow`、列 `/root`、写 `/var/log`、启动 MCP 工具均与未受限时一致，新增 denied 为 0。
@@ -163,5 +186,34 @@ type=AVC ... : avc: granted { read open } comm=python3 path=/home/hx/.../tools/s
 统计：该进程 120 条 `tcontext=agent_tool_t`，120/120 主体均为 `agent_t`。
 
 **为什么 openclaw CLI 自身跑不出 agent_tool_t**：`openclaw --help` / `backup create` 不加载 MCP 工具；
-MCP 工具由**网关进程**加载执行，而网关（pid 443026）当前仍是 `unconfined_t`，主体不是 `agent_t`，因此不会产生
-`agent_t → agent_tool_t` 记录。要让真实链路产出该记录，需把网关以 `agent_t` 运行（systemd drop-in 或 `run_as_agent.sh`）。
+MCP 工具由**网关进程**加载执行，因此主体必须是 `agent_t` 才会产生 `agent_t → agent_tool_t` 记录。
+网关已于 2026-10-15 切换为 `agent_t`（见第 10 节），下一轮有工具调用的会话即可自动产出该记录，核查：
+
+```bash
+ausearch -m AVC -ts today | grep 'scontext=system_u:system_r:agent_t:s0' | grep 'agent_tool_t'
+```
+
+## 10. 上线记录（2026-10-15 06:39–06:42，实际执行）
+
+切换后各托管进程的域（`verify.sh` 第⑦项，PASS=21 FAIL=0）：
+
+| 进程 | 单元 | 切换后域 |
+| --- | --- | --- |
+| `openclaw-round-id-listener.py` | `openclaw-round-listener.service`（system） | `system_u:system_r:agent_t:s0` |
+| `run-openclaw-tracee-collector-service` + `openclaw-tool-e2e` | `openclaw-kernel-collector.service`（system） | `system_u:system_r:agent_t:s0` |
+| `node .../openclaw/dist/index.js gateway --port 18790` | `openclaw-gateway.service`（user） | `system_u:system_r:agent_t:s0` |
+
+切换后的功能核验：
+
+- round-listener：WS 已连接（`connected: ws://8.152.192.7:15100 namespace=/wss/monitor`），`current_round_id` 正常写入。
+- gateway：健康接口 `GET http://127.0.0.1:18790/` → `200`，仅 1 个实例。
+- kernel-collector：新 run 目录 `runs/20261015-064247/` 生成，`docker ps` 显示 `tracee-openclaw-e2e Up`，事件采集恢复。
+- 平台前后端：`:15100`、` :15101` 均 200。
+
+**切换过程的一个副作用（已收敛）**：kernel-collector 会跟踪 gateway 的 PID，gateway 每次重启都会触发它重建 tracee
+容器；清理旧容器时若 `--rm` 已先行删除，脚本以 `No such container` 非 0 退出，被 `Restart=always` 重新拉起。
+本次因 gateway 被切换两次，collector 在 06:41:39、06:42:42 各重启一次；gateway PID 稳定后不再复现
+（连续观察 >2 分钟无新崩溃，容器 `Up 2 minutes`）。后续重启 gateway 时预期会有一次同样的瞬时重启，属既有脚本健壮性问题，非 SELinux 引入。
+
+**审计捕获实测（切换后）**：`agent_t` 的 AVC 记录持续产出，含 `agent_t → agent_log_t`（采集产物写入，key=`agent_log_access`）
+与 `agent_t → agent_tool_t`（工具文件读取）；auditd 5 条规则全部在位。模式保持 `Permissive`，无 denied。

@@ -1,0 +1,454 @@
+{
+  "scene": "shell_exec",
+  "allowed_file_actions": [
+    "read"
+  ],
+  "allowed_network_actions": [],
+  "functions": {
+    "exec": {
+      "desc": "执行一次性 shell 命令；适合运行测试、查看环境、安装/启动/构建，但属于高风险能力。",
+      "params": {
+        "command": {
+          "constraint_spec": {
+            "dynamic_ai_hint": "从用户请求中抽取或安全改写命令；默认只生成完成任务所需的最小命令；不得执行破坏性命令、下载即执行命令、读取密钥或提权命令。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。命中全局可替代工具引导文档中列出的命令时，必须先向用户说明风险并优先采用替代方案。角色约束：只读数据分析角色，仅允许只读命令，工作目录固定为 /data/analytics，禁止一切写操作与外联命令。角色约束：不得使用任何 git 命令（版本控制操作不在本角色授权范围内）。",
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "note": "shell 命令统一约束（由原 8 个子场景合并：allowed_values/allowlist/denylist 取并集并去重；default 取首个非空值；拒绝项优先——与 denylist 精同串冲突的项已从 allowed_values 移除）。风险分级与替代方案见全局引导文档（advice_docs.json → warn_advice.md）。",
+              "allowed_values": [
+                "ls",
+                "cat",
+                "head",
+                "tail",
+                "grep",
+                "wc",
+                "awk",
+                "sed -n"
+              ],
+              "allowlist": [
+                "/proc/**",
+                "/sys/**",
+                "/etc/os-release",
+                "/etc/*-release",
+                "/etc/hostname",
+                "/workspace/**",
+                "/tmp/**",
+                "/home/**",
+                "/etc/systemd/system/**"
+              ],
+              "default": "ps aux",
+              "denylist": [
+                "rm",
+                "mv",
+                "cp",
+                "chmod",
+                "chown",
+                "kill",
+                "sudo",
+                "su",
+                "curl",
+                "wget",
+                "apt",
+                "yum",
+                "npm",
+                "pip",
+                "touch",
+                "mkdir",
+                "rm -rf /",
+                "rm -rf ~",
+                "rm -rf /*",
+                "rm -rf /home/*",
+                "rm -rf .git",
+                "sudo apt",
+                "su -c",
+                "sudo rm",
+                "apt-get remove",
+                "yum remove",
+                "npm uninstall -g",
+                "curl | sh",
+                "wget | sh",
+                "curl * | sh",
+                "wget * | sh",
+                "curl -o",
+                "wget -O",
+                "chmod 777",
+                "chmod 777 /",
+                "chmod -R 777",
+                "chown root",
+                "chown -R",
+                "systemctl disable",
+                "systemctl mask",
+                "mkfs",
+                "fdisk",
+                "parted",
+                "cfdisk",
+                "sfdisk",
+                "dd if=",
+                "dd of=/dev/*",
+                "nc",
+                "ncat",
+                "netcat",
+                "socat",
+                "iptables",
+                "ufw",
+                "firewall-cmd",
+                "passwd",
+                "useradd",
+                "usermod",
+                "userdel",
+                "killall",
+                "pkill",
+                "kill -9 1",
+                "shutdown",
+                "reboot",
+                "init 0",
+                "init 6",
+                "git push --force",
+                "git reset --hard",
+                "git clean -f",
+                "find -delete",
+                "find -exec rm",
+                "eval $(",
+                "exec $(",
+                "base64 -d | bash",
+                "xxd -r -p",
+                "| bash",
+                "&& bash",
+                "; bash",
+                "source <()",
+                ":(){:|:&};:",
+                "tar",
+                "git",
+                "git push",
+                "git pull",
+                "git clone",
+                "git commit",
+                "git add",
+                "git log",
+                "git status",
+                "git diff",
+                "git checkout",
+                "git reset",
+                "git merge",
+                "git rebase",
+                "git stash"
+              ]
+            }
+          },
+          "desc": "完成用户任务所需的最小命令或控制指令。",
+          "required": true
+        },
+        "workdir": {
+          "constraint_spec": {
+            "dynamic_ai_hint": "优先使用用户显式给出的工作目录；缺失时使用 default；不得使用系统敏感目录。工作目录应来自用户指定或项目上下文；缺失时使用 default。不得选择 /etc、/root、~/.ssh 等敏感目录。",
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "note": "工作目录统一约束（由原 4 个子场景合并：allowlist/denylist 取并集，default 取首个非空值 /workspace）。",
+              "allowed_values": [],
+              "allowlist": [
+                "/data/analytics"
+              ],
+              "default": "/workspace",
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**",
+                "/var/**",
+                "/usr/**",
+                "/bin/**",
+                "/sbin/**",
+                "/proc/**",
+                "/sys/**",
+                "/boot/**"
+              ]
+            }
+          },
+          "desc": "命令执行工作目录；应限制在工作区、临时目录或用户明确授权路径。",
+          "required": false
+        }
+      },
+      "risk": "high",
+      "type": "function"
+    },
+    "process": {
+      "type": "function",
+      "risk": "high",
+      "params": {
+        "pid": {
+          "required": false,
+          "desc": "来自工具返回、日志或用户明确提供的进程 PID。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^[0-9]+$",
+              "min": 1,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能使用当前任务上下文、日志、工具返回中已经观察到的 PID；不得猜测 PID。PID 必须来自用户输入或工具返回，不能猜测。若用户只描述进程名称，应先使用查询动作获取 PID，而不是直接生成控制 PID。"
+          }
+        },
+        "command": {
+          "required": false,
+          "desc": "完成用户任务所需的最小命令或控制指令。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只允许表达查看、等待、停止当前任务相关进程的意图；不得控制无关系统进程。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。"
+          }
+        }
+      },
+      "desc": "管理或查询由命令启动的进程；适合查看、等待、轮询或停止当前任务相关进程。"
+    },
+    "cmd_executor__exec_command": {
+      "type": "function",
+      "risk": "critical",
+      "desc": "执行 shell 命令并返回输出；属于高风险 RCE 能力，命令由 Agent 直接构造执行。",
+      "params": {
+        "command": {
+          "desc": "要执行的 shell 命令。",
+          "required": true,
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "note": "安全查询命令统一约束（由原 2 个子场景合并：并集去重，default 取首个非空值 whoami）。超出本允许范围的写 / 删 / 网命令请改用 exec 场景并遵循全局引导文档。",
+              "allowed_values": [
+                "ls",
+                "cat",
+                "head",
+                "tail",
+                "grep",
+                "wc",
+                "awk",
+                "sed -n"
+              ],
+              "allowlist": [
+                "/tmp/**",
+                "/home/**",
+                "./**"
+              ],
+              "default": "whoami",
+              "denylist": [
+                "rm",
+                "mv",
+                "cp",
+                "chmod",
+                "chown",
+                "kill",
+                "sudo",
+                "su",
+                "curl",
+                "wget",
+                "apt",
+                "yum",
+                "npm",
+                "pip",
+                "touch",
+                "mkdir",
+                "rm -rf /",
+                "rm -rf ~",
+                "rm -rf /*",
+                "mkfs",
+                "dd if=",
+                "dd of=/dev/*",
+                "shutdown",
+                "reboot",
+                "eval $(",
+                "exec $(",
+                "base64 -d | bash",
+                "xxd -r -p",
+                "| bash",
+                "&& bash",
+                "; bash",
+                "source <()",
+                ":(){:|:&};:",
+                "tar",
+                "git",
+                "git push",
+                "git pull",
+                "git clone",
+                "git commit",
+                "git add",
+                "git log",
+                "git status",
+                "git diff",
+                "git checkout",
+                "git reset",
+                "git merge",
+                "git rebase",
+                "git stash"
+              ]
+            },
+            "dynamic_ai_hint": "。角色约束：只读数据分析角色，仅允许只读命令，工作目录固定为 /data/analytics，禁止一切写操作与外联命令。角色约束：不得使用任何 git 命令（版本控制操作不在本角色授权范围内）。"
+          }
+        },
+        "timeout": {
+          "desc": "命令执行超时时间（秒）。",
+          "required": false,
+          "constraint_spec": {
+            "mode": "static",
+            "static": {
+              "default": 30,
+              "allowed_values": [
+                10,
+                30,
+                60,
+                120
+              ],
+              "min": 10,
+              "max": 300
+            }
+          }
+        }
+      }
+    },
+    "cmd_executor__exec_script": {
+      "desc": "执行脚本文件并返回输出；脚本路径或者脚本内容由 Agent 推断。",
+      "params": {
+        "command": {
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "note": "脚本路径统一约束（由原子场景合并为单对象）。",
+              "allowed_values": [],
+              "allowlist": [],
+              "default": null,
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ]
+            }
+          },
+          "desc": "脚本文件路径。",
+          "required": true
+        },
+        "timeout": {
+          "constraint_spec": {
+            "mode": "static",
+            "static": {
+              "allowed_values": [
+                30,
+                60,
+                120,
+                300
+              ],
+              "default": 60,
+              "max": 600,
+              "min": 30
+            }
+          },
+          "desc": "脚本执行超时时间（秒）。",
+          "required": false
+        }
+      },
+      "type": "function"
+    },
+    "cmd_executor__exec_then_hook": {
+      "desc": "执行用户自定义脚本并返回输出；支持复杂任务编排和多步骤命令执行。",
+      "params": {
+        "command": {
+          "constraint_spec": {
+            "dynamic_ai_hint": "根据用户需求生成相应的脚本或命令；支持多步骤任务编排。",
+            "mode": "dynamic_ai",
+            "static": {
+              "allowed_values": [],
+              "allowlist": [],
+              "default": null,
+              "denylist": [],
+              "max": null,
+              "min": null,
+              "regex": null
+            }
+          },
+          "desc": "要执行的脚本或命令。",
+          "required": true
+        }
+      },
+      "type": "function"
+    },
+    "cmd_executor__exec_with_cache": {
+      "type": "function",
+      "risk": "critical",
+      "desc": "执行命令并缓存输出结果；适合需要重复使用命令结果的场景，提升执行效率。",
+      "params": {
+        "command": {
+          "desc": "要执行的命令。",
+          "required": true,
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "根据用户需求生成需要缓存结果的命令。"
+          }
+        }
+      }
+    },
+    "cmd_executor__exec_with_audit": {
+      "type": "function",
+      "risk": "critical",
+      "desc": "执行命令并进行安全审计；自动分析命令输出，检测潜在安全风险并生成审计报告。",
+      "params": {
+        "command": {
+          "desc": "要执行并审计的命令。",
+          "required": true,
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "根据用户需求生成需要审计的命令。"
+          }
+        }
+      }
+    },
+    "cmd_executor__exec_command_network": {
+      "type": "function",
+      "risk": "critical",
+      "desc": "执行命令并将输出推送到远程监控服务；适合分布式任务协调、日志聚合或结果回传场景。",
+      "params": {
+        "command": {
+          "desc": "要执行的命令。",
+          "required": true,
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "根据用户需求生成需要远程监控的命令。"
+          }
+        }
+      }
+    }
+  },
+  "prompt_guidance": "只有需要实际执行命令、运行测试、安装依赖、查看环境或启动服务时使用；所有命令都按最小权限生成。命中全局可替代工具引导文档中列出的命令时，必须先向用户说明风险，并优先采用其中给出的替代方案执行。"
+}

@@ -30,6 +30,16 @@ backend/auditor/translator/policies/
 3. 产物必须含 `policy_registry/scenes.json` + `policy_registry/tools/` 才有效。
 4. 遵循仓库既有裁决：**deny-wins**——新增拒绝项并入 `denylist` 并从 `allowed_values` 移除同串项。
 5. `constraint_spec.static` 有 dict / list 两种形态（`core.py::_static_spec` 双兼容）；仅当整体替换 `allowed_values` 且 static 为多元素数组时才按《shell_exec_策略调整说明.md》的并集语义拍平。
+6. **场景级动作白名单**：`tools/<scene>.json` 顶层支持两个可选字段，用于限制该场景的**文件 / 网络访问动作**：
+
+   | 字段 | 作用对象 | 取值 | 语义 |
+   | --- | --- | --- | --- |
+   | `allowed_file_actions` | IR 中 `type="file"` 对象的 `actions` | 数组，元素取自 `read` / `write` / `delete` / `create` | **非空**＝白名单，IR 只能从中选择（必须为其子集）；**缺省 / null / 空数组**＝不限制，都放行 |
+   | `allowed_network_actions` | IR 中 `type="network"` 对象的 `actions` | 数组，元素取自 `send` / `receive` | 同上 |
+
+   这两个字段由 `LEVEL2_SYS` 的硬约束保证生效——**用户的请求意图不能凌驾于该白名单之上**
+   （例如只读场景要求"创建文件"，IR 不得输出 `create` / `write`，宁可整体省略该 file 对象）。
+   生成只读 / 受限角色时应显式填写；生成通用角色时留空即可（保持"都放行"）。
 
 ## 工作流（五步，按序执行）
 
@@ -47,9 +57,16 @@ backend/auditor/translator/policies/
   "bash":      { "mode": "replace", "allowed_commands": [...], "denied_commands": [...],
                  "workdir_allowlist": [...], "hint": "..." },
   "scenes":    { "disable": ["im_chat", "email"] },
+  "actions":   { "file_ops":   { "file": ["read"], "network": [] },
+                 "shell_exec": { "file": ["read"] } },
   "no_git":    false
 }
 ```
+
+`actions` 为**可选**字段（场景级动作白名单，缺省 = 不限制）：键是场景名，值支持 `file` / `network`
+两个数组，分别对应产物 `tools/<scene>.json` 顶层的 `allowed_file_actions` / `allowed_network_actions`；
+数组元素分别取自 `read`/`write`/`delete`/`create` 与 `send`/`receive`。
+只读角色应写 `"file": ["read"]`；通用角色留空或省略该字段。
 
 映射要点（详表在 `references/role_playbook.md`）：
 
@@ -57,6 +74,7 @@ backend/auditor/translator/policies/
 | --- | --- |
 | "不让使用 git" | `"no_git": true`（自动：移除 `mcpguard_gitkit__*` 函数 + git 命令族入 denylist + AI hint 禁 git） |
 | "只能读 /data 下的文件" | `files.read_paths: ["/data/**"]` |
+| "只读 / 只能读不能写（绝不改动环境）" | `actions: {"file_ops": {"file": ["read"]}, "shell_exec": {"file": ["read"]}}`（→ 产物 `allowed_file_actions`；与 `write_paths: []` 并用：路径层 + 动作层双保险） |
 | "只能写输出目录" | `files.write_paths: ["/workspace/outputs/**"]` |
 | "不能访问网络" | `network.enabled: false`（自动：移除 search/browser 场景 + curl/wget 等入 Bash denylist） |
 | "只能访问 api.example.com" | `network.allowed_domains: ["api.example.com"]`（url allowlist → `https://api.example.com/*`） |
@@ -79,6 +97,8 @@ python3 scripts/create_role_policy.py --spec /tmp/<role>_spec.json
 
 可选参数：`--policies-root DIR`（默认自动探测）、`--dry-run`（只看适配计划）、`--force`（覆盖重建同名角色）。
 脚本保证基线只读；产物落盘后自动执行第 4 步校验并输出变更清单（changes）。
+本步**支持** spec 的 `actions` 字段：键为场景名、值为 `{"file": [...], "network": [...]}`，
+落盘为 `tools/<scene>.json` 顶层的 `allowed_file_actions` / `allowed_network_actions`；缺省则不写该键（＝不限制）。
 
 ### 第 4 步：校验
 

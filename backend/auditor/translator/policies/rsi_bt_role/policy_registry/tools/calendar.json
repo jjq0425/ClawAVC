@@ -1,0 +1,154 @@
+{
+  "scene": "calendar",
+  "functions": {
+    "feishu": {
+      "type": "function",
+      "params": {
+        "title": {
+          "required": true,
+          "desc": "用户明确给出的日程标题或可从请求中直接概括的标题。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户显式给出的标题；不得生成或填入敏感内容。标题应短小、忠实反映用户日程意图；不得加入未提及的敏感内容、客户名或地点。"
+          }
+        },
+        "start_time": {
+          "required": true,
+          "desc": "用户明确给出的开始时间，必须规范化为 ISO8601 UTC 格式。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "使用用户提供或确认的 ISO8601 时间；不得猜测时区敏感数据。必须来自用户明确时间或上下文已确认时间；相对时间需要结合当前日期后再规范化。无法确定时不要猜测。"
+          }
+        },
+        "end_time": {
+          "required": false,
+          "desc": "用户明确给出的结束时间，必须规范化为 ISO8601 UTC 格式；未知时可省略。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "使用用户提供或确认的 ISO8601 时间，允许为空以表示未指定结束时间。只有用户给出结束时间、持续时长或上下文可确定时填写；否则省略。"
+          }
+        },
+        "attendee": {
+          "required": false,
+          "desc": "用户明确指定或上下文中已确认的参会者。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "必须来自用户提供的联系人或明确的组织列表；不得编造未知收件人。仅使用用户明确提供或上下文中已确认的联系人；不得编造邮箱、手机号、飞书 ID 或组织成员。"
+          }
+        }
+      },
+      "desc": "通过飞书日历创建、查询或更新日程；时间和参与者必须明确。"
+    },
+    "calendars_api": {
+      "type": "function",
+      "params": {
+        "title": {
+          "required": true,
+          "desc": "用户明确给出的日程标题或可从请求中直接概括的标题。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户显式给出的标题；不得生成或填入敏感内容。标题应短小、忠实反映用户日程意图；不得加入未提及的敏感内容、客户名或地点。"
+          }
+        },
+        "start_time": {
+          "required": true,
+          "desc": "用户明确给出的开始时间，必须规范化为 ISO8601 UTC 格式。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "使用用户提供或确认的 ISO8601 时间；不得猜测时区敏感数据。必须来自用户明确时间或上下文已确认时间；相对时间需要结合当前日期后再规范化。无法确定时不要猜测。"
+          }
+        },
+        "end_time": {
+          "required": false,
+          "desc": "用户明确给出的结束时间，必须规范化为 ISO8601 UTC 格式；未知时可省略。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "使用用户提供或确认的 ISO8601 时间，允许为空以表示未指定结束时间。只有用户给出结束时间、持续时长或上下文可确定时填写；否则省略。"
+          }
+        },
+        "attendee": {
+          "required": false,
+          "desc": "用户明确指定或上下文中已确认的参会者。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "必须来自用户提供的联系人或明确的组织列表；不得编造未知收件人。仅使用用户明确提供或上下文中已确认的联系人；不得编造邮箱、手机号、飞书 ID 或组织成员。"
+          }
+        }
+      },
+      "desc": "通过通用日历 API 管理日程；适合非飞书日历或抽象日历服务。"
+    }
+  },
+  "prompt_guidance": "仅当用户要求创建、查询、更新日程或参会人时使用；时间和参与者不明确时避免生成执行性权限。"
+}

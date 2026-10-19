@@ -31,6 +31,7 @@
               <t-tag size="small" variant="outline">{{ r.round_id }}</t-tag>
               <t-tag v-if="r.session_id" size="small" variant="outline" theme="primary" :title="r.session_id">会话 {{ shortSid(r.session_id) }}</t-tag>
               <span class="meta-time">{{ fmtTime(r.time_start) }} → {{ fmtTime(r.time_end) }}</span>
+              <span v-if="r.role_name" class="meta-role" :title="`角色 ${r.role_name}`">{{ r.role_name }}</span>
             </div>
           </div>
         </div>
@@ -487,6 +488,7 @@ function openResourceFactsDialog(content) {
 .query-text { font-size: 14px; font-weight: 500; color: #333; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-meta { display: flex; align-items: center; gap: 8px; }
 .meta-time { font-size: 12px; color: #999; }
+.meta-role { font-size: 10px; color: #bbb; padding-left: 6px; border-left: 1px solid #eee; letter-spacing: .2px; user-select: none; }
 .card-expand { padding: 16px 20px 20px; background: #fafbfc; border-top: 1px solid #f0f0f0; }
 .group-box { border-radius: 12px; padding: 0; margin-bottom: 14px; overflow: hidden; border: none; }
 .group-box.access-group { background: linear-gradient(135deg, #f0f5ff 0%, #fff 100%); box-shadow: 0 2px 8px rgba(0,82,217,0.06); }

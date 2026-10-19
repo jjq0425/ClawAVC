@@ -37,6 +37,14 @@ CFG_PREFIX = "ai_writer."
 ROLE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 RESERVED_ROLES = {"default", "ops"}
 
+
+class AiWriterError(ValueError):
+    """AI 帮写参数/流程类错误：接口层据此返回 400 + 可读提示，而不是 500。
+
+    继承 ValueError，保持既有 except ValueError 逻辑兼容。
+    """
+
+
 CFG_KEYS = ["api_base_url", "model", "temperature", "timeout", "json_mode"]
 CFG_DEFAULTS = {
     "api_base_url": "https://api.longcat.chat/openai",
@@ -216,9 +224,9 @@ def _skill_validate():
 # ───────────────────────────── 路径与快照 ─────────────────────────────
 def _check_role(role: str) -> None:
     if not ROLE_RE.match(role or ""):
-        raise ValueError("角色名只能包含字母、数字、下划线和中划线（1-64 字符）")
+        raise AiWriterError("角色名只能包含字母、数字、下划线和中划线（1-64 字符）")
     if role in RESERVED_ROLES:
-        raise ValueError(f"保留名不可作为产物角色：{role}")
+        raise AiWriterError(f"保留名不可作为产物角色：{role}")
 
 
 def registry_dir(role: str) -> Path:
@@ -326,6 +334,20 @@ def merge_patch(spec: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
                     dst[k] = list(dict.fromkeys(list(dst[k]) + list(v)))
                 else:
                     dst[k] = v
+    # 场景级动作白名单（两级结构）：{"<scene>": {"file": [...], "network": [...]}}
+    acts = patch.get("actions")
+    if isinstance(acts, dict) and acts:
+        dst = spec.setdefault("actions", {})
+        for scene, node in acts.items():
+            if not isinstance(node, dict):
+                continue
+            dnode = dst.setdefault(scene, {})
+            for k, v in node.items():
+                if isinstance(v, list):
+                    base_vals = list(dnode.get(k) or [])
+                    dnode[k] = list(dict.fromkeys(base_vals + list(v))) if base_vals else list(v)
+                else:
+                    dnode[k] = v
     if "no_git" in patch:
         spec["no_git"] = bool(patch["no_git"])
     return spec
@@ -395,6 +417,8 @@ def apply_spec(role: str, spec: Dict[str, Any], reset: bool = True) -> Dict[str,
     m.apply_files_spec(tools_dir, spec.get("files") or {}, log)
     m.apply_network_spec(tools_dir, scenes, spec.get("network") or {}, log)
     m.apply_bash_spec(tools_dir, spec.get("bash") or {}, log)
+    # 场景级动作白名单（文件 / 网络访问动作；缺省 = 不限制）
+    m.apply_actions_spec(tools_dir, spec.get("actions") or {}, log)
     if spec.get("no_git"):
         m.apply_scenes_spec(scenes, tools_dir, {"functions_remove": m.GIT_FUNCTIONS}, log)
         m.apply_bash_spec(tools_dir, {"denied_commands": [
@@ -701,6 +725,7 @@ def build_spec(role: str) -> Dict[str, Any]:
             "title": base_spec.get("title", role),
             "instruction": base_spec.get("instruction", ""),
             "files": {}, "network": {}, "bash": {}, "scenes": dict(base_spec.get("scenes") or {}),
+            "actions": dict(base_spec.get("actions") or {}),
             "no_git": bool(base_spec.get("no_git"))}
     for scene in sorted(load_patches(role).keys()):
         merge_patch(spec, load_patches(role)[scene])

@@ -26,6 +26,13 @@ import requests as http_requests
 
 sys.path.insert(0, str(Path(__file__).parent))
 import db
+from utils import (
+    _simplify_ir_json,
+    _simplify_action_json,
+    _simplify_resource_facts,
+    _simplify_syscall_judge,
+    _simplify_kernel_judge_from_path,
+)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "clawAVC-secret-2026"
@@ -346,6 +353,12 @@ def report_round():
         pid_info = data.get("pid_info") or ""
         # history: 对话历史，包含之前的 user/assistant/tool 消息
         history = data.get("history") or ""
+        # role_name: 本轮生效的角色（策略库）名，round 开始时固化，便于按角色筛选/追溯
+        try:
+            from auditor.translator.policy_manager import get_current_policy
+            role_name = get_current_policy() or ""
+        except Exception:
+            role_name = ""
         row_id = db.insert_round_start(
             round_id=round_id,
             time_start=data.get("time_start", ""),
@@ -354,6 +367,7 @@ def report_round():
             attack_config=attack_config,
             pid_info=pid_info,
             history=history,
+            role_name=role_name,
         )
         if row_id:
             record = db.get_round_by_id(round_id)
@@ -1242,6 +1256,22 @@ def _aiw():
     return ai_writer
 
 
+# AI 帮写的参数/流程类错误（如角色名含中文）统一返回 400 + 可读提示，
+# 而不是 Flask 默认的 500 Internal Server Error。
+def _register_aiw_error_handler():
+    try:
+        from auditor.translator.ai_writer import AiWriterError
+    except Exception:  # noqa: BLE001
+        return
+
+    @app.errorhandler(AiWriterError)
+    def _handle_aiw_error(e):  # noqa: ANN001
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+_register_aiw_error_handler()
+
+
 def _aiw_admin():
     """写操作统一特权校验（与 /api/translator/config PUT 一致）。"""
     token = request.headers.get("X-Admin-Session", "")
@@ -1724,7 +1754,9 @@ def handle_monitor_disconnect():
 MONITOR_CONF_KEYS = ["gateway_log_path", "openclaw_root", "use_gateway", "tool_trace_enabled",
                       "anomaly_llm_url_v2", "anomaly_llm_base_prompt", "anomaly_llm_system_prompt",
                       "anomaly_llm_max_tokens", "anomaly_llm_skill_prompt",
-                      "anomaly_llm_tool_compress", "anomaly_llm_tool_compress_max"]
+                      "anomaly_llm_tool_compress", "anomaly_llm_tool_compress_max",
+                      # 「模型接入」新增：模型名 / API Key（均可留空）
+                      "anomaly_llm_model", "anomaly_llm_api_key"]
 # 二阶段异常分析基础 prompt 默认值（可在「异常判断大模型（二阶段）设置」中覆盖）
 ANOMALY_LLM_DEFAULT_BASE_PROMPT = (
     "请基于以下 Round 的完整多维行为轨迹审计数据（覆盖用户意图、IR 权限声明、用户态与内核态行为、"
@@ -1737,8 +1769,14 @@ def get_monitor_config():
     data = {}
     path_status = {}
     for key in MONITOR_CONF_KEYS:
-        val = db.get_config(f"monitor_conf.{key}")
-        data[key] = val or ""
+        val = db.get_config(f"monitor_conf.{key}") or ""
+        if key == "anomaly_llm_api_key":
+            # API Key 不回显明文，仅返回掩码与是否已配置
+            data[key] = ""
+            data["has_anomaly_llm_api_key"] = bool(val)
+            data["anomaly_llm_api_key_masked"] = (val[:4] + "****" + val[-4:]) if len(val) > 8 else ("****" if val else "")
+            continue
+        data[key] = val
     # Check path validity
     for pk in ["gateway_log_path", "openclaw_root"]:
         p = data[pk]
@@ -1754,6 +1792,9 @@ def put_monitor_config():
     value = body.get("value", "")
     if key not in MONITOR_CONF_KEYS:
         return jsonify({"ok": False, "error": f"无效的配置项: {key}"}), 400
+    # API Key 留空提交 = 不修改（避免误清空已配置的值）
+    if key == "anomaly_llm_api_key" and not str(value).strip():
+        return jsonify({"ok": True, "data": {"skipped": True, "reason": "留空不修改"}})
     db.set_config(f"monitor_conf.{key}", value)
     result = {"ok": True}
     # Check path validity for path fields
@@ -1828,8 +1869,11 @@ def request_anomaly_llm_url_v2(round_id: str) -> Dict[str, Any]:
     )
 
     # 4. 组装 OpenAI chat/completions 风格请求体并发起请求
+    #    模型名/API Key 取「模型接入」配置：模型名留空回退默认，API Key 留空则不带 Authorization
+    _model = (db.get_config("monitor_conf.anomaly_llm_model") or "").strip() or "clawavc-anomaly-v2"
+    _api_key = (db.get_config("monitor_conf.anomaly_llm_api_key") or "").strip()
     payload = {
-        "model": "clawavc-anomaly-v2",
+        "model": _model,
         "temperature": 0,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -1837,6 +1881,8 @@ def request_anomaly_llm_url_v2(round_id: str) -> Dict[str, Any]:
         ],
     }
     headers = {"Content-Type": "application/json"}
+    if _api_key:
+        headers["Authorization"] = f"Bearer {_api_key}"
 
     try:
         resp = http_requests.post(url, headers=headers, json=payload, timeout=60)
@@ -1905,18 +1951,26 @@ def monitor_anomaly_llm_chat():
         "stream": True,
         "max_tokens": max_tokens,
     }
+    # 模型名/API Key 取「模型接入」配置：模型名留空则不传，API Key 留空则不带 Authorization
+    _model = (db.get_config("monitor_conf.anomaly_llm_model") or "").strip()
+    _api_key = (db.get_config("monitor_conf.anomaly_llm_api_key") or "").strip()
+    if _model:
+        payload["model"] = _model
     headers = {"Content-Type": "application/json"}
+    if _api_key:
+        headers["Authorization"] = f"Bearer {_api_key}"
 
     def generate():
         try:
             resp = http_requests.post(url, headers=headers, json=payload, stream=True, timeout=180)
             if resp.status_code >= 400:
-                yield f"[请求异常] HTTP {resp.status_code}: {resp.text[:500]}"
+                # 显式按 UTF-8 解码，避免服务端未声明 charset 时 requests 回退 ISO-8859-1 造成中文乱码
+                yield f"[请求异常] HTTP {resp.status_code}: {resp.content.decode('utf-8', 'replace')[:500]}"
                 return
-            for raw in resp.iter_lines(decode_unicode=True):
+            for raw in resp.iter_lines(decode_unicode=False):
                 if not raw:
                     continue
-                line = raw.strip()
+                line = raw.decode("utf-8", "replace").strip()
                 if not line.startswith("data:"):
                     continue
                 data_str = line[len("data:"):].strip()
@@ -2020,6 +2074,21 @@ def monitor_anomaly_chats_create():
 
 
 @api_doc(
+    summary="获取单个小异对话会话",
+    category="运行监控",
+    description="按 session_id 返回某个「小异」对话会话的标题与消息历史",
+    public=True,
+)
+@app.route("/api/monitor/anomaly-chats/<session_id>", methods=["GET"])
+def monitor_anomaly_chats_get(session_id: str):
+    """获取单个对话会话。"""
+    chat = db.get_anomaly_chat(session_id)
+    if not chat:
+        return jsonify({"ok": False, "error": "会话不存在"}), 404
+    return jsonify({"ok": True, "data": chat})
+
+
+@api_doc(
     summary="保存小异对话会话",
     category="运行监控",
     description="写入/更新某个「小异」对话会话的标题与消息历史",
@@ -2062,261 +2131,6 @@ _XY_SYSTEM_PROMPT = (
     "数据外泄、后门注入、隐蔽提权等异常行为，并给出风险等级（low/medium/high）与简要理由。"
     "回答请简洁、专业，必要时使用结构化或 Markdown 格式。"
 )
-
-
-def _try_json(raw):
-    """尝试解析 JSON；已是 dict/list 直接返回，否则按字符串解析。返回 (obj, ok)。"""
-    if isinstance(raw, (dict, list)):
-        return raw, True
-    if not isinstance(raw, str) or not raw.strip():
-        return None, False
-    try:
-        return json.loads(raw), True
-    except Exception:
-        return None, False
-
-
-def _raw_or_json(raw):
-    """解析失败时回退为原样字符串（灾备）。"""
-    obj, ok = _try_json(raw)
-    if ok:
-        return obj
-    return raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
-
-
-def _read_file_text(path):
-    """安全读取文件文本，失败返回 None。"""
-    try:
-        p = Path(path)
-        if not p.exists() or not p.is_file():
-            return None
-        with open(p, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception:
-        return None
-
-
-def _simplify_ir_json(raw):
-    """精简 IR 权限声明：保留 主体/客体(类型+标识+动作+参数)。解析失败原样返回。"""
-    obj, ok = _try_json(raw)
-    if not ok or not isinstance(obj, dict):
-        return raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
-    try:
-        level2 = obj.get("level2") or obj
-        policies = level2.get("policies") if isinstance(level2, dict) else None
-        if not policies:
-            return json.dumps(obj, ensure_ascii=False)
-        lines = []
-        for p in policies:
-            subject = p.get("subject", "（未知主体）")
-            effect = p.get("effect", "")
-            objs = p.get("objects", []) or []
-            items = []
-            for o in objs:
-                typ = o.get("type", "")
-                ident = o.get("identifier", "")
-                acts = ",".join(o.get("actions", []) or [])
-                params = ",".join(
-                    f"{pp.get('name')}={pp.get('identifier')}"
-                    for pp in (o.get("params") or [])
-                    if isinstance(pp, dict)
-                )
-                parts = [typ, ident, f"actions=[{acts}]"]
-                if params:
-                    parts.append(f"params=[{params}]")
-                items.append(" / ".join(parts))
-            lines.append(f"- 主体 {subject}（effect={effect}）: " + ("; ".join(items) if items else "（无对象）"))
-        return "\n".join(lines)
-    except Exception:
-        return raw if isinstance(raw, str) else json.dumps(obj, ensure_ascii=False)
-
-
-def _simplify_action_json(raw):
-    """精简用户态工具调用：保留 工具名/参数/资源。解析失败原样返回。"""
-    obj, ok = _try_json(raw)
-    if not ok:
-        return raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
-    if isinstance(obj, dict):
-        obj = obj.get("actions") or obj.get("tool_calls") or [obj]
-    if not isinstance(obj, list):
-        obj = [obj]
-    try:
-        lines = []
-        for act in obj:
-            if not isinstance(act, dict):
-                continue
-            tool = act.get("tool") or act.get("tool_name") or "（未知工具）"
-            args = act.get("arguments") or act.get("args") or {}
-            arg_str = ", ".join(f"{k}={v}" for k, v in args.items()) if isinstance(args, dict) else str(args)
-            res = act.get("resources") or []
-            res_str = ""
-            if res:
-                res_items = []
-                for r in res:
-                    if isinstance(r, dict):
-                        res_items.append(f"{r.get('type', '')}:{r.get('path', r.get('identifier', ''))}({r.get('access', '')})")
-                    else:
-                        res_items.append(str(r))
-                res_str = " | 资源: " + ", ".join(res_items)
-            lines.append(f"- 工具 {tool}；参数: {arg_str}{res_str}")
-        return "\n".join(lines) if lines else "（无行为记录）"
-    except Exception:
-        return raw if isinstance(raw, str) else json.dumps(obj, ensure_ascii=False)
-
-
-def _simplify_resource_facts(raw):
-    """精简内核态资源事实：保留 文件访问(路径/动作/读取字节) 与 网络访问(目标/动作)。"""
-    obj, ok = _try_json(raw)
-    if not ok or not isinstance(obj, dict):
-        return raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
-    try:
-        tool_calls = obj.get("tool_calls") or []
-        lines = []
-        for tc in tool_calls:
-            if not isinstance(tc, dict):
-                continue
-            facts = tc.get("resource_facts") or []
-            for f in facts:
-                if not isinstance(f, dict):
-                    continue
-                typ = f.get("type", "")
-                if typ == "file_access":
-                    path = f.get("path", "")
-                    actions = ",".join(f.get("actions", []) or [])
-                    ro = f.get("read_returned_bytes")
-                    line = f"  文件 {path} 动作=[{actions}]"
-                    if ro:
-                        line += f" 读取字节={ro}"
-                    lines.append(line)
-                elif typ == "network_access":
-                    target = f.get("network_target") or f.get("remote_ip", "")
-                    actions = ",".join(f.get("actions", []) or [])
-                    lines.append(f"  网络 {target} 动作=[{actions}] connect={f.get('connect_count', '')}")
-                else:
-                    lines.append(f"  {typ}: {json.dumps(f, ensure_ascii=False)}")
-        if not lines:
-            return json.dumps(obj, ensure_ascii=False)
-        header = f"工具调用数: {obj.get('tool_call_count', '')}"
-        return header + "\n" + "\n".join(lines)
-    except Exception:
-        return raw if isinstance(raw, str) else json.dumps(obj, ensure_ascii=False)
-
-
-def _simplify_judge(obj):
-    """通用精简：内核态 LSM Hook 判断 / 系统调用分析结果。保留 verdict/risk/summary/
-    tool_analysis/syscall_analysis/alerts，并兜底保留其它顶层字段。失败返回 None。"""
-    if not isinstance(obj, dict):
-        return None
-    try:
-        out = {}
-        out["round_id"] = obj.get("round_id", "")
-        det = obj.get("detector")
-        out["detector"] = det.get("name", "") if isinstance(det, dict) else det
-        out["verdict"] = obj.get("verdict", "")
-        out["risk_score"] = obj.get("risk_score", "")
-        out["summary"] = obj.get("summary", "")
-        ta = obj.get("tool_analysis") or {}
-        if isinstance(ta, dict):
-            out["tool_analysis"] = {
-                "expected_tool": ta.get("expected_tool"),
-                "actual_tool": ta.get("actual_tool"),
-                "authorized": ta.get("authorized"),
-                "arguments": ta.get("arguments"),
-            }
-        sa = obj.get("syscall_analysis") or {}
-        if isinstance(sa, dict):
-            out["syscall_analysis"] = {
-                k: sa.get(k)
-                for k in ("processed_event_count", "tool_call_count", "unattributed_event_count",
-                          "tool_alert_count", "syscall_alert_count", "alert_count")
-                if k in sa
-            }
-        alerts = obj.get("alerts") or []
-        if isinstance(alerts, list):
-            # 去重聚合：相同 类型/规则/级别/信息/资源 的告警合并，只记录命中次数与 pid 列表
-            grouped = {}
-            order = []
-            for a in alerts:
-                if not isinstance(a, dict):
-                    continue
-                res = a.get("resource")
-                if isinstance(res, dict):
-                    res = res.get("path") or res.get("type")
-                key = (a.get("alert_type"), a.get("rule_id"), a.get("severity"),
-                       a.get("message"), res)
-                if key not in grouped:
-                    grouped[key] = {
-                        "alert_type": a.get("alert_type"),
-                        "rule_id": a.get("rule_id"),
-                        "severity": a.get("severity"),
-                        "message": a.get("message"),
-                        "resource": res,
-                        "count": 0,
-                        "pids": [],
-                    }
-                    order.append(key)
-                g = grouped[key]
-                g["count"] += 1
-                pid = a.get("pid")
-                if pid is not None and pid not in g["pids"]:
-                    g["pids"].append(pid)
-            simple_alerts = []
-            for key in order:
-                g = grouped[key]
-                # count==1 时省略聚合字段，保持简洁
-                if g["count"] == 1:
-                    g.pop("count", None)
-                    g["pid"] = g.pop("pids")[0] if g["pids"] else None
-                    if g.get("pid") is None:
-                        g.pop("pid", None)
-                    else:
-                        g.pop("pids", None)
-                simple_alerts.append({k: v for k, v in g.items() if v not in (None, [], "")})
-            if simple_alerts:
-                out["alerts"] = simple_alerts
-        # 兜底：保留未显式处理的顶层字段，但跳过已知冗余字段与空值，避免臃肿
-        handled = {"round_id", "detector", "verdict", "risk_score", "summary",
-                   "tool_analysis", "syscall_analysis", "alerts"}
-        # tool_analyses 与 tool_analysis 重复；error/None 等空值无信息量
-        redundant = {"tool_analyses"}
-        for k, v in obj.items():
-            if k in handled or k in redundant:
-                continue
-            if v in (None, "", [], {}):
-                continue
-            out[k] = v
-        return json.dumps(out, ensure_ascii=False, indent=2)
-    except Exception:
-        return None
-
-
-def _simplify_syscall_judge(raw):
-    """精简 syscall_judge（JSON 内容）。解析失败原样返回。"""
-    obj, ok = _try_json(raw)
-    if not ok:
-        return raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
-    simplified = _simplify_judge(obj)
-    return simplified if simplified else (raw if isinstance(raw, str) else json.dumps(obj, ensure_ascii=False))
-
-
-def _simplify_kernel_judge_from_path(path):
-    """读取 judge_result_kernel（markdown 文件路径）内容并精简；
-    解析失败时按顺序回退：尝试提取 ```json 代码块 → 原样文件内容 → 仅返回路径。"""
-    if not path or not str(path).strip():
-        return ""
-    text = _read_file_text(path)
-    if text is None:
-        return f"（无法读取 LSM Hook 结果文件：{path}）"
-    obj, ok = _try_json(text)
-    if not ok:
-        m = re.search(r"```json\s*(.*?)```", text, re.DOTALL)
-        if m:
-            obj, ok = _try_json(m.group(1))
-    if ok:
-        simplified = _simplify_judge(obj)
-        return simplified if simplified else text
-    # 灾备：原样返回文件内容
-    return text
 
 
 def _build_round_chat_seed(round_row: Dict[str, Any]) -> list:
@@ -2420,6 +2234,75 @@ def monitor_anomaly_round_seed():
         return jsonify({"ok": False, "error": "未找到该 round"}), 404
     seed = _build_round_chat_seed(r)
     return jsonify({"ok": True, "data": {"seed": seed, "round_id": round_id}})
+
+
+@api_doc(
+    summary="读取本机 SELinux 策略",
+    category="运行监控",
+    description="限界读取分析机本机的已编译策略或 .te 源目录（seinfo / sesearch / semanage，全程只读）。需在 Linux 环境运行，工具缺失时返回结构化降级结果。",
+    public=True,
+)
+@app.route("/api/monitor/local-selinux-policy", methods=["POST"])
+def monitor_local_selinux_policy():
+    """读取本机 SELinux 策略。
+
+    Request: { "mode": "loaded"|"source", "source_dir": "mode=source 时必填",
+               "policy_path": "默认 /sys/fs/selinux/policy",
+               "focus": "all"|"types"|"booleans"|"rules"|"file_contexts" }
+    """
+    body = request.get_json(force=True, silent=True) or {}
+    mode = (body.get("mode") or "loaded").strip().lower()
+    source_dir = (body.get("source_dir") or "").strip()
+    policy_path = (body.get("policy_path") or "").strip() or "/sys/fs/selinux/policy"
+    focus = (body.get("focus") or "all").strip().lower()
+
+    try:
+        import selinux_local_policy as lpol
+    except ImportError as exc:
+        return jsonify({"ok": False, "error": f"本地策略模块导入失败: {exc}"}), 500
+
+    if mode == "source":
+        if not source_dir:
+            return jsonify({"ok": False, "error": "mode=source 时必须提供 source_dir"}), 400
+        result = lpol.read_policy_source(source_dir, focus=focus)
+    else:
+        result = lpol.read_loaded_policy(policy_path, focus=focus)
+    return jsonify({"ok": True, "data": result})
+
+
+@api_doc(
+    summary="列出 SELinux 策略建议",
+    category="运行监控",
+    description="返回策略建议存档摘要（含被 policy_gate 拒绝的提案），可按 round_id 过滤。",
+    public=True,
+)
+@app.route("/api/monitor/policy-proposals", methods=["GET"])
+def monitor_policy_proposals():
+    """列出策略建议摘要（不含 .te 正文与完整校验明细）。
+
+    Query: round_id（可选）、limit（默认 50，上限 200）
+    """
+    round_id = (request.args.get("round_id") or "").strip()
+    limit = request.args.get("limit") or 50
+    return jsonify({
+        "ok": True,
+        "data": db.list_policy_proposals(round_id or None, limit=limit),
+    })
+
+
+@api_doc(
+    summary="获取单条策略建议详情",
+    category="运行监控",
+    description="按 proposal_id 返回策略建议的完整内容，含 .te 正文与 policy_gate 校验明细。",
+    public=True,
+)
+@app.route("/api/monitor/policy-proposals/<proposal_id>", methods=["GET"])
+def monitor_policy_proposal_detail(proposal_id: str):
+    """取单条策略建议的完整内容（.te 正文 + 校验明细）。"""
+    row = db.get_policy_proposal((proposal_id or "").strip())
+    if not row:
+        return jsonify({"ok": False, "error": f"未找到 proposal_id={proposal_id}"}), 404
+    return jsonify({"ok": True, "data": row})
 
 
 # ─── Monitor Control API ──────────────────────────────

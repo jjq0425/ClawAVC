@@ -1881,23 +1881,37 @@ class MonitorOrchestrator:
             except Exception as e:
                 print(f"[monitor] Failed to update IR for {round_id}: {e}", flush=True)
         
-        # 延迟 1.5 秒后调用 judge，等待 round_end 提取 actions 完成
-        # Judge 结果只更新数据库，不广播
+        # 等待 actions 与 IR 就绪后调用 judge（事件驱动轮询，替代原固定 1.5s 延迟）
+        # 原实现：sleep(1.5) 后只检查一次，若 round_end 提取 actions 晚于该时刻，
+        #        会以 "No actions for <round>, skipping judge" 跳过，造成系统性丢判。
+        # 现实现：在超时窗口内轮询，二者均就绪即判定；超时仍缺则沿用原跳过逻辑。
+        # 可用环境变量 JUDGE_WAIT_TIMEOUT 调整等待上限（默认 15 秒）。
         def delayed_judge_worker():
             try:
-                # 等待 1.5 秒，让 round_end 有时间提取 actions
-                time.sleep(1.5)
-                
-                # 检查是否已被 delayed_judge(end) 先执行
-                if self._round_judge_done.get(round_id):
-                    print(f"[monitor] Judge already done by delayed_judge(end) for {round_id}, skipping", flush=True)
-                    return
-                
-                # 获取最新的 actions 和 ir_data
-                current_actions = self._round_actions.get(round_id, [])
-                current_ir_data = self._round_ir_results.get(round_id, {})
-                
-                print(f"[monitor] Delayed judge (worker) check for {round_id}: actions_count={len(current_actions)} ir_data_count={len(current_ir_data)}", flush=True)
+                _timeout = float(os.environ.get("JUDGE_WAIT_TIMEOUT", "15"))
+                _deadline = time.time() + _timeout
+                _waited = 0.0
+                current_actions = []
+                current_ir_data = {}
+                while True:
+                    # 检查是否已被 delayed_judge(end) 先执行
+                    if self._round_judge_done.get(round_id):
+                        print(f"[monitor] Judge already done by delayed_judge(end) for {round_id}, skipping", flush=True)
+                        return
+
+                    # 获取最新的 actions 和 ir_data
+                    current_actions = self._round_actions.get(round_id, [])
+                    current_ir_data = self._round_ir_results.get(round_id, {})
+                    if current_actions and current_ir_data:
+                        break
+                    if time.time() >= _deadline:
+                        break
+                    time.sleep(0.5)
+                    _waited += 0.5
+
+                print(f"[monitor] Delayed judge (worker) check for {round_id}: "
+                      f"actions_count={len(current_actions)} ir_data_count={len(current_ir_data)} "
+                      f"waited={_waited:.1f}s", flush=True)
                 
                 if current_actions and current_ir_data:
                     try:

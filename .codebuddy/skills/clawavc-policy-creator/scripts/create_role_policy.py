@@ -386,6 +386,78 @@ def apply_scenes_spec(scenes: Dict[str, Any], tools_dir: Path, sspec: Dict[str, 
         log.append(f"scenes.json + tools/*.json :: 移除函数 {removed}")
 
 
+# ─── 适配：场景级动作白名单（文件 / 网络访问动作） ──────────────────
+
+
+def apply_actions_spec(tools_dir: Path, spec: Dict[str, Any], log: List[str]) -> None:
+    """写入「文件 / 网络访问动作」白名单（`tools/<scene>.json` 顶层字段）。
+
+    支持两种 spec 形态；按场景的写法优先于全局写法：
+
+    ① 全局（作用于所有场景）::
+
+        "files":   {"allowed_file_actions": ["read"]}
+        "network": {"allowed_network_actions": ["send", "receive"]}
+
+    ② 按场景（只作用于指定场景，覆盖 ①）::
+
+        "actions": {
+          "file_ops": {"file": ["read"], "network": []},
+          "search":   {"network": ["send", "receive"]}
+        }
+
+    约定（与 LEVEL2_SYS 硬约束一致）：
+      * 非空数组 → 写入产物顶层，作为 IR 动作白名单（IR 的 file/network actions 只能取其子集）；
+      * 空数组   → 写入空数组（显式表示"不限制"，与缺省等价）；
+      * 缺省     → 不写该键（同样表示"不限制"，即都放行）。
+    """
+    files = spec.get("files") if isinstance(spec.get("files"), dict) else {}
+    net = spec.get("network") if isinstance(spec.get("network"), dict) else {}
+    actions_spec = spec.get("actions") if isinstance(spec.get("actions"), dict) else {}
+
+    g_file = list(files["allowed_file_actions"]) if isinstance(files.get("allowed_file_actions"), list) else None
+    g_net = list(net["allowed_network_actions"]) if isinstance(net.get("allowed_network_actions"), list) else None
+    if g_file is None and g_net is None and not actions_spec:
+        return
+
+    # 逐场景汇总：先铺全局，再被 actions.<scene> 覆盖
+    per_scene: Dict[str, Dict[str, Any]] = {}
+    for tf in sorted(tools_dir.glob("*.json")):
+        val: Dict[str, Any] = {}
+        if g_file is not None:
+            val["allowed_file_actions"] = list(g_file)
+        if g_net is not None:
+            val["allowed_network_actions"] = list(g_net)
+        if val:
+            per_scene[tf.stem] = val
+    for scene, node in actions_spec.items():
+        node = node or {}
+        tgt = per_scene.setdefault(scene, {})
+        if "file" in node:
+            tgt["allowed_file_actions"] = list(node.get("file") or [])
+        if "network" in node:
+            tgt["allowed_network_actions"] = list(node.get("network") or [])
+        per_scene[scene] = tgt
+
+    for scene in sorted(per_scene):
+        val = per_scene[scene]
+        tf = tools_dir / f"{scene}.json"
+        if not tf.is_file():
+            log.append(f"actions :: 跳过 {scene}（tools/{scene}.json 不存在）")
+            continue
+        obj = load_json(tf)
+        obj.update(val)
+        ordered: Dict[str, Any] = {}
+        for k in ("scene", "allowed_file_actions", "allowed_network_actions"):
+            if k in obj:
+                ordered[k] = obj[k]
+        for k, v in obj.items():
+            if k not in ordered:
+                ordered[k] = v
+        save_json(tf, ordered)
+        log.append(f"tools/{scene}.json :: " + "；".join(f"{k}={v}" for k, v in val.items()))
+
+
 # ─── 主流程 ────────────────────────────────────────────────────────
 
 
@@ -498,6 +570,9 @@ def main() -> int:
 
     # ⑤ Bash 场景（显式 spec 优先于网络联动生成的内容）
     apply_bash_spec(tools_dir, spec.get("bash") or {}, log)
+
+    # ⑤.5 场景级动作白名单（文件 / 网络动作；两种 spec 形态，缺省＝不限制）
+    apply_actions_spec(tools_dir, spec, log)
 
     # ⑥ 特殊语义：禁用 git（惯例打包：git 函数 + git 命令族）
     if spec.get("no_git"):

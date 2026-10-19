@@ -326,12 +326,18 @@ LEVEL2_SYS = """你是一个「OpenClaw function-level 权限 IR 生成器」。
 - 对于 type="file" 的对象：
   - `identifier` 为文件路径（来自用户 query 或工具参数中的路径）。
   - `actions` 为允许的文件操作列表，为允许的文件操作列表，为一个数组，元素为字符串，仅可在"read"、"write"、"delete"、"create"选择
+  - **场景级白名单（硬约束）**：若所在 scene 的 function 定义 JSON 顶层含 `allowed_file_actions`
+    且为**非空数组**，则 `actions` 必须是该数组的**子集**（只能从中选择，不得超出）；
+    若该字段**缺省、为 null 或空数组**，则表示该场景**不限制**文件动作，按上一行候选正常输出。
 - 对于 type="network" 的对象：
   - `identifier` 为网络地址（如 "http://example.com/api"、"https://*.example.com/*"），可使用通配符/正则匹配域名或路径。
   - `actions` 为允许的网络操作列表，只能从以下选项中选择（可多选）：
     - `send`：发送数据到该地址
     - `receive`：从该地址接收数据
   - 示例：`"actions": ["send"]` 或 `"actions": ["send", "receive"]`。
+  - **场景级白名单（硬约束）**：若所在 scene 的 function 定义 JSON 顶层含 `allowed_network_actions`
+    且为**非空数组**，则 `actions` 必须是该数组的**子集**；
+    若该字段**缺省、为 null 或空数组**，则表示该场景**不限制**网络动作。
 - 不得输出任何额外解释、注释或 Markdown。
 
 关键规则：
@@ -343,6 +349,10 @@ LEVEL2_SYS = """你是一个「OpenClaw function-level 权限 IR 生成器」。
 6. 必须遵守 function 的 desc、constraint_spec.dynamic_ai_hint、static.allowlist/denylist 等约束。
 7. 对于 allowed_values 非空的参数，值必须从中选择。
 8. 对于高风险能力（shell、privilege 等），优先生成只读/查询权限。
+9. 场景级白名单优先于用户意图：若 scene 顶层声明了非空的 `allowed_file_actions` / `allowed_network_actions`，
+   则对应 file / network 对象的 `actions` **不得超出该集合**。用户 query 要求但被该集合禁止的动作
+   （例如只读场景要求"创建文件"）**一律不得输出**——宁可省略该对象，也不要输出被禁止的动作。
+   IR 表达的是"策略允许做什么"，不是"用户想做什么"。
 9. 如果同一 scene 中多个 function 都能完成任务，必须全部列出——无法预知 Agent 选哪个。
 10. 任何 required=true 的参数无法安全确定时，不生成该 function 对象。
 11. 除非用户明确访问（如读取xxx文件），否则尽可能不输出密钥、隐私数据、敏感目录路径。
@@ -695,7 +705,82 @@ def level2_generate(query: str, scenes: List[str], config: Optional[Dict[str, An
                                    "raw_response": raw2}
             if _has_policies(ir2):
                 ir = ir2
+    # 代码层硬保障：按场景级动作白名单裁剪 IR（提示词之外的兜底，避免 LLM 偶发违规）
+    meta["action_limits"] = _action_limits(scenes)
+    trimmed = _enforce_action_whitelist(ir, scenes)
+    if trimmed:
+        meta["action_whitelist_trimmed"] = trimmed
     return ir, meta
+
+
+def _action_limits(scenes: List[str], as_set: bool = False) -> Dict[str, Dict[str, Any]]:
+    """读取各场景的动作白名单（`allowed_file_actions` / `allowed_network_actions`）。
+
+    as_set=True 时返回集合（供裁剪比较），否则返回排序后的列表（供 meta 记录/排查）。
+    字段缺省 / null / 空数组均视为「不限制」，值为 None。
+    """
+    limits: Dict[str, Dict[str, Any]] = {}
+    for s in scenes or []:
+        node = TOOL_REGISTRY.get(s) or {}
+        fa, na = node.get("allowed_file_actions"), node.get("allowed_network_actions")
+        f_ok = isinstance(fa, list) and bool(fa)
+        n_ok = isinstance(na, list) and bool(na)
+        if as_set:
+            limits[s] = {"file": set(fa) if f_ok else None, "network": set(na) if n_ok else None}
+        else:
+            limits[s] = {"file": sorted(fa) if f_ok else None, "network": sorted(na) if n_ok else None}
+    return limits
+
+
+def _enforce_action_whitelist(ir: Dict[str, Any], scenes: List[str]) -> List[str]:
+    """按场景级动作白名单裁剪 IR（`LEVEL2_SYS` 之外的代码层硬约束）。
+
+    `tools/<scene>.json` 顶层的 `allowed_file_actions` / `allowed_network_actions`
+    为**非空数组**时，IR 中该场景 `file` / `network` 对象的 `actions` 只能取其子集：
+    超出的动作被裁掉；`actions` 被裁空的整个对象被丢弃；`objects` 被裁空的 policy 也被丢弃。
+    字段缺省 / null / 空数组＝不限制（保持原样）。返回被裁剪项的说明列表（供 meta 记录）。
+    """
+    limits = _action_limits(scenes, as_set=True)
+    if not any(v["file"] or v["network"] for v in limits.values()):
+        return []
+
+    notes: List[str] = []
+    kept_policies: List[Any] = []
+    for pol in ir.get("policies") or []:
+        if not isinstance(pol, dict):
+            continue
+        lim = limits.get(pol.get("subject")) or {}
+        src_objs = pol.get("objects") or []
+        kept_objs: List[Any] = []
+        for o in src_objs:
+            if not isinstance(o, dict):
+                continue
+            allowed = lim.get(o.get("type"))
+            acts = o.get("actions")
+            if allowed is None or not isinstance(acts, list):
+                kept_objs.append(o)
+                continue
+            keep = [a for a in acts if a in allowed]
+            dropped = [a for a in acts if a not in allowed]
+            if dropped:
+                notes.append("%s: %s %s 裁剪 %s（白名单 %s）" % (
+                    pol.get("subject"), o.get("type"), o.get("identifier"), dropped, sorted(allowed)))
+            if keep:
+                new_o = dict(o)
+                new_o["actions"] = keep
+                kept_objs.append(new_o)
+        if kept_objs or not src_objs:
+            if len(kept_objs) != len(src_objs):
+                notes.append("%s: 裁剪后 objects %d → %d" % (pol.get("subject"), len(src_objs), len(kept_objs)))
+            new_pol = dict(pol)
+            new_pol["objects"] = kept_objs
+            kept_policies.append(new_pol)
+        else:
+            notes.append("%s: 全部对象均被白名单裁空，已丢弃该 policy" % pol.get("subject"))
+    if kept_policies:
+        ir["policies"] = kept_policies
+    return notes
+
 
 
 LEVEL2_EMPTY_RETRY_HINT = (

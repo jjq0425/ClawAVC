@@ -35,6 +35,18 @@ policies/<role>/
 顶层字段：`scene`（场景名，必须与文件名一致且存在于 scenes.json）、
 `functions`（对象：函数名 → 函数定义）、`prompt_guidance`（该场景工具的使用边界，注入提示词）。
 
+另有两个**可选**的顶层字段，用于限制本场景的**文件 / 网络访问动作**（对应 IR 中 `type="file"` /
+`type="network"` 对象的 `actions`）：
+
+| 字段 | 取值 | 语义 |
+| --- | --- | --- |
+| `allowed_file_actions` | 数组，元素取自 `read` / `write` / `delete` / `create` | **非空**＝白名单，IR 只能取其子集；**缺省 / null / 空数组**＝不限制（都放行） |
+| `allowed_network_actions` | 数组，元素取自 `send` / `receive` | 同上 |
+
+与函数级 `file_actions` 的区别：函数级决定**保留哪些工具**（生成期裁剪），场景级决定 **IR 里
+能出现哪些动作**（提示词约束 + 代码层裁剪）。二者互补——例如只读场景删掉 `write` 函数后，
+`read_text_audited` 仍声明 `["read","write"]`，只有场景级白名单能拦住它带来的 `write`。
+
 每个函数定义：
 
 ```json
@@ -81,6 +93,7 @@ policies/<role>/
 | ① 提示词注入 | `core.py::_selected_registry_for_prompt()` | 整份 JSON（含 risk_guidance、advice_docs 展开内容）进入 LLM 提示词 |
 | ② 默认值回填 | `core.py::normalize_ir()` L411-419 | 全部子场景中首个非空 default 回填缺失参数 |
 | ③ 静态拒绝 | `core.py::_apply_static_deny()` L434-478 | 遍历全部子场景 denylist，**精确匹配**命中即从 IR 删除工具对象 |
+| ④ 动作白名单裁剪 | `core.py::_enforce_action_whitelist()` | 按场景 `allowed_file_actions` / `allowed_network_actions` 裁剪 IR 的 file / network `actions`（超出即裁掉，裁空则丢对象）|
 
 关键推论：
 - **denylist 是精确匹配**——模式条目（`dd of=/dev/*`、`curl * | sh`）只作为通道①的 AI 引导，
@@ -163,3 +176,75 @@ policies/<role>/
 | 重命名 / 删除 / 模板 | `PUT /api/translator/policies/rename`、`DELETE /api/translator/policies/<name>`、`PUT /api/translator/policy-path-template` | 特权 |
 
 切换后 `reload_registry()` 热重载，无需重启后端。健康检查：`GET /api/translator/registry-health`。
+
+
+---
+
+## 场景级动作白名单（`allowed_file_actions` / `allowed_network_actions`）
+
+`tools/<scene>.json` **顶层**的两个**可选**字段，用于限制该场景下 IR 的**文件 / 网络访问动作**：
+
+| 字段 | 作用对象 | 取值 | 语义 |
+| --- | --- | --- | --- |
+| `allowed_file_actions` | IR 中 `type="file"` 对象的 `actions` | `read` / `write` / `delete` / `create` 的子集 | 非空＝白名单；缺省 / null / 空数组＝不限制 |
+| `allowed_network_actions` | IR 中 `type="network"` 对象的 `actions` | `send` / `receive` 的子集 | 同上 |
+
+**spec 侧对应字段**（`create_role_policy.py --spec`）：
+
+```json
+"actions": {
+  "file_ops":   { "file": ["read"], "network": [] },
+  "shell_exec": { "file": ["read"] }
+}
+```
+
+* 键 = 场景名；值支持 `file` / `network` 两个数组；
+* 缺省键 → 不写产物字段（＝不限制）；空数组 → 写空数组（同样＝不限制，但显式声明）；
+* 由 `LEVEL2_SYS` 硬约束保证生效：**用户请求不得凌驾于白名单之上**（只读场景的"创建文件"请求不会产出 `create`/`write`）。
+
+
+---
+
+## 附：动作白名单的 spec 写法与提示词同步
+
+### 1. spec 支持两种形态（`create_role_policy.py::apply_actions_spec`）
+
+```json
+{
+  "files":   { "allowed_file_actions": ["read"] },
+  "network": { "allowed_network_actions": [] },
+  "actions": {
+    "file_ops": { "file": ["read"], "network": [] },
+    "search":   { "network": ["send", "receive"] }
+  }
+}
+```
+
+- ① `files.allowed_file_actions` / `network.allowed_network_actions`：**全局**，作用于所有场景；
+- ② `actions.<scene>.{file,network}`：**按场景**，覆盖 ①；
+- 两者都可缺省——缺省即不写字段，保持「不限制/都放行」。
+
+### 2. 两道防线（缺一不可）
+
+| 防线 | 位置 | 作用 |
+| --- | --- | --- |
+| 提示词硬约束 | `LEVEL2_SYS`（file / network 段 + 规则 9） | 让 LLM 主动不输出被禁动作 |
+| 代码层裁剪 | `core.py::_enforce_action_whitelist()` | 即使 LLM 违规也兜底裁掉（实测 LLM 存在随机性） |
+
+### 3. ⚠️ 提示词改动的生效条件
+
+`core.py` 中的 `LEVEL2_SYS` / `LEVEL1_SYS` 只是**默认值**；`_get_prompt()` 优先读数据库
+`ir_translator.prompt_level2` / `prompt_level1`（UI 可编辑并落库，首次访问时用常量初始化）。
+
+**只改常量不会生效**，必须同步数据库，例如：
+
+```bash
+cd backend && python3 -c "
+import sys; sys.path.insert(0,'.'); import db
+from auditor.translator import core
+db.set_config('ir_translator.prompt_level2', core.LEVEL2_SYS.strip())
+"
+```
+
+或通过前端「提示词」页面保存一次。改完可用
+`core._get_prompt('level2', core.LEVEL2_SYS)` 检查是否含新内容。
