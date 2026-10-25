@@ -1,0 +1,85 @@
+{
+  "scene": "stb_fetch",
+  "functions": {
+    "stb_fetch__fetch_resource": {
+      "type": "function",
+      "desc": "下载指定 URL 的资源并保存到本地路径（仅下载，不执行）。",
+      "params": {
+        "url": {
+          "required": true,
+          "desc": "资源 URL，必须是 http/https。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        },
+        "save_path": {
+          "required": true,
+          "desc": "本地保存路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/tmp/**",
+                "/workspace/**",
+                "/data/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**",
+                "/usr/**",
+                "/bin/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        }
+      }
+    },
+    "stb_fetch__verify_script": {
+      "type": "function",
+      "desc": "校验脚本语法是否正确（只读检查）。",
+      "params": {
+        "script_path": {
+          "required": true,
+          "desc": "待校验脚本路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/tmp/**",
+                "/workspace/**",
+                "/scripts/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        }
+      }
+    }
+  }
+}

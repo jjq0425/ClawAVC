@@ -12,7 +12,25 @@
       <t-button theme="default" variant="outline" @click="drawer = true">
         <template #icon><t-icon name="setting-1" /></template>AI 参数
       </t-button>
+      <t-button theme="primary" variant="outline" @click="openOverwrite">
+        <template #icon><t-icon name="layers" /></template>自进化角色覆盖
+      </t-button>
     </div>
+
+    <!-- 自进化角色覆盖对话框 -->
+    <t-dialog v-model:visible="owVisible" header="自进化角色覆盖" :confirm-btn="{ content: '确认覆盖', theme: 'primary', loading: owBusy }"
+              @confirm="doOverwrite" width="520px">
+      <div class="ow-form">
+        <label class="fi"><span>自进化角色（名含 _evolved_，作为内容来源）</span>
+          <t-select v-model="owSource" :options="evolvedOptions" placeholder="选择自进化角色" />
+        </label>
+        <label class="fi"><span>基础角色（名不含 _evolved_，被覆盖并沿用其名）</span>
+          <t-select v-model="owTarget" :options="baseRoleOptions" placeholder="选择要覆盖的基础角色" />
+        </label>
+        <div class="dim">覆盖后：基础角色的 policy_registry 内容被替换为自进化角色内容，角色名保持不变；
+          目标为当前生效角色时自动热重载。覆盖前自动备份到 policies/.backups/。</div>
+      </div>
+    </t-dialog>
 
     <t-steps :current="step" class="rsi-steps" @change="onStepChange">
       <t-step-item title="选样本" content="检索并选择 round_id" />
@@ -26,25 +44,27 @@
     <!-- ② 步骤 0：选样本 -->
     <div class="panel" v-show="step === 0">
       <div class="panel-head"><t-icon name="search" /> 步骤 1 · 选择分析样本</div>
+      <div class="filter-bar role-bar">
+        <label class="fi role-first"><span>① 选择角色（必选，决定 trace 过滤与进化基线）</span>
+          <t-select v-model="selRole" size="small" class="w220" placeholder="先选择角色" clearable
+                    :options="baseOptions" @change="onRoleChange" />
+        </label>
+      </div>
       <div class="filter-bar">
-        <t-input v-model="f.round_id" size="small" class="w180" placeholder="round_id" clearable @enter="loadRounds" />
-        <t-input v-model="f.query" size="small" class="w220" placeholder="关键字（user_query）" clearable @enter="loadRounds" />
-        <t-checkbox v-model="f.abnormal">仅异常</t-checkbox>
-        <t-input v-model="f.time_from" size="small" class="w180" placeholder="起始时间 2026-10-01" clearable />
-        <t-input v-model="f.time_to" size="small" class="w180" placeholder="结束时间" clearable />
-        <t-button size="small" theme="primary" @click="loadRounds">检索</t-button>
+        <t-input v-model="f.round_id" size="small" class="w180" placeholder="round_id" clearable
+                 :disabled="!selRole" @enter="loadRounds" />
+        <t-input v-model="f.query" size="small" class="w220" placeholder="关键字（user_query）" clearable
+                 :disabled="!selRole" @enter="loadRounds" />
+        <t-checkbox v-model="f.abnormal" :disabled="!selRole">仅异常</t-checkbox>
+        <t-input v-model="f.time_from" size="small" class="w180" placeholder="起始时间 2026-10-01" clearable :disabled="!selRole" />
+        <t-input v-model="f.time_to" size="small" class="w180" placeholder="结束时间" clearable :disabled="!selRole" />
+        <t-button size="small" theme="primary" :disabled="!selRole" @click="loadRounds">检索</t-button>
         <span class="dim">已选 {{ selected.length }} 条（最多 50）</span>
       </div>
-      <t-table :data="rounds" :columns="roundCols" row-key="round_id" size="small" bordered class="rsi-table"
-               :selected-row-keys="selected" @select-change="onSelect" select-on-row-click>
-        <template #score="{ row }">
-          <span :class="scoreClass(row.overall_score)">{{ fmtScore(row.overall_score) }}</span>
-        </template>
-        <template #abnormal="{ row }">
-          <t-tag v-if="row.is_abnormal" theme="danger" variant="light" size="small">异常</t-tag>
-          <t-tag v-else theme="success" variant="light" size="small">正常</t-tag>
-        </template>
+      <t-table v-if="selRole" :data="rounds" :columns="roundCols" row-key="round_id" size="small" bordered
+               class="rsi-table" :selected-row-keys="selected" @select-change="onSelect" select-on-row-click>
       </t-table>
+      <div v-else class="dim" style="padding: 18px 0;">请先在上方选择角色，仅展示该角色（策略库）生效期间产生的 round。</div>
       <div class="form-grid">
         <label class="fi"><span>角色说明</span>
           <t-input v-model="roleDesc" placeholder="如：只读数据分析师，仅可读取 /data" />
@@ -163,16 +183,34 @@
         </t-button>
       </div>
       <div v-if="plan?.changes?.length" class="plan">
-        <div class="plan-head">变更计划（{{ plan.changes.length }} 条）</div>
+        <div class="plan-head">
+          变更计划（{{ plan.changes.length }} 条）
+          <span class="dim">
+            可直接落盘 {{ plan.changes.filter((c) => c.path).length }} 条 ·
+            需补字段路径 {{ plan.changes.filter((c) => !c.path).length }} 条（在表格中补全 path 与建议值后即可一并应用）
+          </span>
+        </div>
         <t-table :data="plan.changes" :columns="planCols" row-key="idx" size="small" bordered class="rsi-table">
           <template #kind="{ row }">
             <t-tag :theme="kindTheme(row.kind)" size="small" variant="light">{{ row.kind }}</t-tag>
           </template>
-          <template #proposed="{ row }">{{ fmtVal(row.proposed) }}</template>
+          <template #path="{ row }">
+            <t-input v-model="row.path" size="small" placeholder="点分路径，如 functions.exec.params.command.constraint_spec.static.denylist" />
+          </template>
+          <template #proposed="{ row }">
+            <t-input v-model="row.proposedTxt" size="small" :placeholder="'建议值（JSON，如 [&quot;/data/analytics/**&quot;]）'"
+                     @change="(v) => (row.proposedTxt = v)" />
+          </template>
           <template #risk="{ row }">
             <t-tag :theme="sevTheme(row.risk_level)" size="small" variant="light">{{ row.risk_level }}</t-tag>
           </template>
         </t-table>
+      </div>
+      <div class="row-actions" v-if="plan?.changes?.length">
+        <t-button theme="primary" @click="step = 4">
+          <template #icon><t-icon name="arrow-right" /></template>下一步：应用
+        </t-button>
+        <span class="dim">提示：建议值请填合法 JSON（数组加方括号），字符串可省略引号</span>
       </div>
     </div>
 
@@ -180,8 +218,8 @@
     <div class="panel" v-show="step === 4">
       <div class="panel-head"><t-icon name="save" /> 步骤 4 · 应用到新建角色库</div>
       <div class="form-grid">
-        <label class="fi"><span>进化后角色名</span>
-          <t-input v-model="role" placeholder="如 analyst_evolved" />
+        <label class="fi"><span>进化后角色名（自动生成：原角色名_evolved_月日时分，不可修改）</span>
+          <t-input :value="evolvedName" readonly />
         </label>
         <label class="fi"><span>基线</span>
           <t-select v-model="base" :options="baseOptions" />
@@ -191,10 +229,10 @@
         </label>
       </div>
       <div class="row-actions">
-        <t-checkbox v-model="forceRebuild">已存在同名角色时强制重建</t-checkbox>
-        <t-button theme="primary" :loading="busy" :disabled="!role || !plan?.changes?.length" @click="doApply">
+        <t-button theme="primary" :loading="busy" :disabled="!evolvedName || !plan?.changes?.length" @click="doApply">
           <template #icon><t-icon name="check-circle" /></template>新建角色库并应用
         </t-button>
+        <span class="dim">角色名带时间戳全局唯一，无需强制重建；如需生效可稍后用右上角「自进化角色覆盖」合入基础角色</span>
       </div>
       <div v-if="applied" class="result-box">
         <t-tag theme="success" variant="light">已应用</t-tag>
@@ -211,36 +249,28 @@
         <div v-for="e in applied.validation.errors || []" :key="e" class="v-item err"><t-tag theme="danger" size="small">E</t-tag>{{ e }}</div>
         <div v-for="w in applied.validation.warnings || []" :key="w" class="v-item warn"><t-tag theme="warning" size="small">W</t-tag>{{ w }}</div>
       </div>
-      <div class="row-actions">
-        <t-button theme="warning" variant="outline" :disabled="!role" @click="doRollback">回滚该角色到上一快照</t-button>
-      </div>
     </div>
 
     <!-- ⑥ 步骤 5：回测与历史 -->
     <div class="panel" v-show="step === 5">
-      <div class="panel-head"><t-icon name="chart-bar" /> 步骤 5 · 回测与迭代归档</div>
-      <div class="row-actions">
-        <t-checkbox v-model="backtestOn">启用回测（改动前后对比判定结果）</t-checkbox>
-        <t-button theme="primary" :loading="btBusy" :disabled="!role || !backtestOn" @click="doBacktest">
-          <template #icon><t-icon name="swap" /></template>执行回测
-        </t-button>
-        <span v-if="bt" class="dim">提升 {{ bt.improved }} · 下降 {{ bt.regressed }} · 持平 {{ bt.unchanged }}</span>
-      </div>
-      <t-table v-if="bt?.items?.length" :data="bt.items" :columns="btCols" row-key="round_id" size="small" bordered class="rsi-table">
-        <template #delta="{ row }">
-          <span :class="deltaClass(row.delta)">{{ fmtDelta(row.delta) }}</span>
-        </template>
-      </t-table>
+      <div class="panel-head"><t-icon name="chart-bar" /> 步骤 5 · 归档与自测</div>
       <div class="row-actions">
         <t-button theme="default" variant="outline" @click="doSaveRun">归档本轮进化</t-button>
         <span v-if="savedRun" class="dim">已归档：{{ savedRun }}</span>
+        <t-button v-if="savedRun" theme="primary" variant="outline" @click="startNextRound">
+          <template #icon><t-icon name="arrow-right" /></template>开始下一轮迭代
+        </t-button>
+        <span v-if="savedRun" class="dim">下一轮将以 {{ evolvedName }} 为角色，并自动带入本轮改进上下文</span>
       </div>
-      <div class="hist">
-        <div class="plan-head">迭代历史</div>
-        <t-table :data="runs" :columns="runCols" row-key="run_id" size="small" bordered class="rsi-table">
-          <template #ops="{ row }">
-            <t-button size="small" variant="text" theme="primary" @click="startNext(row.run_id)">基于该轮迭代</t-button>
-          </template>
+      <div v-if="savedRun" class="hist">
+        <div class="plan-head">回测建议（自行验证）</div>
+        <div class="dim" style="margin: 6px 0;">
+          角色库 <code>{{ evolvedName }}</code> 已生成。建议将下列原始 query 重新执行（把该角色「自进化角色覆盖」到基础角色，
+          或切换生效后重跑），对比判定结果：攻击类应被拦截、合法类应正常放行，即本轮进化有效。
+        </div>
+        <t-table :data="ctx?.items || []" :columns="selfTestCols" row-key="round_id" size="small" bordered class="rsi-table">
+          <template #score="{ row }"><span :class="scoreClass(row.overall_score)">{{ fmtScore(row.overall_score) }}</span></template>
+          <template #ab="{ row }">{{ row.is_abnormal === 1 ? "异常" : row.is_abnormal === 0 ? "正常" : "—" }}</template>
         </t-table>
       </div>
     </div>
@@ -262,10 +292,11 @@ const ADMIN_HEAD = () => ({
 const step = ref(0)
 const drawer = ref(false)
 const busy = ref(false)
-const btBusy = ref(false)
 const rounds = ref([])
 const selected = ref([])
 const f = ref({ round_id: "", query: "", abnormal: false, time_from: "", time_to: "" })
+const selRole = ref("")
+const policyList = ref([])
 const roleDesc = ref("")
 const userPrompt = ref("")
 const parentFeedback = ref("")
@@ -278,48 +309,34 @@ const plan = ref(null)
 const role = ref("")
 const base = ref("default")
 const roleTitle = ref("")
-const forceRebuild = ref(false)
+const evolvedName = ref("")
 const applied = ref(null)
-const backtestOn = ref(true)
-const bt = ref(null)
 const savedRun = ref("")
-const runs = ref([])
 
-const baseOptions = [{ label: "default（普通办公/开发/分析）", value: "default" },
-                     { label: "ops（运维/系统管理）", value: "ops" }]
+const baseOptions = computed(() => {
+  const opts = policyList.value.map((p) => ({ label: p.name, value: p.name }))
+  return opts.length ? opts : [{ label: "default", value: "default" }, { label: "ops", value: "ops" }]
+})
 
 const roundCols = [
   { colKey: "row-select", type: "multiple", width: 46 },
   { colKey: "round_id", title: "round_id", width: 150 },
   { colKey: "time_start", title: "时间", width: 170 },
   { colKey: "user_query", title: "用户请求", ellipsis: true },
-  { colKey: "score", title: "得分", width: 90 },
-  { colKey: "abnormal", title: "判定", width: 90 },
 ]
 const planCols = [
-  { colKey: "kind", title: "类型", width: 100 },
-  { colKey: "target", title: "目标文件", width: 200 },
-  { colKey: "path", title: "字段路径", ellipsis: true },
-  { colKey: "proposed", title: "建议值", width: 190 },
+  { colKey: "kind", title: "类型", width: 90 },
+  { colKey: "target", title: "目标文件", width: 170 },
+  { colKey: "path", title: "字段路径（可编辑）", width: 300 },
+  { colKey: "proposed", title: "建议值（可编辑）", width: 240 },
   { colKey: "reason", title: "理由", ellipsis: true },
-  { colKey: "risk", title: "风险", width: 90 },
+  { colKey: "risk", title: "风险", width: 80 },
 ]
-const btCols = [
+const selfTestCols = [
   { colKey: "round_id", title: "round_id", width: 150 },
-  { colKey: "before_score", title: "改动前", width: 100 },
-  { colKey: "after_score", title: "改动后", width: 100 },
-  { colKey: "delta", title: "涨跌", width: 100 },
-  { colKey: "before_abnormal", title: "改动前异常", width: 110 },
-  { colKey: "after_abnormal", title: "改动后异常", width: 110 },
-]
-const runCols = [
-  { colKey: "run_id", title: "轮次", width: 170 },
-  { colKey: "created_at", title: "时间", width: 170 },
-  { colKey: "role", title: "角色", width: 160 },
-  { colKey: "round_count", title: "样本", width: 80 },
-  { colKey: "adopted_count", title: "采纳", width: 80 },
-  { colKey: "parent_run_id", title: "上一轮", width: 170 },
-  { colKey: "ops", title: "操作", width: 140 },
+  { colKey: "user_query", title: "原始 query（重新执行以自测）", ellipsis: true },
+  { colKey: "score", title: "原得分", width: 90 },
+  { colKey: "ab", title: "原判定", width: 90 },
 ]
 
 const adoptedCount = computed(() => adopted.value.risks.length + adopted.value.relax.length + adopted.value.transform.length)
@@ -329,8 +346,6 @@ function scoreClass(v) { const n = Number(v); return !isFinite(n) ? "dim" : (n >
 function sevTheme(s) { return s === "high" ? "danger" : s === "medium" ? "warning" : "default" }
 function kindTheme(k) { return k === "tighten" ? "danger" : k === "relax" ? "warning" : "primary" }
 function fmtVal(v) { return Array.isArray(v) ? v.join(", ") : (v === "" || v === null || v === undefined ? "—" : String(v)) }
-function fmtDelta(v) { return v === null || v === undefined ? "—" : (v > 0 ? "+" : "") + Number(v).toFixed(2) }
-function deltaClass(v) { return v === null || v === undefined ? "dim" : (v > 0 ? "ok-t" : v < 0 ? "err-t" : "dim") }
 function toggle(cat, i, on) {
   const arr = new Set(adopted.value[cat])
   on ? arr.add(i) : arr.delete(i)
@@ -346,7 +361,8 @@ async function jfetch(url, opts = {}) {
 }
 
 async function loadRounds() {
-  const p = new URLSearchParams({ limit: "50" })
+  if (!selRole.value) { rounds.value = []; return }
+  const p = new URLSearchParams({ limit: "50", role: selRole.value })
   if (f.value.round_id) p.set("round_id", f.value.round_id)
   if (f.value.query) p.set("query", f.value.query)
   if (f.value.abnormal) p.set("abnormal", "true")
@@ -354,6 +370,64 @@ async function loadRounds() {
   if (f.value.time_to) p.set("time_to", f.value.time_to)
   const j = await jfetch(`/api/rounds?${p.toString()}`)
   if (j.ok) rounds.value = j.data
+}
+
+async function loadPolicies() {
+  try {
+    const r = await fetch("/api/translator/policies")
+    const j = await r.json()
+    if (j.ok) policyList.value = (j.data?.policies || []).filter((x) => x.name !== "skilltrust")
+  } catch (e) { /* 忽略：下拉回退到 default/ops */ }
+}
+
+// ── 自进化角色覆盖 ──
+const owVisible = ref(false)
+const owBusy = ref(false)
+const owSource = ref("")
+const owTarget = ref("")
+const evolvedOptions = computed(() => policyList.value.filter((p) => p.name.includes("_evolved_")).map((p) => ({ label: p.name, value: p.name })))
+const baseRoleOptions = computed(() => policyList.value
+  .filter((p) => !p.name.includes("_evolved_") && !["default", "ops"].includes(p.name))
+  .map((p) => ({ label: p.name, value: p.name })))
+
+function openOverwrite() {
+  owSource.value = ""; owTarget.value = ""
+  loadPolicies().then(() => {
+    if (!owSource.value && evolvedOptions.value.length) owSource.value = evolvedOptions.value[0].value
+    if (!owTarget.value && baseRoleOptions.value.length) owTarget.value = baseRoleOptions.value[0].value
+  })
+  owVisible.value = true
+}
+
+async function doOverwrite() {
+  if (!owSource.value || !owTarget.value) { MessagePlugin.warning("请选择源角色与目标角色"); return }
+  owBusy.value = true
+  try {
+    const j = await jfetch("/api/translator/policies/overwrite", {
+      method: "POST", headers: ADMIN_HEAD(),
+      body: JSON.stringify({ source: owSource.value, target: owTarget.value }),
+    })
+    if (j.ok) {
+      MessagePlugin.success(`已覆盖：${owSource.value} → ${owTarget.value}${j.data?.hot_reloaded ? "（已热重载）" : ""}`)
+      owVisible.value = false
+      loadPolicies()
+    }
+  } finally { owBusy.value = false }
+}
+
+function onRoleChange() {
+  // 先选角色：切换角色后清空已选样本并仅加载该角色的 round
+  selected.value = []
+  loadRounds()
+  // 联动应用表单：基线=所选角色库，产物名在生成计划时按时间戳生成
+  if (selRole.value) base.value = selRole.value
+}
+
+// 手工项（tighten/relax 缺字段路径）在评审表格中可编辑 path / 建议值
+function tryParseVal(s) {
+  if (typeof s !== "string") return s
+  const t = s.trim()
+  try { return JSON.parse(t) } catch (e) { return s }
 }
 
 function onSelect(keys) { selected.value = keys }
@@ -414,71 +488,75 @@ async function doPlan() {
     method: "POST", headers: ADMIN_HEAD(),
     body: JSON.stringify({ result: result.value, adopted: adopted.value }),
   })
-  if (j.ok) { plan.value = j.data; step.value = 3 }
+  if (j.ok) {
+    // proposedTxt 供表格内编辑；proposed 保留原值作为回退
+    plan.value = { ...j.data, changes: (j.data?.changes || []).map((c) => ({
+      ...c, proposedTxt: typeof c.proposed === "string" ? c.proposed : JSON.stringify(c.proposed),
+    })) }
+    step.value = 3
+    // 按选定角色预填应用表单：基线=该角色库，产物名=原角色名_evolved_月日时分（固定不可改）
+    if (selRole.value) {
+      base.value = selRole.value
+      const p = (n) => String(n).padStart(2, "0")
+      const d = new Date()
+      evolvedName.value = `${selRole.value}_evolved_${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}`
+      if (!roleTitle.value) roleTitle.value = "进化后的角色库"
+    }
+  }
 }
 
 async function doApply() {
   busy.value = true
   try {
+    const changes = (plan.value?.changes || []).map((c) => ({
+      ...c, proposed: tryParseVal(c.proposedTxt ?? c.proposed),
+    }))
+    if (!base.value) base.value = selRole.value || "default"
     const j = await jfetch("/api/translator/rsi/apply", {
       method: "POST", headers: ADMIN_HEAD(),
-      body: JSON.stringify({ role: role.value, base: base.value, changes: plan.value?.changes || [],
-                             title: roleTitle.value, force: forceRebuild.value }),
+      body: JSON.stringify({ role: evolvedName.value, base: base.value, title: roleTitle.value,
+                             force: false, changes }),
     })
     if (j.ok) { applied.value = j.data; MessagePlugin.success("已应用并校验完成"); step.value = 4 }
   } finally { busy.value = false }
-}
-
-async function doRollback() {
-  const j = await jfetch("/api/translator/rsi/rollback", {
-    method: "POST", headers: ADMIN_HEAD(), body: JSON.stringify({ role: role.value }),
-  })
-  if (j.ok) MessagePlugin.success("已回滚到上一快照")
-}
-
-async function doBacktest() {
-  btBusy.value = true
-  try {
-    const j = await jfetch("/api/translator/rsi/backtest", {
-      method: "POST", headers: ADMIN_HEAD(),
-      body: JSON.stringify({ round_ids: selected.value, role: role.value }),
-    })
-    if (j.ok) { bt.value = j.data; MessagePlugin.success("回测完成") }
-  } finally { btBusy.value = false }
 }
 
 async function doSaveRun() {
   const j = await jfetch("/api/translator/rsi/runs", {
     method: "POST", headers: ADMIN_HEAD(),
     body: JSON.stringify({
-      role: role.value, base: base.value, round_ids: selected.value,
+      role: evolvedName.value, base: base.value, round_ids: selected.value,
       role_desc: roleDesc.value, user_prompt: userPrompt.value, parent_feedback: parentFeedback.value,
       ai_result: result.value, adopted: plan.value?.changes || [], applied: applied.value,
-      backtest: backtestOn.value ? bt.value : { enabled: false }, status: "applied",
+      backtest: { enabled: false }, status: "applied",
     }),
   })
-  if (j.ok) { savedRun.value = j.data.run_id; MessagePlugin.success(`已归档 ${j.data.run_id}`); loadRuns() }
+  if (j.ok) { savedRun.value = j.data.run_id; MessagePlugin.success(`已归档 ${j.data.run_id}`) }
 }
 
-async function loadRuns() {
-  const j = await jfetch("/api/translator/rsi/runs")
-  if (j.ok) runs.value = j.data.items
-}
-
-async function startNext(runId) {
-  const j = await jfetch(`/api/translator/rsi/runs/${runId}/next`, { method: "POST", headers: ADMIN_HEAD() })
-  if (!j.ok) return
-  const s = j.data
-  role.value = s.role || ""; base.value = s.base || "default"
-  selected.value = s.round_ids || []; roleDesc.value = s.role_desc || ""
-  userPrompt.value = s.user_prompt || ""; parentFeedback.value = s.parent_feedback || ""
-  roleTitle.value = ""; forceRebuild.value = true
-  result.value = null; plan.value = null; applied.value = null; bt.value = null
+// 开始下一轮：以本轮新建的进化角色为新角色，自动带入本轮改进上下文作为反馈
+function startNextRound() {
+  const summary = (result.value?.summary || "").trim()
+  const parts = []
+  if (savedRun.value) parts.push(`上一轮归档 ${savedRun.value}`)
+  if (evolvedName.value) parts.push(`进化角色 ${evolvedName.value}（基线 ${base.value}）`)
+  if (summary) parts.push(`改进摘要：${summary}`)
+  parentFeedback.value = parts.join("；")
+  loadPolicies().then(() => {
+    if (evolvedName.value) {
+      selRole.value = evolvedName.value
+      base.value = evolvedName.value
+      onRoleChange()
+    }
+  })
+  selected.value = []
+  result.value = null; plan.value = null; applied.value = null
+  savedRun.value = ""; evolvedName.value = ""
   step.value = 0
-  MessagePlugin.success(`已载入 ${runId} 的上下文，可调整后重新分析`)
+  MessagePlugin.success("已带入本轮改进上下文，开始下一轮迭代")
 }
 
-onMounted(() => { loadRounds(); loadRuns() })
+onMounted(() => { loadPolicies() })
 </script>
 
 <style scoped>
@@ -498,6 +576,8 @@ onMounted(() => { loadRounds(); loadRuns() })
   color: #1F2329; margin-bottom: 14px; }
 .filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .w180 { width: 180px; } .w220 { width: 220px; }
+.role-bar { margin-bottom: 2px; }
+.role-first { width: 320px; font-weight: 500; color: #1F2329; }
 .rsi-table { margin-top: 6px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
 .fi { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #4E5969; }

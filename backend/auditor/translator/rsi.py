@@ -24,13 +24,14 @@ BACKEND_DIR = _HERE.parent.parent                       # backend/
 RUNS_ROOT = _HERE / ".rsi_runs"
 
 CFG_PREFIX = "rsi."
-CFG_KEYS = ["api_base_url", "model", "temperature", "timeout", "json_mode"]
+CFG_KEYS = ["api_base_url", "model", "temperature", "timeout", "json_mode", "max_tokens"]
 CFG_DEFAULTS = {
     "api_base_url": "https://api.longcat.chat/openai",
     "model": "LongCat-2.0-Preview",
     "temperature": "0",
     "timeout": "120",
     "json_mode": "1",
+    "max_tokens": "",
 }
 PROMPT_KEYS = ["prompt_analyze", "prompt_relax", "prompt_transform"]
 
@@ -144,6 +145,7 @@ def llm_config() -> Dict[str, Any]:
         "temperature": float(temp_str) if str(temp_str).strip() else 0.0,
         "timeout": int(timeout_str) if str(timeout_str).strip() else 120,
         "json_mode": _cfg("json_mode", CFG_DEFAULTS["json_mode"]) in ("1", ""),
+        "max_tokens": (_cfg("max_tokens", "") or "").strip(),
     }
 
 
@@ -204,7 +206,7 @@ def _load_json_obj(raw: Any) -> Any:
     return raw
 
 
-def _behaviors_brief(action_json: Any, max_items: int = 12) -> List[str]:
+def _behaviors_brief(action_json: Any, max_items: int = 6) -> List[str]:
     obj = _load_json_obj(action_json)
     items = obj if isinstance(obj, list) else (obj.get("behaviors") if isinstance(obj, dict) else [])
     out: List[str] = []
@@ -212,15 +214,39 @@ def _behaviors_brief(action_json: Any, max_items: int = 12) -> List[str]:
         return out
     for it in items[:max_items]:
         if not isinstance(it, dict):
-            out.append(_trunc(it, 80))
+            out.append(_trunc(it, 60))
             continue
         tool = str(it.get("tool", "")).strip()
         args = it.get("arguments")
         arg_s = json.dumps(args, ensure_ascii=False) if isinstance(args, (dict, list)) else str(args or "")
         res_list = it.get("resources") or []
-        res_s = ",".join(str(r.get("path", r)) for r in res_list if isinstance(r, dict))[:80]
-        out.append(f"{tool}({_trunc(arg_s, 120)}) -> {_trunc(res_s, 80)}"[:200])
+        res_s = ",".join(str(r.get("path", r)) for r in res_list if isinstance(r, dict))[:60]
+        out.append(f"{tool}({_trunc(arg_s, 80)}) -> {_trunc(res_s, 60)}"[:150])
     return out
+
+
+def _ir_digest(ir: Any) -> Any:
+    """IR 精简摘要：场景清单 + 授权工具/参数键值，替代整份 JSON（控制体积）。"""
+    if not isinstance(ir, dict):
+        return _trunc(ir, 300)
+    l2 = ir.get("level2") or {}
+    scenes = l2.get("level1") or ir.get("level1") or []
+    pols: List[Dict[str, Any]] = []
+    for p in (l2.get("policies") or [])[:10]:
+        if not isinstance(p, dict):
+            continue
+        objs: List[Dict[str, Any]] = []
+        for o in (p.get("objects") or [])[:20]:
+            if not isinstance(o, dict):
+                continue
+            ent: Dict[str, Any] = {"id": o.get("identifier"), "actions": o.get("actions")}
+            ps = o.get("params")
+            if ps:
+                ent["params"] = [f"{x.get('name')}={_trunc(x.get('identifier'), 60)}"
+                                 for x in ps[:6] if isinstance(x, dict)]
+            objs.append(ent)
+        pols.append({"subject": p.get("subject"), "objects": objs})
+    return {"scenes": scenes, "policies": pols}
 
 
 def round_digest(rec: Dict[str, Any]) -> Dict[str, Any]:
@@ -229,13 +255,12 @@ def round_digest(rec: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "round_id": rec.get("round_id", ""),
         "time_start": rec.get("time_start", ""),
-        "session_id": rec.get("session_id", ""),
-        "user_query": _trunc(rec.get("user_query"), 500),
+        "user_query": _trunc(rec.get("user_query"), 300),
         "overall_score": rec.get("overall_score"),
         "is_abnormal": rec.get("is_abnormal"),
-        "judge_result": _trunc(rec.get("judge_result"), 700),
-        "ir_brief": _trunc(json.dumps(ir, ensure_ascii=False), 1200) if isinstance(ir, (dict, list)) else _trunc(ir, 300),
-        "behaviors": _behaviors_brief(rec.get("action_json")),
+        "judge_result": _trunc(rec.get("judge_result"), 400),
+        "ir_brief": _ir_digest(ir),
+        "behaviors": _behaviors_brief(rec.get("action_json"), max_items=6),
     }
 
 
@@ -258,10 +283,10 @@ def _policy_summary(policy: Optional[str] = None) -> Dict[str, Any]:
                 continue
             fns = obj.get("functions") or {}
             brief: Dict[str, Any] = {}
-            for fname, fdef in list(fns.items())[:12]:
+            for fname, fdef in list(fns.items())[:10]:
                 params = fdef.get("params") or {}
                 pbrief: Dict[str, Any] = {}
-                for pname, pdef in list(params.items())[:6]:
+                for pname, pdef in list(params.items())[:4]:
                     cs = (pdef or {}).get("constraint_spec") or {}
                     st = cs.get("static")
                     blocks = st if isinstance(st, list) else ([st] if isinstance(st, dict) else [])
@@ -272,7 +297,7 @@ def _policy_summary(policy: Optional[str] = None) -> Dict[str, Any]:
                         allow_v += [str(x) for x in (b.get("allowed_values") or [])]
                         allow_l += [str(x) for x in (b.get("allowlist") or [])]
                         deny += [str(x) for x in (b.get("denylist") or [])]
-                    pbrief[pname] = {"allowed_values": allow_v[:40], "allowlist": allow_l[:30], "denylist": deny[:60]}
+                    pbrief[pname] = {"allowed_values": allow_v[:12], "allowlist": allow_l[:10], "denylist": deny[:15]}
                 brief[fname] = {"risk": fdef.get("risk", ""), "params": pbrief}
             tools[tf.name] = {"scene": obj.get("scene", ""), "functions": brief}
     advice: List[Dict[str, Any]] = []
@@ -284,7 +309,8 @@ def _policy_summary(policy: Optional[str] = None) -> Dict[str, Any]:
         except Exception:
             advice = []
     return {"policy": policy or policy_manager.get_current_policy(), "registry": str(reg),
-            "scenes": list(scenes_obj.keys()), "tools": tools, "advice_docs": advice[:10]}
+            "scenes": list(scenes_obj.keys()), "tools": tools,
+            "advice_docs": [_trunc(a, 120) for a in advice[:5]]}
 
 
 def build_context(round_ids: List[str], policy: Optional[str] = None, role_desc: str = "",
@@ -386,7 +412,7 @@ def _build_prompt(ctx: Dict[str, Any]) -> str:
         "rounds": ctx.get("items", []),
     }
     return (f"{prompts['prompt_analyze']}\n\n{prompts['prompt_relax']}\n\n{prompts['prompt_transform']}\n\n"
-            "===== 待分析数据（JSON）=====\n" + json.dumps(body, ensure_ascii=False, indent=1)[:60000])
+            "===== 待分析数据（JSON）=====\n" + json.dumps(body, ensure_ascii=False, indent=1)[:20000])
 
 
 def analyze(ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -407,6 +433,8 @@ def analyze(ctx: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": True, "data": {"result": result, "meta": meta}}
     except Exception as first:
         try:
+            # TPM 限流保护：首次大调用后冷却再重试，避免同一窗口内叠加触发 429
+            time.sleep(45)
             fix = user + "\n\n【纠正】上一次输出无法解析为合法 JSON，请仅输出 JSON 对象本身。"
             content2, meta2 = call_llm(system, fix, cfg, max_retry=0)
             result = sanitize_result(json.loads(_json_extract(content2)))

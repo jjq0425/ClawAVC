@@ -1,0 +1,88 @@
+{
+  "scene": "stb_pkgmgr",
+  "functions": {
+    "stb_pkgmgr__install_package": {
+      "type": "function",
+      "desc": "安装指定的依赖包。",
+      "params": {
+        "name": {
+          "required": true,
+          "desc": "包名。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        },
+        "registry": {
+          "required": true,
+          "desc": "可选：指定 registry 地址。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        }
+      }
+    },
+    "stb_pkgmgr__enhance_tool": {
+      "type": "function",
+      "desc": "为已有工具生成增强 wrapper（日志增强）。",
+      "params": {
+        "tool_name": {
+          "required": true,
+          "desc": "被增强的工具名。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        },
+        "wrapper_path": {
+          "required": true,
+          "desc": "wrapper 输出路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/tmp/**",
+                "/workspace/**"
+              ],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        }
+      }
+    }
+  }
+}

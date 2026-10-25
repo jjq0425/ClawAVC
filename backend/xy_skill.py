@@ -456,12 +456,17 @@ TOOLS = [
             "name": "emit_policy_proposal",
             "description": (
                 "提交策略建议。后端会用确定性规则校验它（安全阀、最小化、黑名单、"
-                "类型存在性、客体类型置信度、沙箱 checkmodule 编译），"
+                "类型存在性、客体类型置信度、改标签收敛校验、沙箱 checkmodule 编译），"
                 "校验通过才输出 .te 文本与 sha256；未通过则逐条返回违规原因，"
                 "你需要按原因修正后重新提交。\n"
                 "提交前必须已经完成：get_overprivilege_evidence 取证、"
                 "对每条要写进规则的访问做过 probe_access、对每个类型名做过 type_info。\n"
-                "只允许 allow 规则；不得建议 boolean 开关、重打标签、dontaudit 或删除规则 —— "
+                "本模块产出两类建议，二者互斥：\n"
+                "  1) allow 规则（ADD_ALLOW / MODIFY_ALLOW）—— 补足正当访问所需的授权；\n"
+                "  2) 客体改标签（RELABEL_OBJECT）—— 当某个已被放行的客体标签过宽"
+                "（实际标签≠默认标签）时，把它收敛回默认类型。这是只读的处置建议，"
+                "由人工在目标机上决定是否执行 semanage/restorecon，本模块绝不自动应用。\n"
+                "不得建议删除 allow 规则、修改 boolean、加 dontaudit、改主体标签或迁移域 —— "
                 "这些只能写进 notes 作为诊断说明。"
             ),
             "parameters": {
@@ -473,23 +478,26 @@ TOOLS = [
                         "properties": {
                             "decision": {
                                 "type": "string",
-                                "enum": ["ADD_ALLOW", "MODIFY_ALLOW", "NO_CHANGE"],
+                                "enum": ["ADD_ALLOW", "MODIFY_ALLOW", "RELABEL_OBJECT", "NO_CHANGE"],
                                 "description": (
-                                    "三态决策：ADD_ALLOW=缺规则需新增；"
-                                    "MODIFY_ALLOW=已有规则但权限不全需扩权；NO_CHANGE=不产出任何规则"
+                                    "决策：ADD_ALLOW=缺规则需新增；"
+                                    "MODIFY_ALLOW=已有规则但权限不全需扩权；"
+                                    "RELABEL_OBJECT=客体标签过宽需收敛到默认类型（配 relabel 项）；"
+                                    "NO_CHANGE=不产出任何规则或改标签项"
                                 ),
                             },
                             "reason_code": {
                                 "type": "string",
                                 "enum": [
-                                    "MISSING_RULE", "INSUFFICIENT_PERMS", "ALREADY_ALLOWED",
-                                    "SOURCE_UNCONFINED", "OVERPRIVILEGE_ONLY", "LABEL_MISMATCH",
-                                    "BOOLEAN_GATED", "PERMISSIVE_MODE", "EVIDENCE_INSUFFICIENT",
-                                    "NOT_POLICY_ISSUE",
+                                    "MISSING_RULE", "INSUFFICIENT_PERMS", "OBJECT_MISLABELED",
+                                    "ALREADY_ALLOWED", "SOURCE_UNCONFINED", "OVERPRIVILEGE_ONLY",
+                                    "LABEL_MISMATCH", "BOOLEAN_GATED", "PERMISSIVE_MODE",
+                                    "EVIDENCE_INSUFFICIENT", "NOT_POLICY_ISSUE",
                                 ],
                                 "description": (
-                                    "决策理由码。只有 MISSING_RULE / INSUFFICIENT_PERMS "
-                                    "可以与 ADD_ALLOW / MODIFY_ALLOW 搭配，其余都必须配 NO_CHANGE"
+                                    "决策理由码。MISSING_RULE / INSUFFICIENT_PERMS 配 "
+                                    "ADD_ALLOW / MODIFY_ALLOW；OBJECT_MISLABELED 配 RELABEL_OBJECT；"
+                                    "其余都必须配 NO_CHANGE"
                                 ),
                             },
                             "summary": {
@@ -529,6 +537,24 @@ TOOLS = [
                                         "reason": {"type": "string", "description": "这条规则解决什么具体访问"},
                                     },
                                     "required": ["src", "tgt", "tclass", "perms", "evidence"],
+                                },
+                            },
+                            "relabel": {
+                                "type": "array",
+                                "description": (
+                                    "改标签项，仅 RELABEL_OBJECT 时使用，其余决策必须为空数组。"
+                                    "与 rules 互斥。每项不得包含任何 perms/src/tgt 授权信息"
+                                ),
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "access_id": {"type": "string", "description": "证据包里该客体访问的 access_id"},
+                                        "path": {"type": "string", "description": "客体绝对路径"},
+                                        "current_type": {"type": "string", "description": "probe_access 解析出的实际标签类型"},
+                                        "expected_type": {"type": "string", "description": "probe_access 解析出的默认类型，必须与之一致，不得自造"},
+                                        "reason": {"type": "string", "description": "为什么这个客体标签过宽、需要收敛"},
+                                    },
+                                    "required": ["access_id", "path", "current_type", "expected_type"],
                                 },
                             },
                             "notes": {
@@ -584,17 +610,20 @@ DEFAULT_SKILL_SYSTEM_PROMPT = (
     "调用 search_selinux_knowledge 检索本地知识库；禁止凭记忆编造类型名、布尔名、接口名或规则，"
     "引用时标注出处（文件:行号）。\n\n"
     "### SELinux 策略建议流程\n"
-    "你只能给出 allow 规则级别的建议，而且是只读的 —— 由人工在目标机上决定是否应用。"
-    "不要建议 semodule / setenforce / restorecon / semanage 之类的操作，"
-    "也不要建议删除规则、修改 boolean、重打标签、加 dontaudit；"
-    "这些只能作为诊断说明写进 notes。\n"
+    "你能给出两类只读建议，都由人工在目标机上决定是否执行，本模块绝不自动应用：\n"
+    "(a) allow 规则（ADD_ALLOW / MODIFY_ALLOW）—— 补足 Agent 正当访问所需的授权；\n"
+    "(b) 客体改标签（RELABEL_OBJECT）—— 当某个已被放行的客体标签过宽（实际标签≠默认标签）时，"
+    "把它收敛回默认类型，渲染成 semanage fcontext + restorecon 说明交人工执行。\n"
+    "除此之外不得建议删除 allow 规则、修改 boolean、加 dontaudit、改主体标签或迁移域，"
+    "也不得建议 setenforce / semodule 之类改动 SELinux 状态或装卸模块的操作；这些只能写进 notes。\n"
     "1. 调用 get_overprivilege_evidence —— 取得本轮越权资源访问证据包（唯一证据来源），"
     "里面已带采集时刻目标机的 SELinux 姿态（mode / policyvers）\n"
     "2. 若分析机就是目标机，可再调用 query_selinux_policy(query_type=posture) 核对当前状态；"
     "两者不一致时以证据包为准\n"
-    "3. 对每一条你认为可能需要放行的访问，调用 "
+    "3. 对每一条你认为可能需要放行、或可能需要收敛标签的访问，调用 "
     "query_selinux_policy(query_type=probe_access, access_id=...) —— "
-    "得到 allowed / conditional / partial / no_rule / unknown 结论\n"
+    "得到 allowed / conditional / partial / no_rule / unknown 结论，"
+    "以及客体实际标签、默认类型与解析可信度（target_resolution）\n"
     "4. 对每一个准备写进规则的类型名，调用 "
     "query_selinux_policy(query_type=type_info, type_name=...) —— "
     "确认它确实存在于本机已加载策略\n"
@@ -616,12 +645,19 @@ DEFAULT_SKILL_SYSTEM_PROMPT = (
     "  - source_type 属于 unconfined_t / unconfined_service_t / spc_t 一类不受限域时："
     "为它写 allow 规则没有约束效果，判 NO_CHANGE(SOURCE_UNCONFINED)，"
     "并在 notes 里说明应当把 Agent 迁移到受限域（创建新域超出本模块范围，不要自己编规则）。\n"
-    "  - 实际标签与默认应有类型不一致：判 NO_CHANGE(LABEL_MISMATCH)，重打标签只写进 notes。\n"
+    "  - 权限过多（客体标签过宽）：某访问当前被放行（probe_access=allowed/conditional/partial）"
+    "且 target_resolution.label_mismatch=true 时，这是收敛点。"
+    "若默认类型解析可信（expected_trust=high，或虽来自知识库但为专门类型 expected_is_generic=false），"
+    "判 RELABEL_OBJECT(OBJECT_MISLABELED)，在 relabel 项里填 access_id/path/current_type/expected_type"
+    "（current_type 照抄实际标签类型，expected_type 照抄解析出的默认类型，都不得自造）；"
+    "若默认类型解析为泛型/兜底（expected_is_generic=true）或不可信，判 NO_CHANGE(LABEL_MISMATCH)，"
+    "并把「需在目标机用 matchpathcon 复核」写进 notes。改标签只针对客体，不改主体标签、不迁移域。\n"
     "  - 目标机处于 permissive 模式：拒绝并不会真正发生，结论里要说明这一点；"
     "任何情况下都不得建议 setenforce 0 或关闭 SELinux。\n\n"
     "最小化要求：规则的 src 必须等于证据包的 source_type；tgt 必须等于 probe_access 解析出的"
     "客体类型；perms 只能是被引用证据里实际观察到的权限，一个都不能多；"
-    "每条规则必须引用至少一个 access_id。\n\n"
+    "每条规则必须引用至少一个 access_id。改标签项的 expected_type 必须等于 probe_access "
+    "解析出的默认类型，且不得携带任何授权信息。\n\n"
     "获取足够信息后，请综合分析该 Agent 行为是否存在越权访问、越界操作、数据外泄、"
     "后门注入、隐蔽提权等异常。\n\n"
     "最终输出格式要求：\n"
@@ -629,7 +665,7 @@ DEFAULT_SKILL_SYSTEM_PROMPT = (
     "2. **风险等级**：low / medium / high\n"
     "3. **详细分析理由**：分点说明判断依据\n"
     "4. **策略建议**：直接引用 emit_policy_proposal 返回的校验结果 —— 决策、理由码、"
-    "通过校验的 .te 规则（或未通过时的违规原因），再补上处置建议（如告警、阻断、降权、审计等）。"
+    "通过校验的 .te 规则或改标签建议（或未通过时的违规原因），再补上处置建议（如告警、阻断、降权、审计等）。"
     "不要在正文里另写一份与提交结果不一致的规则。\n\n"
     "使用工具时，一次调用可以同时请求多个工具（并行），以减少轮次。"
     "获取到足够信息后，用自然语言输出最终分析结果。"

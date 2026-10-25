@@ -144,7 +144,7 @@ ENDPOINT_REGISTRY = {
     },
     "GET /api/monitor/config": {
         "summary": "获取监控配置",
-        "description": "获取当前监控数据源配置（网关日志路径、OpenClaw 根文件夹）及路径有效性。",
+        "description": "获取当前监控配置（数据源、路径有效性及检测配置等）。",
         "category": "运行监控",
         "response": {"ok": True, "data": {"gateway_log_path": "/path/to/logs", "openclaw_root": "/root/.openclaw", "_path_status": {"gateway_log_path": "ok"}}},
         "public": True,

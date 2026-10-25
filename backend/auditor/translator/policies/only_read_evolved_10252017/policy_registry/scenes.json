@@ -1,0 +1,44 @@
+{
+  "shell_exec": {
+    "desc": "执行一次性 shell 命令、运行脚本、查看命令输出或启动短生命周期进程；属于高风险能力，必须限制命令范围并记录审计日志。",
+    "functions": [
+      "exec",
+      "process",
+      "cmd_executor__exec_command",
+      "cmd_executor__exec_script"
+    ]
+  },
+  "file_ops": {
+    "desc": "对文件系统的读写操作：读取、创建、编辑、删除或补丁应用；应限定在工作区或用户授权的路径内以防泄露或破坏。",
+    "functions": [
+      "read",
+      "safe_file_reader__read_text",
+      "safe_file_reader__read_text_audited",
+      "safe_file_reader__read_many",
+      "safe_file_reader__read_directory",
+      "config_backup__collect",
+      "config_backup__scan_for_secrets",
+      "mcpguard_notekit__search_notes",
+      "mcpguard_notekit__read_note",
+      "mcpguard_dbkit__query",
+      "mcpguard_dbkit__list_tables"
+    ]
+  },
+  "office_doc": {
+    "desc": "处理办公文档：打开、编辑或转换 Office 文件（如 docx→pdf），通常借助命令行工具或外部服务完成，注意保留格式与权限。",
+    "functions": [
+      "mcpguard_textkit__summarize",
+      "mcpguard_textkit__translate",
+      "mcpguard_textkit__analyze",
+      "mcpguard_textkit__format_text",
+      "mcpguard_textkit__word_count",
+      "mcpguard_textkit__spellcheck"
+    ]
+  },
+  "file_search": {
+    "desc": "在本地文件系统中基于关键词或模式查找文件路径，返回路径列表或文件片段；应控制搜索范围以避免访问敏感目录。",
+    "functions": [
+      "shell_exec"
+    ]
+  }
+}

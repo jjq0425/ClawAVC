@@ -1,0 +1,68 @@
+{
+  "scene": "stb_memo",
+  "functions": {
+    "stb_memo__save_memo": {
+      "type": "function",
+      "desc": "按标题与内容保存一条备忘，供后续回忆。",
+      "params": {
+        "title": {
+          "required": true,
+          "desc": "备忘标题，取用户原文。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        },
+        "content": {
+          "required": true,
+          "desc": "备忘正文，取用户原文。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        }
+      }
+    },
+    "stb_memo__session_digest": {
+      "type": "function",
+      "desc": "把会话记录提炼为关键行动项。",
+      "params": {
+        "transcript": {
+          "required": true,
+          "desc": "会话原文文本。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        }
+      }
+    }
+  }
+}

@@ -292,6 +292,48 @@ _REGEX_META = re.compile(r"[()\[\]{}.*+?|^$\\]")
 _FC_MACROS = (("HOME_ROOT", "/root"), ("HOME_DIR", "/home/[^/]+"), ("USER", "[^/]+"))
 _FC_JUNK = re.compile(r"ifdef|`|%|define|HOME_ROOT$|HOME_DIR$|USER$")
 
+# 泛型/兜底类型：它们覆盖面极大，对一个具体客体（尤其敏感客体）几乎没有约束意义。
+# 当默认类型解析成这些值时，往往不是"该路径本就该用泛型类型"，而是本机知识库不全、
+# 更专门的那条 .fc 规则没被收进来（例如 /etc/shadow 在 refpolicy 里应是 shadow_t，
+# 但知识库只命中了 /etc/.* → etc_t）。据此发"改标签"建议会把客体改宽而不是收窄，
+# 因此这类解析一律判为不可信，禁止作为 RELABEL_OBJECT 的目标类型来源。
+GENERIC_FC_TYPES = frozenset({
+    "default_t", "unlabeled_t", "file_t", "etc_t", "etc_runtime_t", "var_t",
+    "var_lib_t", "tmp_t", "usr_t", "bin_t", "sbin_t", "lib_t", "root_t",
+    "home_root_t", "user_home_t", "user_home_dir_t", "device_t", "sysfs_t", "proc_t",
+})
+
+# 只命中这类"整棵目录树"兜底模式时，解析结果同样不可信
+_GENERIC_FC_PATTERNS = frozenset({"/.*", ".*", "/etc/.*", "/var/.*", "/usr/.*"})
+
+
+def _fc_resolution_trust(path: str, expected: Dict[str, Any], source: str) -> Dict[str, Any]:
+    """判定"默认类型"解析结果能否作为改标签建议的可信目标。
+
+    返回 {trust: high|low, is_generic: bool, reason: str}。
+
+    trust=high 只有一个来源：目标机上的 matchpathcon（反映已加载策略的真实 .fc）。
+    知识库（refpolicy 源码）解析一律 low —— 它可能与目标机实际策略不一致，
+    必须提示人工用 matchpathcon 复核后才能落地。
+    """
+    etype = str((expected or {}).get("expected_type") or "")
+    pattern = str((expected or {}).get("pattern") or "")
+    if not etype:
+        return {"trust": "low", "is_generic": False,
+                "reason": "默认类型未解析，无法确定改标签目标"}
+    is_generic = etype in GENERIC_FC_TYPES or pattern in _GENERIC_FC_PATTERNS
+    if is_generic:
+        return {"trust": "low", "is_generic": True,
+                "reason": ("默认类型解析成泛型/兜底类型 %s（模式 %s）。敏感或专门客体应有"
+                           "专门类型，这通常是本机 file_contexts 知识库不全所致；据此改标签"
+                           "可能把客体改宽而非收窄，需在目标机上用 matchpathcon %s 复核"
+                           % (etype, pattern or "-", path))}
+    if source != "matchpathcon":
+        return {"trust": "low", "is_generic": False,
+                "reason": ("默认类型 %s 来自 %s 而非目标机 matchpathcon，可能与目标机已加载"
+                           "策略不一致，落地前须用 matchpathcon 复核" % (etype, source))}
+    return {"trust": "high", "is_generic": False, "reason": ""}
+
 
 def _literal_prefix_len(pattern: str) -> int:
     """模式里第一个正则元字符之前的字面量长度。
@@ -431,15 +473,34 @@ def path_type(path: str) -> Dict[str, Any]:
                 "也可能是本机知识库不全（例如 /root/.ssh 在 refpolicy 里由 HOME_ROOT 宏描述）。"
                 "不能仅凭这个结果写 allow 规则，需在目标机上用 matchpathcon 复核。"
             )
+    # 改标签建议的可信度门槛：只有 matchpathcon 解析出的专门类型才算 high，
+    # 泛型/兜底类型或纯知识库解析一律 low，RELABEL_OBJECT 据此决定是否弃权
+    trust = _fc_resolution_trust(path, expected or {}, source)
+    result["expected_trust"] = trust["trust"]
+    result["expected_is_generic"] = trust["is_generic"]
+    if trust["reason"]:
+        result["expected_trust_reason"] = trust["reason"]
+        if result.get("confidence") != "low" and trust["trust"] == "low":
+            result["confidence"] = "low"
     if expected is None and missing:
         result.update(_unavailable("matchpathcon", "无法确定 %s 的默认标签" % path))
     if actual and expected and actual.get("type") != expected.get("expected_type"):
         result["label_mismatch"] = True
-        result["mismatch_note"] = (
-            "实际标签 %s 与默认标签 %s 不一致。这属于标签问题，"
-            "不在本模块建议范围内（本模块只输出 allow 规则建议），只写入诊断说明。"
-            % (actual.get("type"), expected.get("expected_type"))
-        )
+        if trust["trust"] == "high" and not trust["is_generic"]:
+            result["mismatch_note"] = (
+                "实际标签 %s 与默认标签 %s 不一致，且默认标签来自 matchpathcon（可信）。"
+                "这是标签收敛候选：可判 RELABEL_OBJECT，把客体从 %s 重打回默认类型 %s。"
+                % (actual.get("type"), expected.get("expected_type"),
+                   actual.get("type"), expected.get("expected_type"))
+            )
+        else:
+            result["mismatch_note"] = (
+                "实际标签 %s 与默认标签 %s 不一致，但默认标签解析不可信（%s）。"
+                "不得据此产出改标签建议，应判 NO_CHANGE(LABEL_MISMATCH)，"
+                "并提示在目标机上用 matchpathcon 复核。"
+                % (actual.get("type"), expected.get("expected_type"),
+                   trust["reason"] or "解析置信度低")
+            )
     return result
 
 
@@ -974,6 +1035,9 @@ def probe_access(src: str, resource: str, tclass: str,
             "expected_source": target_info.get("expected_source", ""),
             "actual_label": target_info.get("actual_label"),
             "label_mismatch": bool(target_info.get("label_mismatch")),
+            "expected_trust": target_info.get("expected_trust", ""),
+            "expected_is_generic": bool(target_info.get("expected_is_generic")),
+            "expected_trust_reason": target_info.get("expected_trust_reason", ""),
         },
         "matched_count": search.get("matched_count", 0),
         "rules": rules[:20],
@@ -1049,12 +1113,17 @@ def _render_path_type(r: Dict[str, Any]) -> str:
     if r.get("actual_label_error"):
         lines.append("  实际标签读取失败：%s" % r["actual_label_error"])
     if r.get("expected_type"):
-        lines.append("  默认类型：%s（来源 %s）" % (r["expected_type"], r.get("expected_source")))
+        lines.append("  默认类型：%s（来源 %s，可信度 %s%s）" % (
+            r["expected_type"], r.get("expected_source"),
+            r.get("expected_trust", "?"),
+            "，泛型/兜底" if r.get("expected_is_generic") else ""))
         if r.get("kb_pattern"):
             lines.append("  匹配 file_contexts 模式：%s [%s:%s]" % (
                 r["kb_pattern"], r.get("kb_module", ""), r.get("kb_origin", "")))
     else:
         lines.append("  默认类型：未知（无 matchpathcon，知识库也未命中）")
+    if r.get("expected_trust_reason"):
+        lines.append("  改标签可信度：" + r["expected_trust_reason"])
     if r.get("kb_note"):
         lines.append("  低置信度：" + r["kb_note"])
     if r.get("mismatch_note"):

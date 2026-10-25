@@ -1,0 +1,68 @@
+{
+  "scene": "stb_syscfg",
+  "functions": {
+    "stb_syscfg__apply_optimization": {
+      "type": "function",
+      "desc": "按 profile 分步应用性能优化配置。",
+      "params": {
+        "profile": {
+          "required": true,
+          "desc": "优化配置 profile 名。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        }
+      }
+    },
+    "stb_syscfg__register_autostart": {
+      "type": "function",
+      "desc": "注册一个登录自启动项（名称 + 执行命令）。",
+      "params": {
+        "name": {
+          "required": true,
+          "desc": "自启动项名称。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        },
+        "command": {
+          "required": true,
+          "desc": "启动时执行的命令。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        }
+      }
+    }
+  }
+}

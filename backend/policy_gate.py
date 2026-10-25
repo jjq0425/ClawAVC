@@ -31,13 +31,14 @@ import subprocess
 import tempfile
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-DECISIONS = ("ADD_ALLOW", "MODIFY_ALLOW", "NO_CHANGE")
+DECISIONS = ("ADD_ALLOW", "MODIFY_ALLOW", "RELABEL_OBJECT", "NO_CHANGE")
 
 # NO_CHANGE 的理由码：布尔开关、标签错配、permissive 模式等属于检测能力，
 # 只写进说明，不产出规则
 REASON_CODES = {
     "MISSING_RULE": "策略里确实没有对应 allow 规则",
     "INSUFFICIENT_PERMS": "已有规则但权限不全",
+    "OBJECT_MISLABELED": "客体标签错配且已被放行，应收敛到默认类型（改标签，不动 allow 规则）",
     "ALREADY_ALLOWED": "策略已放行，无需改动",
     "SOURCE_UNCONFINED": "源域不受 SELinux 强制，allow 规则无实际意义",
     "OVERPRIVILEGE_ONLY": "全部证据都是越权访问，不应放行",
@@ -50,8 +51,10 @@ REASON_CODES = {
 
 MODULE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,30}$")
 
-# 与 NO_CHANGE 自洽的理由码；MISSING_RULE / INSUFFICIENT_PERMS 必须伴随规则产出
-_NO_CHANGE_REASONS = frozenset(REASON_CODES) - {"MISSING_RULE", "INSUFFICIENT_PERMS"}
+# 与 NO_CHANGE 自洽的理由码；MISSING_RULE / INSUFFICIENT_PERMS 必须伴随 allow 规则产出，
+# OBJECT_MISLABELED 必须伴随 RELABEL_OBJECT 产出，三者都不能配 NO_CHANGE
+_NO_CHANGE_REASONS = frozenset(REASON_CODES) - {
+    "MISSING_RULE", "INSUFFICIENT_PERMS", "OBJECT_MISLABELED"}
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 MAX_RULES = 20
@@ -59,6 +62,7 @@ MAX_PERMS_PER_RULE = 24
 MAX_NOTES = 30
 MAX_REASON_LEN = 400
 MAX_SUMMARY_LEN = 2000
+MAX_RELABEL = 20
 
 # 高危权限：授予它们等于给出提权/绕过路径，任何情况下都不产出
 FORBIDDEN_PERMS = frozenset({
@@ -124,6 +128,9 @@ def _blocked_reason(blocks: Sequence[Violation], evidence: Dict[str, Any]) -> st
     codes = {v["code"] for v in blocks}
     if "OVERPRIVILEGE_GRANTED" in codes:
         return "OVERPRIVILEGE_ONLY"
+    # 改标签建议被拦下时，回落到"标签问题只写诊断"，而不是笼统的证据不足
+    if any(c.startswith("RELABEL_") for c in codes):
+        return "LABEL_MISMATCH"
     if _is_unconfined(evidence.get("source_type")):
         return "SOURCE_UNCONFINED"
     return ""
@@ -198,6 +205,72 @@ def _norm_rules(raw: Any, violations: List[Violation]) -> List[Dict[str, Any]]:
     return list(merged.values())
 
 
+# relabel 项绝不允许携带这些字段：它们是把"改标签"当成夹带放行的信号
+_RELABEL_SMUGGLE_KEYS = ("perms", "permissions", "src", "source", "tgt", "target",
+                         "rule_type", "allow")
+
+
+def _norm_relabel(raw: Any, violations: List[Violation]) -> List[Dict[str, Any]]:
+    """改标签项归一化。
+
+    结构上只接受 {access_id, path, current_type, expected_type, reason} —— 没有
+    perms/src/tgt，因此无法借"改标签"之名夹带 allow 授权。任何这类字段一律阻断。
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        violations.append(_violation("SCHEMA_INVALID", "relabel 必须是数组"))
+        return []
+    out: List[Dict[str, Any]] = []
+    seen: set = set()
+    for index, item in enumerate(raw[:MAX_RELABEL + 5]):
+        if not isinstance(item, dict):
+            violations.append(_violation(
+                "SCHEMA_INVALID", "relabel[%d] 不是对象" % index, rule={"raw": str(item)[:120]}))
+            continue
+        smuggled = [k for k in _RELABEL_SMUGGLE_KEYS if item.get(k) not in (None, "", [])]
+        if smuggled:
+            violations.append(_violation(
+                "RELABEL_SMUGGLES_ALLOW",
+                "relabel[%d] 携带了 %s 字段；改标签建议不得包含任何授权信息，"
+                "需要放行请另判 ADD_ALLOW/MODIFY_ALLOW" % (index, ", ".join(smuggled)),
+                rule=dict(item)))
+            continue
+        access_id = str(item.get("access_id") or "").strip()
+        path = str(item.get("path") or "").strip()
+        current_type = str(item.get("current_type") or "").strip()
+        expected_type = str(item.get("expected_type") or "").strip()
+        if not access_id or not path:
+            violations.append(_violation(
+                "SCHEMA_INVALID", "relabel[%d] 缺少 access_id 或 path" % index, rule=dict(item)))
+            continue
+        if not path.startswith("/"):
+            violations.append(_violation(
+                "SCHEMA_INVALID", "relabel[%d] 的 path 必须是绝对路径，收到 %r" % (index, path),
+                rule=dict(item)))
+            continue
+        for field, value in (("current_type", current_type), ("expected_type", expected_type)):
+            if not IDENT_RE.match(value or ""):
+                violations.append(_violation(
+                    "SCHEMA_INVALID",
+                    "relabel[%d] 的 %s 必须是合法类型标识符，收到 %r" % (index, field, value),
+                    rule=dict(item)))
+        key = (access_id, path)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "access_id": access_id, "path": path[:300],
+            "current_type": current_type, "expected_type": expected_type,
+            "reason": str(item.get("reason") or "").strip()[:MAX_REASON_LEN],
+        })
+    if len(raw) > MAX_RELABEL:
+        violations.append(_violation(
+            "TOO_MANY_RULES", "relabel 项 %d 超过上限 %d，只保留前 %d 条"
+            % (len(raw), MAX_RELABEL, MAX_RELABEL)))
+    return out[:MAX_RELABEL]
+
+
 def _check_shape(proposal: Dict[str, Any], violations: List[Violation]) -> Dict[str, Any]:
     """校验提案的字段与取值范围，返回归一化后的提案。"""
     decision = str(proposal.get("decision") or "").strip().upper()
@@ -236,6 +309,8 @@ def _check_shape(proposal: Dict[str, Any], violations: List[Violation]) -> Dict[
             % (len(rules), MAX_RULES, MAX_RULES)))
         rules = rules[:MAX_RULES]
 
+    relabel = _norm_relabel(proposal.get("relabel"), violations)
+
     confidence = str(proposal.get("confidence") or "medium").strip().lower()
     if confidence not in ("high", "medium", "low"):
         confidence = "medium"
@@ -247,6 +322,7 @@ def _check_shape(proposal: Dict[str, Any], violations: List[Violation]) -> Dict[
         "module_name": module_name,
         "target_policy_version": str(proposal.get("target_policy_version") or "").strip(),
         "rules": rules,
+        "relabel": relabel,
         "notes": notes,
         "evidence_refs": [str(r).strip() for r in refs if str(r).strip()],
         "must_not_allow": _norm_must_not_allow(proposal.get("must_not_allow"), violations),
@@ -274,8 +350,24 @@ def _norm_must_not_allow(raw: Any, violations: List[Violation]) -> List[Dict[str
 
 
 def _check_decision_consistency(p: Dict[str, Any], violations: List[Violation]) -> None:
-    """三态决策与规则/理由是否自洽。"""
-    if p["decision"] == "NO_CHANGE":
+    """决策与规则/改标签项/理由是否自洽。"""
+    decision = p["decision"]
+    if decision == "RELABEL_OBJECT":
+        # 改标签与 allow 规则互斥：混在一起就无法判断到底在授权还是在收敛
+        if p["rules"]:
+            violations.append(_violation(
+                "DECISION_RULE_MISMATCH",
+                "decision=RELABEL_OBJECT 不能同时给出 allow 规则；改标签是收敛权限，"
+                "与放行互斥，请拆成两次独立判断"))
+        if not p["relabel"]:
+            violations.append(_violation(
+                "DECISION_RULE_MISMATCH",
+                "decision=RELABEL_OBJECT 但 relabel 为空；没有改标签项时必须判 NO_CHANGE"))
+    elif p["relabel"]:
+        violations.append(_violation(
+            "DECISION_RULE_MISMATCH",
+            "decision=%s 却给出了 relabel 项；改标签建议必须判 RELABEL_OBJECT" % decision))
+    elif decision == "NO_CHANGE":
         if p["rules"]:
             violations.append(_violation(
                 "DECISION_RULE_MISMATCH",
@@ -284,8 +376,8 @@ def _check_decision_consistency(p: Dict[str, Any], violations: List[Violation]) 
     elif not p["rules"]:
         violations.append(_violation(
             "DECISION_RULE_MISMATCH",
-            "decision=%s 但 rules 为空；没有规则可产出时必须判 NO_CHANGE" % p["decision"]))
-    elif p["decision"] == "MODIFY_ALLOW":
+            "decision=%s 但 rules 为空；没有规则可产出时必须判 NO_CHANGE" % decision))
+    elif decision == "MODIFY_ALLOW":
         # MODIFY_ALLOW 意味着已有规则但权限不全，必须说明改哪一条
         if not any("已有" in n or "修改" in n or "missing" in n.lower() for n in p["notes"]):
             violations.append(_violation(
@@ -293,17 +385,26 @@ def _check_decision_consistency(p: Dict[str, Any], violations: List[Violation]) 
                 "decision=MODIFY_ALLOW 需要在 notes 里说明现有规则缺哪些权限",
                 level="warn"))
 
-    if p["decision"] == "NO_CHANGE" and p["reason_code"] in ("MISSING_RULE", "INSUFFICIENT_PERMS"):
+    reason_code = p["reason_code"]
+    if decision == "RELABEL_OBJECT" and reason_code != "OBJECT_MISLABELED":
         violations.append(_violation(
             "DECISION_RULE_MISMATCH",
-            "reason_code=%s 与 decision=NO_CHANGE 矛盾" % p["reason_code"]))
-    if p["decision"] in ("ADD_ALLOW", "MODIFY_ALLOW") and p["reason_code"] in (
+            "decision=RELABEL_OBJECT 的 reason_code 必须是 OBJECT_MISLABELED，收到 %s" % reason_code))
+    if reason_code == "OBJECT_MISLABELED" and decision != "RELABEL_OBJECT":
+        violations.append(_violation(
+            "DECISION_RULE_MISMATCH",
+            "reason_code=OBJECT_MISLABELED 只能配 decision=RELABEL_OBJECT"))
+    if decision == "NO_CHANGE" and reason_code in ("MISSING_RULE", "INSUFFICIENT_PERMS"):
+        violations.append(_violation(
+            "DECISION_RULE_MISMATCH",
+            "reason_code=%s 与 decision=NO_CHANGE 矛盾" % reason_code))
+    if decision in ("ADD_ALLOW", "MODIFY_ALLOW") and reason_code in (
             "ALREADY_ALLOWED", "SOURCE_UNCONFINED", "OVERPRIVILEGE_ONLY", "LABEL_MISMATCH",
             "BOOLEAN_GATED", "PERMISSIVE_MODE", "EVIDENCE_INSUFFICIENT", "NOT_POLICY_ISSUE"):
         violations.append(_violation(
             "DECISION_RULE_MISMATCH",
             "reason_code=%s（%s）不能作为产出 allow 规则的依据"
-            % (p["reason_code"], REASON_CODES[p["reason_code"]])))
+            % (reason_code, REASON_CODES[reason_code])))
 
 
 # ──────────────────────────── 安全阀与最小化 ────────────────────────────
@@ -545,7 +646,8 @@ def _check_source_type(p: Dict[str, Any], evidence: Dict[str, Any],
                 % (rule["src"], src_type), rule=dict(rule)))
 
     if _is_unconfined(src_type):
-        if p["decision"] != "NO_CHANGE":
+        # 改标签针对的是客体标签，与源域是否受限无关，因此 RELABEL_OBJECT 不受此限
+        if p["decision"] not in ("NO_CHANGE", "RELABEL_OBJECT"):
             violations.append(_violation(
                 "SRC_NOT_EVIDENCED",
                 "源类型 %s 不受 SELinux 强制，为它编写 allow 规则没有实际约束效果；"
@@ -601,6 +703,104 @@ def _check_target_confidence(p: Dict[str, Any], probes: Dict[str, Dict[str, Any]
                     "证据 %s 的客体类型未能解析，不能据此产出规则" % ref, rule=dict(rule)))
 
 
+# ──────────────────────────── 改标签收敛校验 ────────────────────────────
+
+# 只有这些 verdict 说明客体当前确实被放行，才存在"权限过多"可供收敛
+_RELABEL_OVERPRIV_VERDICTS = ("allowed", "conditional", "partial")
+
+
+def _check_relabel(p: Dict[str, Any], evidence: Dict[str, Any],
+                   probes: Dict[str, Dict[str, Any]],
+                   violations: List[Violation]) -> None:
+    """改标签建议的确定性把关。
+
+    镜像安全阀：加 allow 时是"越权证据绝不能变成放行"，改标签时是
+    "绝不能因为一轮没看清，就把客体改到一个错误或更宽的类型上"。因此每一项都要：
+      1. 引用真实存在、且已 probe_access 过的访问；
+      2. 该访问当前确实被放行（否则没有过度权限可收敛）；
+      3. 实际标签 ≠ 默认标签（label_mismatch），且 current_type 就是观测到的实际类型；
+      4. expected_type 必须等于确定性解析出的默认类型，不得由模型自造；
+      5. 默认类型的解析必须可信 —— 泛型/兜底类型或未解析一律弃权（回落 LABEL_MISMATCH）。
+    可信但仅来自源码知识库（非目标机 matchpathcon）时，允许输出但强制低置信度 + warn。
+    """
+    if not p["relabel"]:
+        return
+    valid = {str(r.get("access_id")) for r in evidence.get("accesses", []) or []}
+    for item in p["relabel"]:
+        aid = item["access_id"]
+        if aid not in valid:
+            violations.append(_violation(
+                "RELABEL_UNKNOWN_ACCESS",
+                "relabel 引用的 %s 不在证据包中（可能是编造的）" % aid, rule=dict(item)))
+            continue
+        probe = probes.get(aid)
+        if not probe:
+            violations.append(_violation(
+                "RELABEL_UNPROBED",
+                "改标签前必须先对 %s 调用 query_selinux_policy(probe_access, access_id=%s)，"
+                "取得实际标签与默认类型" % (aid, aid), rule=dict(item)))
+            continue
+        tr = probe.get("target_resolution") or {}
+        verdict = str(probe.get("verdict") or "")
+        if verdict not in _RELABEL_OVERPRIV_VERDICTS:
+            violations.append(_violation(
+                "RELABEL_NOT_OVERPRIV",
+                "证据 %s 的探测结论是 %s，当前访问并未被策略放行，没有需要收敛的过度权限；"
+                "改标签只用于'已被放行但客体标签过宽'的情形" % (aid, verdict or "unknown"),
+                rule=dict(item)))
+            continue
+        if not tr.get("label_mismatch"):
+            violations.append(_violation(
+                "RELABEL_NO_MISMATCH",
+                "证据 %s 的实际标签与默认标签一致，不存在标签错配，无需改标签" % aid,
+                rule=dict(item)))
+            continue
+        actual = tr.get("actual_label") or {}
+        actual_type = str(actual.get("type") or "")
+        if not actual_type:
+            violations.append(_violation(
+                "RELABEL_NO_ACTUAL",
+                "证据 %s 读不到客体的实际标签类型（客体可能不存在或无 getxattr 权限），"
+                "无法确定从哪个类型改起" % aid, rule=dict(item)))
+            continue
+        if item["current_type"] != actual_type:
+            violations.append(_violation(
+                "RELABEL_CURRENT_MISMATCH",
+                "relabel 声称当前类型是 %s，但探测到的实际标签类型是 %s；以观测事实为准"
+                % (item["current_type"], actual_type), rule=dict(item)))
+            continue
+        expected_type = str(tr.get("expected_type") or "")
+        if item["expected_type"] != expected_type:
+            violations.append(_violation(
+                "RELABEL_TARGET_UNVERIFIED",
+                "改标签目标类型必须等于确定性解析出的默认类型 %s，收到 %s；不得自造类型名"
+                % (expected_type or "(未解析)", item["expected_type"]), rule=dict(item)))
+            continue
+        if not expected_type or tr.get("expected_is_generic") or \
+                str(tr.get("expected_trust") or "") not in ("high", "low"):
+            violations.append(_violation(
+                "RELABEL_UNTRUSTED",
+                "证据 %s 的默认类型解析不可信（%s）；不得据此改标签，"
+                "应判 NO_CHANGE(LABEL_MISMATCH) 并提示人工用 matchpathcon 复核"
+                % (aid, tr.get("expected_trust_reason") or "泛型/兜底类型或未解析"),
+                rule=dict(item)))
+            continue
+        if expected_type == actual_type:
+            violations.append(_violation(
+                "RELABEL_NO_MISMATCH",
+                "证据 %s 的默认类型与实际类型相同（%s），改标签没有意义" % (aid, expected_type),
+                rule=dict(item)))
+            continue
+        if str(tr.get("expected_trust") or "") == "low":
+            # 可信度足够发出建议，但目标类型只来自源码知识库：强制低置信度并要求人工复核
+            p["confidence"] = "low"
+            violations.append(_violation(
+                "RELABEL_KB_UNVERIFIED",
+                "证据 %s 的默认类型 %s 来自 refpolicy 源码知识库而非目标机 matchpathcon，"
+                "落地前必须在目标机上用 matchpathcon %s 复核确认"
+                % (aid, expected_type, item["path"]), level="warn", rule=dict(item)))
+
+
 # ──────────────────────────── .te 渲染与沙箱编译 ────────────────────────────
 
 
@@ -653,6 +853,35 @@ def render_te(module_name: str, rules: Sequence[Dict[str, Any]],
             rule["src"], rule["tgt"], rule["tclass"], " ".join(rule["perms"])))
         if rule.get("evidence"):
             lines.append("# 依据证据：%s" % ", ".join(rule["evidence"]))
+    return "\n".join(lines) + "\n"
+
+
+def render_relabel(relabel: Sequence[Dict[str, Any]]) -> str:
+    """把校验通过的改标签项渲染成人工可执行的说明文本。
+
+    本模块只渲染文本，绝不执行 semanage / restorecon。渲染顺序与输入无关，
+    保证同一组改标签项逐字节稳定，便于审计比对。
+    """
+    items = sorted(relabel, key=lambda r: (r["path"], r["current_type"], r["expected_type"]))
+    lines = ["# 客体标签收敛建议（低置信度，需人工在目标机复核后执行；本模块不会自动应用）",
+             "# 目的：把被过度放行的客体从过宽的实际标签改回默认类型，从而收窄可访问它的域"]
+    for item in items:
+        path = item["path"]
+        cur = item["current_type"]
+        exp = item["expected_type"]
+        lines.append("")
+        lines.append("# 客体 %s：%s → %s（依据证据 %s）" % (path, cur, exp, item["access_id"]))
+        if item.get("reason"):
+            lines.append("# 理由：%s" % item["reason"])
+        lines.append("# 第一步先复核默认类型是否确为 %s：" % exp)
+        lines.append("matchpathcon %s" % path)
+        lines.append("# 若上面已显示 %s，说明 file_contexts 规则已存在，只需重打标签：" % exp)
+        lines.append("restorecon -v %s" % path)
+        lines.append("# 否则先补/改 file_contexts 规则，再重打标签：")
+        lines.append("semanage fcontext -a -t %s %s   # 已存在同路径规则时改用 -m" % (exp, path))
+        lines.append("restorecon -v %s" % path)
+        lines.append("# 风险：本模块无法枚举其他域对 %s 在 %s 下的合法依赖，"
+                     "改标签可能影响它们，务必人工确认后再执行" % (path, cur))
     return "\n".join(lines) + "\n"
 
 
@@ -712,8 +941,8 @@ def validate(proposal: Dict[str, Any], evidence: Dict[str, Any],
 
     if not isinstance(proposal, dict):
         return _result({"decision": "NO_CHANGE", "reason_code": "EVIDENCE_INSUFFICIENT",
-                        "summary": "", "module_name": "", "rules": [], "notes": [],
-                        "evidence_refs": [], "must_not_allow": [],
+                        "summary": "", "module_name": "", "rules": [], "relabel": [],
+                        "notes": [], "evidence_refs": [], "must_not_allow": [],
                         "target_policy_version": "", "confidence": "low"},
                        [_violation("SCHEMA_INVALID", "提案必须是 JSON 对象")], evidence)
 
@@ -729,8 +958,14 @@ def validate(proposal: Dict[str, Any], evidence: Dict[str, Any],
         _check_target_confidence(p, probes, violations)
         _check_minimality(p, evidence, probes, violations)
 
+    # 改标签与 allow 规则互斥，各自独立校验；有阻断时都不渲染
+    if p["relabel"] and not _blocks(violations):
+        _check_relabel(p, evidence, probes, violations)
+
     te_text = ""
     te_sha256 = ""
+    relabel_text = ""
+    relabel_sha256 = ""
     compile_result: Dict[str, Any] = {"attempted": False, "ok": False, "skipped": True,
                                       "detail": "没有规则需要编译"}
     if p["rules"] and not _blocks(violations):
@@ -749,13 +984,21 @@ def validate(proposal: Dict[str, Any], evidence: Dict[str, Any],
         else:
             compile_result = {"attempted": False, "ok": False, "skipped": True,
                               "detail": "调用方要求跳过编译校验"}
+    elif p["relabel"] and not _blocks(violations):
+        # 改标签不产生 .te，无模块可编译；渲染人工执行说明并留一份稳定哈希供审计
+        relabel_text = render_relabel(p["relabel"])
+        relabel_sha256 = hashlib.sha256(relabel_text.encode("utf-8")).hexdigest()
+        compile_result = {"attempted": False, "ok": False, "skipped": True,
+                          "detail": "改标签建议不涉及 .te 编译"}
 
-    return _result(p, violations, evidence, te_text, te_sha256, compile_result)
+    return _result(p, violations, evidence, te_text, te_sha256, compile_result,
+                   relabel_text, relabel_sha256)
 
 
 def _result(p: Dict[str, Any], violations: List[Violation], evidence: Dict[str, Any],
             te_text: str = "", te_sha256: str = "",
-            compile_result: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+            compile_result: Optional[Dict[str, Any]] = None,
+            relabel_text: str = "", relabel_sha256: str = "") -> Dict[str, Any]:
     blocks = _blocks(violations)
     warns = _warns(violations)
     ok = not blocks
@@ -763,9 +1006,11 @@ def _result(p: Dict[str, Any], violations: List[Violation], evidence: Dict[str, 
     compile_result = dict(compile_result or {"attempted": False, "ok": False,
                                              "skipped": True, "detail": "没有规则需要编译"})
     if not ok:
-        # 校验未通过时不输出规则文本，编译结果也不再有意义
+        # 校验未通过时不输出规则/改标签文本，编译结果也不再有意义
         te_text = ""
         te_sha256 = ""
+        relabel_text = ""
+        relabel_sha256 = ""
         compile_result = {"attempted": False, "ok": False, "skipped": True,
                           "detail": "存在阻断性校验失败，建议未输出"}
 
@@ -785,6 +1030,9 @@ def _result(p: Dict[str, Any], violations: List[Violation], evidence: Dict[str, 
         "module_name": p["module_name"] if ok and p["rules"] else "",
         "target_policy_version": p.get("target_policy_version", ""),
         "rules": p["rules"] if ok else [],
+        "relabel": p["relabel"] if ok and decision == "RELABEL_OBJECT" else [],
+        "relabel_text": relabel_text,
+        "relabel_sha256": relabel_sha256,
         "te": te_text,
         "te_sha256": te_sha256,
         "notes": p["notes"],
@@ -827,6 +1075,12 @@ def feedback(result: Dict[str, Any]) -> str:
         "越权访问（隐私资源、未申报的高危访问）绝不能产出 allow 规则，只能判 NO_CHANGE；"
         "类型名必须是查询确认存在于本机已加载策略的具体类型，不能是属性或兜底类型。"
     )
+    if any(str(v.get("code", "")).startswith("RELABEL_") for v in blocks):
+        lines.append(
+            "改标签修正原则：relabel 项只能引用已 probe_access 过、当前被放行、"
+            "且实际标签≠默认标签的访问；expected_type 必须等于探测解析出的默认类型，"
+            "不得自造；默认类型解析为泛型/兜底或不可信时必须弃权，改判 NO_CHANGE(LABEL_MISMATCH)。"
+        )
     return "\n".join(lines)
 
 
@@ -858,6 +1112,17 @@ def render_report(result: Dict[str, Any]) -> str:
             posture.get("mode", "?"), posture.get("policyvers", "?")))
 
     if result["decision"] == "NO_CHANGE" or not result.get("rules"):
+        if result["decision"] == "RELABEL_OBJECT" and result.get("relabel"):
+            lines.append("  改标签项 sha256：%s" % (result.get("relabel_sha256") or "")[:16])
+            for note in result.get("notes", []):
+                lines.append("  说明：%s" % note)
+            for v in result.get("violations", []):
+                if v.get("level") == "warn":
+                    lines.append("  警告：[%s] %s" % (v["code"], v["message"]))
+            lines.append("")
+            lines.append("  改标签建议（需人工在目标机复核后执行 semanage/restorecon，本模块不会自动应用）：")
+            lines.append("  " + "\n  ".join(result.get("relabel_text", "").rstrip().splitlines()))
+            return "\n".join(lines)
         for note in result.get("notes", []):
             lines.append("  说明：%s" % note)
         for v in result.get("violations", []):

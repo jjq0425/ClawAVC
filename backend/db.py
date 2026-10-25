@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import sqlite3
 import os
 from pathlib import Path
@@ -268,6 +269,52 @@ def init_db():
 ABNORMAL_THRESHOLD = 0.5
 _SCORE_RE = None
 
+_KERNEL_ABNORMAL_MARK = "[内核态检测]"
+
+
+def kernel_judge_verdict(round_id: str) -> tuple:
+    """读取内核态越权分析报告（infos/kernel_judge/<rid>_judge_result.md）的结论。
+
+    Returns:
+        (is_abnormal, summary)：
+        - is_abnormal: 报告"是否异常: 是"则为 True
+        - summary: 异常类型摘要（最多 3 行），无报告/无异常时为 ""
+    """
+    try:
+        row = get_conn().execute(
+            "SELECT judge_result_kernel FROM rounds WHERE round_id = ?", (round_id,)
+        ).fetchone()
+        path = (row[0] or "").strip() if row else ""
+        if not path:
+            return False, ""
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        return False, ""
+    if re.search(r"是否异常:\s*是", text) is None:
+        return False, ""
+    summary_lines = []
+    for line in text.splitlines():
+        s = line.strip().lstrip("- ").strip()
+        if not s:
+            continue
+        if any(k in s for k in ("未授权动作", "未注册工具", "越权操作", "未授权操作", "异常类型")):
+            if s.startswith("异常类型"):
+                continue
+            if s not in summary_lines:
+                summary_lines.append(s)
+        if len(summary_lines) >= 3:
+            break
+    return True, "；".join(summary_lines)[:300]
+
+
+def _append_kernel_summary(judge_result: str, summary: str) -> str:
+    """把内核态异常摘要附加到 judge_result 尾部（带标记，避免重复追加）。"""
+    base = (judge_result or "").rstrip()
+    if not summary or _KERNEL_ABNORMAL_MARK in base:
+        return base
+    return f"{base}\n\n---\n{_KERNEL_ABNORMAL_MARK} 检测到异常：{summary}"
+
 
 def abnormal_from_score(score: Any) -> Optional[int]:
     """is_abnormal 的唯一判定口径（R9 修复）：0 <= 得分 < 0.5 记异常，= 0.5 及以上记正常；
@@ -398,6 +445,16 @@ def update_round_end(round_id: str, data: Dict[str, Any]) -> bool:
     derived = abnormal_from_score(score)
     if derived is not None:
         data["is_abnormal"] = derived
+
+    # 三通道融合（内核态越权报告）：用户态 judge 判正常时，若 kernel_judge 报告
+    # 结论为异常（网络未授权动作 / 调用未注册工具 / 越权操作），最终仍记为异常，
+    # 并把内核摘要附加到 judge_result，保证三通道结论一致反映到 is_abnormal。
+    if data.get("is_abnormal") == 0:
+        k_ab, k_summary = kernel_judge_verdict(round_id)
+        if k_ab:
+            data["is_abnormal"] = 1
+            data["judge_result"] = _append_kernel_summary(
+                data.get("judge_result") or "", k_summary)
 
     conn = get_conn()
     try:
@@ -536,13 +593,16 @@ def update_round_end(round_id: str, data: Dict[str, Any]) -> bool:
 
 def get_rounds(limit: int = 50, offset: int = 0, abnormal_only: bool = False,
              query: str = "", round_id: str = "",
-             time_from: str = "", time_to: str = "") -> Dict[str, Any]:
+             time_from: str = "", time_to: str = "", role: str = "") -> Dict[str, Any]:
     """Get rounds with filters. Returns {total, data}."""
     conn = get_conn()
     conditions = []
     params = []
     if abnormal_only:
         conditions.append("is_abnormal = 1")
+    if role:
+        conditions.append("role_name = ?")
+        params.append(role)
     if query:
         # 关键字同时匹配用户查询与 round_id（流量回放页搜索框「搜索 round_id 或用户查询」）
         conditions.append("(user_query LIKE ? OR round_id LIKE ?)")
@@ -1107,6 +1167,26 @@ def update_judge_result_kernel(round_id: str, judge_result_kernel_md_path: str, 
             (judge_result_kernel, round_id)
         )
         conn.commit()
+
+        # 三通道融合（内核态越权报告）：内核报告判异常时，最终 is_abnormal 置 1
+        # （用户态 judge 可能判 1.0 正常——调用层一致不代表内核层无越权），
+        # 并把内核摘要附加到 judge_result（带标记防重复）。
+        try:
+            k_ab, k_summary = kernel_judge_verdict(round_id)
+            if k_ab:
+                row = conn.execute(
+                    "SELECT judge_result, is_abnormal FROM rounds WHERE round_id = ?",
+                    (round_id,)
+                ).fetchone()
+                old_jr = row[0] if row else ""
+                new_jr = _append_kernel_summary(old_jr, k_summary)
+                conn.execute(
+                    "UPDATE rounds SET is_abnormal = 1, judge_result = ? WHERE round_id = ?",
+                    (new_jr, round_id)
+                )
+                conn.commit()
+        except Exception as e:
+            print(f"[db] kernel judge fusion error: {e}")
         return "ok"
     except Exception as e:
         print(f"[db] update_judge_result_kernel error: {e}")

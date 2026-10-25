@@ -49,19 +49,23 @@
             <!-- 资源概览 -->
             <div class="fact-summary">
               <div class="fact-path">
-                <t-icon name="location" size="14px" />
-                <span>{{ fact.path || '-' }}</span>
+                <t-icon :name="fact.network_target ? 'cloud' : 'location'" size="14px" />
+                <span>{{ fact.path || fact.network_target || '-' }}</span>
               </div>
               <div class="fact-stats">
-                <div class="stat-item">
+                <div class="stat-item" v-if="fact.open_count !== undefined">
                   <div class="stat-value">{{ fact.open_count || 0 }}</div>
                   <div class="stat-label">打开</div>
                 </div>
-                <div class="stat-item">
+                <div class="stat-item" v-if="fact.read_count !== undefined">
                   <div class="stat-value">{{ fact.read_count || 0 }}</div>
                   <div class="stat-label">读取</div>
                 </div>
-                <div class="stat-item">
+                <div class="stat-item" v-if="fact.connect_count !== undefined">
+                  <div class="stat-value">{{ fact.connect_count || 0 }}</div>
+                  <div class="stat-label">连接</div>
+                </div>
+                <div class="stat-item" v-if="fact.read_returned_bytes !== undefined">
                   <div class="stat-value">{{ formatBytes(fact.read_returned_bytes || 0) }}</div>
                   <div class="stat-label">字节</div>
                 </div>
@@ -218,7 +222,15 @@ const declaredResources = computed(() => {
 })
 
 const resourceFacts = computed(() => {
-  return resourceData.value?.resource_facts || []
+  const d = resourceData.value
+  if (!d) return []
+  // 新结构：resource_facts 嵌套在 tool_calls[i] 下，需展平
+  if (Array.isArray(d.tool_calls) && d.tool_calls.length) {
+    const flat = d.tool_calls.flatMap(tc => Array.isArray(tc?.resource_facts) ? tc.resource_facts : [])
+    if (flat.length) return flat
+  }
+  // 兼容旧结构：顶层 resource_facts
+  return d.resource_facts || []
 })
 
 const compactStats = computed(() => {

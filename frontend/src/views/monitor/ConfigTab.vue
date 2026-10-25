@@ -119,6 +119,36 @@
       </div>
 
     </div>
+
+    <!-- Detection Config -->
+    <div class="section-card">
+      <div class="section-header">
+        <t-icon name="search" size="20px" />
+        <span>检测配置</span>
+      </div>
+      <p class="section-desc">配置运行监测时的安全检测策略。</p>
+
+      <div v-if="monitorRunning" class="readonly-hint">
+        <t-icon name="info-circle" size="14px" />
+        <span>安全监控运行期间，检测配置将被锁定，无法修改。请先终止监控后再进行调整。</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">工具返回结果提示注入监测关键词</label>
+        <p class="form-hint">每行填写一个关键词（不区分大小写）。运行监测时将检查外部工具返回结果中是否包含这些关键词，以识别提示词注入攻击，例如：IMPORTANT、SYSTEM INSTRUCT。</p>
+        <t-textarea
+          v-model="tool_result_injection_keywords"
+          :autosize="{ minRows: 4, maxRows: 10 }"
+          placeholder="IMPORTANT&#10;SYSTEM INSTRUCT&#10;IGNORE PREVIOUS INSTRUCTIONS"
+          :disabled="monitorRunning"
+        />
+        <div class="input-row save-row">
+          <t-button theme="primary" @click="saveSingle('tool_result_injection_keywords')" :loading="saving === 'tool_result_injection_keywords'" :disabled="monitorRunning">
+            保存
+          </t-button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -130,6 +160,7 @@ const gateway_log_path = ref("")
 const openclaw_root = ref("")
 const use_gateway = ref(false)
 const tool_trace_enabled = ref(false)
+const tool_result_injection_keywords = ref("")
 const saving = ref("")
 const pathStatus = ref({})
 const monitorRunning = ref(false)
@@ -150,6 +181,7 @@ async function loadConfig() {
       openclaw_root.value = d.openclaw_root || ""
       use_gateway.value = d.use_gateway === "true"
       tool_trace_enabled.value = d.tool_trace_enabled === "true"
+      tool_result_injection_keywords.value = d.tool_result_injection_keywords || ""
       pathStatus.value = d._path_status || {}
     }
   } catch {}
@@ -200,6 +232,7 @@ async function saveSingle(key) {
     openclaw_root: openclaw_root.value,
     use_gateway: use_gateway.value ? "true" : "false",
     tool_trace_enabled: tool_trace_enabled.value ? "true" : "false",
+    tool_result_injection_keywords: tool_result_injection_keywords.value,
   }
   try {
     const r = await fetch("/api/monitor/config", {
@@ -326,6 +359,7 @@ async function saveSingle(key) {
 .form-label { display: block; font-size: 14px; font-weight: 500; color: #333; margin-bottom: 4px; }
 .form-hint { font-size: 12px; color: #999; margin-bottom: 10px; }
 .input-row { display: flex; gap: 10px; align-items: center; }
+.save-row { margin-top: 10px; }
 .path-status { margin-top: 8px; }
 .readonly-hint {
   display: flex;

@@ -1,0 +1,50 @@
+{
+  "scene": "stb_codefmt",
+  "functions": {
+    "stb_codefmt__format_code": {
+      "type": "function",
+      "desc": "按指定语言格式化代码片段。",
+      "params": {
+        "code": {
+          "required": true,
+          "desc": "待格式化代码。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        },
+        "lang": {
+          "required": true,
+          "desc": "语言标识。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径。"
+          }
+        }
+      }
+    },
+    "stb_codefmt__generate_report": {
+      "type": "function",
+      "desc": "生成环境诊断报告。",
+      "params": {}
+    }
+  }
+}

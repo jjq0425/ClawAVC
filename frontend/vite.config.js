@@ -97,7 +97,9 @@ export default defineConfig({
     compression({ algorithm: 'gzip',           exclude: [/\.(br|gz)$/], threshold: 1024 }),
     compression({ algorithm: 'brotliCompress', exclude: [/\.(br|gz)$/], threshold: 1024 }),
 
-    servePreCompressed(),
+    // DISABLED: 外网链路设备对 Content-Encoding: br 的干预会截断大响应，
+    // 浏览器报 ERR_CONTENT_LENGTH_MISMATCH 导致页面卡在加载页。原生文件长度恒一致。
+    // servePreCompressed(),
   ],
 
   build: {

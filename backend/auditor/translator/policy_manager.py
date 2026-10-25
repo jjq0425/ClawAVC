@@ -27,6 +27,7 @@ import json
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -34,6 +35,10 @@ from typing import Any, Dict, List, Optional, Tuple
 _TRANSLATOR_DIR = Path(__file__).resolve().parent
 _DEFAULT_TEMPLATE = str(_TRANSLATOR_DIR / "policies" / "{policy}" / "policy_registry")
 _DEFAULT_POLICY = "default"
+
+# 自进化角色标记：角色名含该串即为「进化产物角色」；基线受保护角色不可被覆盖
+EVOLVED_MARK = "_evolved_"
+PROTECTED_BASELINES = {"default", "ops"}
 
 # Policy 名：仅允许字母/数字/下划线/中划线，杜绝路径穿越
 POLICY_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -282,6 +287,52 @@ def delete_policy(name: str) -> Tuple[Dict[str, Any], int]:
 
     _reload()
     return {"ok": True}, 200
+
+
+# ─── 自进化角色覆盖 ──────────────────────────────────────────────
+def overwrite_policy(source: str, target: str) -> Tuple[Dict[str, Any], int]:
+    """把自进化角色（名含 _evolved_）的 policy_registry 覆盖到基础角色（名不含 _evolved_）。
+
+    覆盖后目标角色名不变；若目标正是当前生效角色则热重载。
+    覆盖前自动备份目标 registry 到 policies/.backups/<ts>_<target>/。
+    """
+    source, target = (source or "").strip(), (target or "").strip()
+    if not POLICY_NAME_RE.match(source) or not POLICY_NAME_RE.match(target):
+        return {"ok": False, "error": "角色名不合法"}, 400
+    if source == target:
+        return {"ok": False, "error": "源角色与目标角色相同"}, 400
+    if EVOLVED_MARK not in source:
+        return {"ok": False, "error": f"源必须是自进化角色（名含 {EVOLVED_MARK}）"}, 400
+    if EVOLVED_MARK in target:
+        return {"ok": False, "error": "目标必须是基础角色（名不含 _evolved_）"}, 400
+    if target in PROTECTED_BASELINES:
+        return {"ok": False, "error": f"基线角色 {target} 受保护，不可被覆盖"}, 400
+
+    src, dst = _policy_dir_of(source), _policy_dir_of(target)
+    if not _is_valid_registry(src):
+        return {"ok": False, "error": f"源策略库无效：{src}"}, 400
+    if not _is_valid_registry(dst):
+        return {"ok": False, "error": f"目标策略库无效：{dst}"}, 400
+
+    backup = ""
+    try:
+        root, _ = _template_parts(get_template())
+        backup_root = (root or (_TRANSLATOR_DIR / "policies")) / ".backups"
+        bdir = backup_root / f"{time.strftime('%Y%m%d%H%M%S')}_{target}"
+        shutil.copytree(dst, bdir)
+        backup = str(bdir)
+        shutil.rmtree(dst)
+        shutil.copytree(src, dst)
+    except Exception as e:
+        return {"ok": False, "error": f"覆盖失败：{e}", "backup": backup}, 500
+
+    hot_reloaded = False
+    if get_current_policy() == target:
+        _set_cfg(CFG_PATH, str(dst))
+        _reload()
+        hot_reloaded = True
+    return {"ok": True, "data": {"source": source, "target": target,
+                                 "backup": backup, "hot_reloaded": hot_reloaded}}, 200
 
 
 # ─── 模板配置 ────────────────────────────────────────────────────

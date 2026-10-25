@@ -106,8 +106,10 @@ def list_rounds():
     round_id = request.args.get("round_id", "").strip()
     time_from = request.args.get("time_from", "").strip()
     time_to = request.args.get("time_to", "").strip()
+    role = request.args.get("role", "").strip()
     result = db.get_rounds(limit=limit, offset=offset, abnormal_only=abnormal_only,
-                           query=query, round_id=round_id, time_from=time_from, time_to=time_to)
+                           query=query, round_id=round_id, time_from=time_from, time_to=time_to,
+                           role=role)
     return jsonify({"ok": True, "data": result["data"], "total": result["total"]})
 
 @api_doc(summary="查询单个 Round", category="数据查询与更新", params=[{"name":"round_id","type":"query","desc":"Round ID"}], response={"ok":True,"data":{}}, public=True)
@@ -1198,6 +1200,17 @@ def switch_policy_api():
     return jsonify(result), code
 
 
+@app.route("/api/translator/policies/overwrite", methods=["POST"])
+def overwrite_policy_api():
+    """自进化角色覆盖：把 _evolved_ 角色的 registry 覆盖到基础角色（名不变）。免特权。"""
+    from auditor.translator.policy_manager import overwrite_policy
+
+    body = request.get_json(force=True, silent=True) or {}
+    result, code = overwrite_policy((body.get("source") or "").strip(),
+                                    (body.get("target") or "").strip())
+    return jsonify(result), code
+
+
 @app.route("/api/translator/policies/create", methods=["POST"])
 def create_policy_api():
     """新建 Policy：from 为空建空骨架，否则复制自指定 Policy（保证场景一致）。需特权。"""
@@ -1273,10 +1286,7 @@ _register_aiw_error_handler()
 
 
 def _aiw_admin():
-    """写操作统一特权校验（与 /api/translator/config PUT 一致）。"""
-    token = request.headers.get("X-Admin-Session", "")
-    if not _check_admin_session(token):
-        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    """【已放开】按需求取消 AI 帮写接口的特权校验，直接放行。"""
     return None
 
 
@@ -1460,9 +1470,7 @@ def _rsi():
 
 
 def _rsi_admin():
-    token = request.headers.get("X-Admin-Session", "")
-    if not _check_admin_session(token):
-        return jsonify({"ok": False, "error": "需要特权验证"}), 403
+    """【已放开】按需求取消 RSI 接口的特权校验，直接放行。"""
     return None
 
 
@@ -1474,9 +1482,7 @@ def get_rsi_config():
 
 @app.route("/api/translator/rsi/config", methods=["PUT"])
 def put_rsi_config():
-    guard = _rsi_admin()
-    if guard:
-        return guard
+    # 按需求放开：RSI 模型配置更新不再要求特权验证（与 translator/test 同级开放）
     return jsonify(_rsi().set_config(request.get_json(force=True) or {}))
 
 
@@ -1756,7 +1762,9 @@ MONITOR_CONF_KEYS = ["gateway_log_path", "openclaw_root", "use_gateway", "tool_t
                       "anomaly_llm_max_tokens", "anomaly_llm_skill_prompt",
                       "anomaly_llm_tool_compress", "anomaly_llm_tool_compress_max",
                       # 「模型接入」新增：模型名 / API Key（均可留空）
-                      "anomaly_llm_model", "anomaly_llm_api_key"]
+                      "anomaly_llm_model", "anomaly_llm_api_key",
+                      # 提示注入检测：工具返回结果监测关键词（每行一个）
+                      "tool_result_injection_keywords"]
 # 二阶段异常分析基础 prompt 默认值（可在「异常判断大模型（二阶段）设置」中覆盖）
 ANOMALY_LLM_DEFAULT_BASE_PROMPT = (
     "请基于以下 Round 的完整多维行为轨迹审计数据（覆盖用户意图、IR 权限声明、用户态与内核态行为、"
@@ -3637,7 +3645,7 @@ def main():
             # 解析响应体（限制大小）
             response_body = ""
             try:
-                if response.get_data():
+                if not response.is_streamed:
                     resp_text = response.get_data(as_text=True)
                     if len(resp_text) > 2000:
                         resp_text = resp_text[:2000] + "...(truncated)"

@@ -169,6 +169,13 @@ def call_llm(
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
+    # 可选输出上限：推理型模型（reasoning tokens 计入 completion）需要调大，否则正文被截为空
+    mt = str(cfg.get("max_tokens") or "").strip()
+    if mt:
+        try:
+            payload["max_tokens"] = int(mt)
+        except ValueError:
+            pass
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 

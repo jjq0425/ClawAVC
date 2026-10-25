@@ -1106,6 +1106,12 @@ def get_config_from_db() -> Dict[str, str]:
     return {}
 
 
+def load_injection_keywords() -> List[str]:
+    """从监控配置读取「工具返回结果提示注入监测关键词」（每行一个）。"""
+    raw = str(get_config_from_db().get("tool_result_injection_keywords", "") or "")
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
 def get_attack_config_snapshot() -> str:
     """Read full attack tool-injection config via clawAVC API (key empty = all).
 
@@ -1915,7 +1921,8 @@ class MonitorOrchestrator:
                 
                 if current_actions and current_ir_data:
                     try:
-                        judge_result = judge(current_actions, current_ir_data)
+                        judge_result = judge(current_actions, current_ir_data,
+                                             injection_keywords=load_injection_keywords())
                         import re as _re
                         score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
                         judge_score = float(score_match.group(1)) if score_match else -1.0
@@ -2066,7 +2073,8 @@ class MonitorOrchestrator:
                 
                 if current_actions and current_ir_data:
                     try:
-                        judge_result = judge(current_actions, current_ir_data)
+                        judge_result = judge(current_actions, current_ir_data,
+                                             injection_keywords=load_injection_keywords())
                         import re as _re
                         score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
                         judge_score = float(score_match.group(1)) if score_match else -1.0
