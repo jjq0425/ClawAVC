@@ -1,0 +1,885 @@
+{
+  "scene": "travel_booking",
+  "functions": {
+    "agentdojo_travel__get_user_information": {
+      "type": "function",
+      "desc": "Get the user information: first name, last name, ID number, email, phone number, address, passport number, bank account number, credit card number.",
+      "params": {}
+    },
+    "agentdojo_travel__get_all_hotels_in_city": {
+      "type": "function",
+      "desc": "Get all hotels in the given city.",
+      "params": {
+        "city": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_hotels_prices": {
+      "type": "function",
+      "desc": "Get the price ranges for the given hotels.",
+      "params": {
+        "hotel_names": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_hotels_address": {
+      "type": "function",
+      "desc": "Get the address of the given hotel.",
+      "params": {
+        "hotel_name": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_rating_reviews_for_hotels": {
+      "type": "function",
+      "desc": "Get the rating and reviews for the given hotels.",
+      "params": {
+        "hotel_names": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_all_restaurants_in_city": {
+      "type": "function",
+      "desc": "Get all restaurants in the given city.",
+      "params": {
+        "city": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_cuisine_type_for_restaurants": {
+      "type": "function",
+      "desc": "Get the cuisine type for the given restaurants.",
+      "params": {
+        "restaurant_names": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_restaurants_address": {
+      "type": "function",
+      "desc": "Get the address of the given restaurants.",
+      "params": {
+        "restaurant_names": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_rating_reviews_for_restaurants": {
+      "type": "function",
+      "desc": "Get the rating and reviews for the given restaurants.",
+      "params": {
+        "restaurant_names": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_dietary_restrictions_for_all_restaurants": {
+      "type": "function",
+      "desc": "Get the dietary restrictions for all restaurants.",
+      "params": {}
+    },
+    "agentdojo_travel__get_contact_information_for_restaurants": {
+      "type": "function",
+      "desc": "Get the contact information for the given restaurants.",
+      "params": {
+        "restaurant_names": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_price_for_restaurants": {
+      "type": "function",
+      "desc": "Get the average price for the given restaurants.",
+      "params": {
+        "restaurant_names": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__check_restaurant_opening_hours": {
+      "type": "function",
+      "desc": "Check the opening hours for the given restaurants.",
+      "params": {
+        "restaurant_names": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_all_car_rental_companies_in_city": {
+      "type": "function",
+      "desc": "Get all car rental companies in the given city.",
+      "params": {
+        "city": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_car_types_available": {
+      "type": "function",
+      "desc": "Get the car types available for the given company.",
+      "params": {
+        "company": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_rating_reviews_for_car_rental": {
+      "type": "function",
+      "desc": "Get the rating and reviews for the given car rental company.",
+      "params": {
+        "company": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_car_fuel_options": {
+      "type": "function",
+      "desc": "Get the fuel options for the given company.",
+      "params": {
+        "company": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_car_rental_address": {
+      "type": "function",
+      "desc": "Get the address of the given car rental company.",
+      "params": {
+        "company": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_car_price_per_day": {
+      "type": "function",
+      "desc": "Get the price per day for the given company.",
+      "params": {
+        "company": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__create_calendar_event": {
+      "type": "function",
+      "desc": "Creates a calendar event with the given details.",
+      "params": {
+        "title": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "description": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "start_time": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "end_time": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "location": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "participants": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__search_calendar_events": {
+      "type": "function",
+      "desc": "Returns calendar events matching the query.",
+      "params": {
+        "query": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "date": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_day_calendar_events": {
+      "type": "function",
+      "desc": "Returns the appointments for the given day.",
+      "params": {
+        "day": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__cancel_calendar_event": {
+      "type": "function",
+      "desc": "Cancels the calendar event with the given ID.",
+      "params": {
+        "event_id": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__reserve_hotel": {
+      "type": "function",
+      "desc": "Makes a reservation for a hotel.",
+      "params": {
+        "hotel": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "start_day": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "end_day": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__reserve_car_rental": {
+      "type": "function",
+      "desc": "Makes a reservation for a car rental.",
+      "params": {
+        "company": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "start_time": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "end_time": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__reserve_restaurant": {
+      "type": "function",
+      "desc": "Makes a reservation for a restaurant.",
+      "params": {
+        "restaurant": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "start_time": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__get_flight_information": {
+      "type": "function",
+      "desc": "Get the flight information from the departure city to the arrival city.",
+      "params": {
+        "departure_city": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "arrival_city": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_travel__send_email": {
+      "type": "function",
+      "desc": "Sends an email with the given body to the given addresses.",
+      "params": {
+        "recipients": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "subject": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "body": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "cc": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "bcc": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    }
+  }
+}

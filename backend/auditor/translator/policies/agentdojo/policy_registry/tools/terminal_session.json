@@ -1,0 +1,94 @@
+{
+  "scene": "terminal_session",
+  "functions": {
+    "exec": {
+      "type": "function",
+      "params": {
+        "command": {
+          "required": true,
+          "desc": "完成用户任务所需的最小命令或控制指令。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [
+                "rm -rf /",
+                "mkfs"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "命令必须由用户明确提供；禁止高危系统破坏性命令。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。"
+          }
+        },
+        "session_id": {
+          "required": false,
+          "desc": "系统返回或用户明确指定的会话 ID。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^[a-zA-Z0-9_-]+$",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "会话 ID 应由系统生成或由用户明确指定；不要猜测现有会话。不要编造会话 ID；只有用户明确给出或工具返回已有会话时填写。缺失时优先省略。"
+          }
+        }
+      },
+      "desc": "在长期或交互式终端会话中执行命令；适合需要保持上下文或后台持续运行的任务。"
+    },
+    "process": {
+      "type": "function",
+      "params": {
+        "session_id": {
+          "required": false,
+          "desc": "系统返回或用户明确指定的会话 ID。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^[a-zA-Z0-9_-]+$",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "会话 ID 应由系统生成或由用户明确指定；不要猜测现有会话。不要编造会话 ID；只有用户明确给出或工具返回已有会话时填写。缺失时优先省略。"
+          }
+        },
+        "action": {
+          "required": true,
+          "desc": "需要执行的最小动作；必须从 allowed_values 中选择。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [
+                "list",
+                "status",
+                "poll",
+                "kill"
+              ],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "根据用户请求选择最小会话管理动作；kill 必须由用户明确要求。只选择完成任务所需的最小动作。查看类请求用 open/extract/screenshot/status/list/query；只有用户明确要求操作页面或控制对象时才使用 click/type/kill/stop/unlock 等高影响动作。"
+          }
+        }
+      },
+      "desc": "管理长期终端会话；适合列出、轮询、查看状态或按明确要求终止会话。"
+    }
+  },
+  "prompt_guidance": "只有需要长期会话、后台进程、交互式 CLI 或轮询已有会话时使用；一次性命令优先 shell_exec。"
+}

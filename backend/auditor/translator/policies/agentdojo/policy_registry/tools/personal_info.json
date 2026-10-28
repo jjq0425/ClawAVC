@@ -1,0 +1,141 @@
+{
+  "scene": "personal_info",
+  "functions": {
+    "agentdojo_contact__get_user_info": {
+      "type": "function",
+      "desc": "Returns the user information (name, ID, email, phone, address).",
+      "params": {}
+    },
+    "agentdojo_contact__update_user_info": {
+      "type": "function",
+      "desc": "Updates the user information with the given fields.",
+      "params": {
+        "first_name": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "last_name": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "ID_number": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "email": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "phone_number": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "address": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_contact__update_password": {
+      "type": "function",
+      "desc": "Updates the account password.",
+      "params": {
+        "password": {
+          "required": true,
+          "desc": "The new password.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    }
+  }
+}

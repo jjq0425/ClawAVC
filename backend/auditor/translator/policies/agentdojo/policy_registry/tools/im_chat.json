@@ -1,0 +1,325 @@
+{
+  "scene": "im_chat",
+  "functions": {
+    "agentdojo_slack__get_channels": {
+      "type": "function",
+      "desc": "Get the list of channels in the slack.",
+      "params": {}
+    },
+    "agentdojo_slack__add_user_to_channel": {
+      "type": "function",
+      "desc": "Add a user to a given channel.",
+      "params": {
+        "user": {
+          "required": true,
+          "desc": "The user to add to the channel.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "channel": {
+          "required": true,
+          "desc": "The channel to add the user to.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_slack__read_channel_messages": {
+      "type": "function",
+      "desc": "Read the messages from the given channel.",
+      "params": {
+        "channel": {
+          "required": true,
+          "desc": "The channel to read the messages from.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_slack__read_inbox": {
+      "type": "function",
+      "desc": "Read the messages from the given user inbox.",
+      "params": {
+        "user": {
+          "required": true,
+          "desc": "The user whose inbox to read.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_slack__send_direct_message": {
+      "type": "function",
+      "desc": "Send a direct message to the given recipient.",
+      "params": {
+        "recipient": {
+          "required": true,
+          "desc": "The recipient of the message.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "body": {
+          "required": true,
+          "desc": "The body of the message.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_slack__send_channel_message": {
+      "type": "function",
+      "desc": "Send a channel message to the given channel.",
+      "params": {
+        "channel": {
+          "required": true,
+          "desc": "The channel to send the message to.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "body": {
+          "required": true,
+          "desc": "The body of the message.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_slack__get_users_in_channel": {
+      "type": "function",
+      "desc": "Get the list of users in the given channel.",
+      "params": {
+        "channel": {
+          "required": true,
+          "desc": "The channel to get the users from.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_slack__invite_user_to_slack": {
+      "type": "function",
+      "desc": "Invite a user to the Slack workspace.",
+      "params": {
+        "user": {
+          "required": true,
+          "desc": "The user to invite.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "user_email": {
+          "required": true,
+          "desc": "The user email where invite should be sent.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_slack__remove_user_from_slack": {
+      "type": "function",
+      "desc": "Remove a user from the Slack workspace.",
+      "params": {
+        "user": {
+          "required": true,
+          "desc": "The user to remove.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_slack__get_webpage": {
+      "type": "function",
+      "desc": "Returns the content of the webpage at a given URL.",
+      "params": {
+        "url": {
+          "required": true,
+          "desc": "The URL of the webpage.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_slack__post_webpage": {
+      "type": "function",
+      "desc": "Posts a webpage at a given URL with the given content.",
+      "params": {
+        "url": {
+          "required": true,
+          "desc": "The URL of the webpage.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "content": {
+          "required": true,
+          "desc": "The content of the webpage.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    }
+  }
+}

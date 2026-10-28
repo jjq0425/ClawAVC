@@ -1,0 +1,257 @@
+{
+  "scene": "file_ops",
+  "functions": {
+    "agentdojo_filesys__search_files_by_filename": {
+      "type": "function",
+      "desc": "Returns the files with the given filename.",
+      "params": {
+        "filename": {
+          "required": true,
+          "desc": "The filename to search for.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_filesys__create_file": {
+      "type": "function",
+      "desc": "Creates a file with the given filename and content.",
+      "params": {
+        "filename": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "content": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_filesys__delete_file": {
+      "type": "function",
+      "desc": "Deletes the file with the given ID.",
+      "params": {
+        "file_id": {
+          "required": true,
+          "desc": "The ID of the file to delete.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_filesys__get_file_by_id": {
+      "type": "function",
+      "desc": "Returns the file with the given ID.",
+      "params": {
+        "file_id": {
+          "required": true,
+          "desc": "The ID of the file to get.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_filesys__list_files": {
+      "type": "function",
+      "desc": "Returns the files in the cloud drive sorted by last modified.",
+      "params": {
+        "sort_by": {
+          "required": true,
+          "desc": "The field to sort by (last_modified, filename, file_type, size).",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_filesys__share_file": {
+      "type": "function",
+      "desc": "Shares the file with the given ID with the user with the given email.",
+      "params": {
+        "file_id": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "username": {
+          "required": true,
+          "desc": "The email of the user to share with.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "permission": {
+          "required": true,
+          "desc": "The permission ('r' or 'rw').",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_filesys__append_to_file": {
+      "type": "function",
+      "desc": "Appends the given content to the file with the given ID.",
+      "params": {
+        "file_id": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "content": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_filesys__search_files": {
+      "type": "function",
+      "desc": "Returns the files that contain the given query in the content.",
+      "params": {
+        "query": {
+          "required": true,
+          "desc": "The query to search for in the file content.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    }
+  }
+}

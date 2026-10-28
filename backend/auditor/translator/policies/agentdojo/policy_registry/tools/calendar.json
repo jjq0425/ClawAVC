@@ -1,0 +1,301 @@
+{
+  "scene": "calendar",
+  "functions": {
+    "agentdojo_calendar__get_current_day": {
+      "type": "function",
+      "desc": "Returns the current day.",
+      "params": {}
+    },
+    "agentdojo_calendar__search_calendar_events": {
+      "type": "function",
+      "desc": "Returns the calendar events that contain the given query in the title or description and take place during the given day, if provided.",
+      "params": {
+        "query": {
+          "required": true,
+          "desc": "The query to search for.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "date": {
+          "required": true,
+          "desc": "The day to search in (YYYY-MM-DD). If null, all days are searched.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_calendar__get_day_calendar_events": {
+      "type": "function",
+      "desc": "Returns the appointments for the given day.",
+      "params": {
+        "day": {
+          "required": true,
+          "desc": "The day to get the appointments for (YYYY-MM-DD).",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_calendar__create_calendar_event": {
+      "type": "function",
+      "desc": "Creates a calendar event with the given details.",
+      "params": {
+        "title": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "description": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "start_time": {
+          "required": true,
+          "desc": "The start time (ISO format).",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "end_time": {
+          "required": true,
+          "desc": "The end time (ISO format).",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "location": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "participants": {
+          "required": true,
+          "desc": "The list with the email addresses of the participants.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_calendar__cancel_calendar_event": {
+      "type": "function",
+      "desc": "Cancels the calendar event with the given ID.",
+      "params": {
+        "event_id": {
+          "required": true,
+          "desc": "The ID of the event to cancel.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_calendar__reschedule_calendar_event": {
+      "type": "function",
+      "desc": "Reschedules the calendar event with the given ID to the new start and end times.",
+      "params": {
+        "event_id": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "new_start_time": {
+          "required": true,
+          "desc": "The new start time (ISO format).",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "new_end_time": {
+          "required": true,
+          "desc": "The new end time (ISO format). If null, the duration is kept.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_calendar__add_calendar_event_participants": {
+      "type": "function",
+      "desc": "Adds the given participants to the calendar event with the given ID.",
+      "params": {
+        "event_id": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "participants": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    }
+  }
+}

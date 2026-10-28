@@ -60,3 +60,5 @@ backend/auditor/translator/.ai_writer_state/
 backend/auditor/translator/.rsi_runs/
 .codebuddy/skills/clawavc-policy-creator/backups/
 selinux/tmp/
+
+docs/*

@@ -1,0 +1,104 @@
+{
+  "scene": "browser",
+  "functions": {
+    "browser": {
+      "type": "function",
+      "params": {
+        "url": {
+          "required": false,
+          "desc": "用户明确给出或由可信搜索结果提供的 HTTP/HTTPS URL。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "http://*",
+                "https://*"
+              ],
+              "denylist": [],
+              "regex": "^https?://.+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户显式给出的 URL；若缺失则仅可使用已搜索或上下文中可信来源的 URL。不得编造 URL；只允许用户原文出现的 URL，或先前搜索结果、工具返回中出现的 URL。禁止访问本地元数据地址、内网管理地址和凭据链接。"
+          }
+        },
+        "action": {
+          "required": true,
+          "desc": "需要执行的最小动作；必须从 allowed_values 中选择。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "open",
+              "allowed_values": [
+                "open",
+                "click",
+                "type",
+                "screenshot",
+                "extract"
+              ],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "根据用户请求选择最小动作；不得把只读请求升级为点击、填写或提交。只选择完成任务所需的最小动作。查看类请求用 open/extract/screenshot/status/list/query；只有用户明确要求操作页面或控制对象时才使用 click/type/kill/stop/unlock 等高影响动作。"
+          }
+        }
+      },
+      "desc": "通过浏览器执行页面级交互或读取渲染后页面；适合需要真实 DOM、点击、输入、截图或页面抽取的任务。"
+    },
+    "playwright": {
+      "type": "function",
+      "params": {
+        "url": {
+          "required": false,
+          "desc": "用户明确给出或由可信搜索结果提供的 HTTP/HTTPS URL。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "http://*",
+                "https://*"
+              ],
+              "denylist": [],
+              "regex": "^https?://.+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户显式给出的 URL；若缺失则仅可使用已搜索或上下文中可信来源的 URL。不得编造 URL；只允许用户原文出现的 URL，或先前搜索结果、工具返回中出现的 URL。禁止访问本地元数据地址、内网管理地址和凭据链接。"
+          }
+        },
+        "action": {
+          "required": true,
+          "desc": "需要执行的最小动作；必须从 allowed_values 中选择。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "open",
+              "allowed_values": [
+                "open",
+                "click",
+                "type",
+                "screenshot",
+                "extract"
+              ],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "根据用户请求选择最小动作；不得把只读请求升级为点击、填写或提交。只选择完成任务所需的最小动作。查看类请求用 open/extract/screenshot/status/list/query；只有用户明确要求操作页面或控制对象时才使用 click/type/kill/stop/unlock 等高影响动作。"
+          }
+        }
+      },
+      "desc": "使用 Playwright 自动化浏览器；适合多步骤页面交互、截图、表单输入和动态页面验证。"
+    }
+  },
+  "prompt_guidance": "只有需要真实网页渲染、点击、输入、截图或登录态页面时使用；普通资料检索优先 search。"
+}

@@ -1,0 +1,242 @@
+{
+  "scene": "email",
+  "functions": {
+    "agentdojo_email__send_email": {
+      "type": "function",
+      "desc": "Sends an email with the given body to the given addresses.",
+      "params": {
+        "recipients": {
+          "required": true,
+          "desc": "The list with the email addresses of the recipients.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "subject": {
+          "required": true,
+          "desc": "The subject of the email.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "body": {
+          "required": true,
+          "desc": "The body of the email.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "attachments": {
+          "required": true,
+          "desc": "Attachments (file_id or event_details).",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "cc": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "bcc": {
+          "required": true,
+          "desc": "",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_email__delete_email": {
+      "type": "function",
+      "desc": "Deletes the email with the given email_id from the inbox.",
+      "params": {
+        "email_id": {
+          "required": true,
+          "desc": "The id of the email to delete.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_email__get_unread_emails": {
+      "type": "function",
+      "desc": "Returns all the unread emails in the inbox. Each email has a sender, a subject, and a body. The emails are marked as read after this function is called.",
+      "params": {}
+    },
+    "agentdojo_email__get_sent_emails": {
+      "type": "function",
+      "desc": "Returns all the sent emails in the inbox.",
+      "params": {}
+    },
+    "agentdojo_email__get_received_emails": {
+      "type": "function",
+      "desc": "Returns all the received emails in the inbox.",
+      "params": {}
+    },
+    "agentdojo_email__get_draft_emails": {
+      "type": "function",
+      "desc": "Returns all the draft emails in the inbox.",
+      "params": {}
+    },
+    "agentdojo_email__search_emails": {
+      "type": "function",
+      "desc": "Searches for emails in the inbox that contain the given query in the subject or body.",
+      "params": {
+        "query": {
+          "required": true,
+          "desc": "The query to search for.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        },
+        "sender": {
+          "required": true,
+          "desc": "If given, only emails from this address.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_email__search_contacts_by_name": {
+      "type": "function",
+      "desc": "Finds contacts in the inbox's contact list by name.",
+      "params": {
+        "query": {
+          "required": true,
+          "desc": "The name of the contacts to search for.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    },
+    "agentdojo_email__search_contacts_by_email": {
+      "type": "function",
+      "desc": "Finds contacts in the inbox's contact list by email.",
+      "params": {
+        "query": {
+          "required": true,
+          "desc": "The email of the contacts to search for.",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "优先使用用户原文中给出或上下文中已出现的值；不得编造，不得扩大到系统敏感路径或外部地址。"
+          }
+        }
+      }
+    }
+  }
+}
