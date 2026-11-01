@@ -1,0 +1,40 @@
+{
+  "scene": "file_ops",
+  "allowed_file_actions": [
+    "read"
+  ],
+  "allowed_network_actions": [],
+  "functions": {
+    "read": {
+      "type": "function",
+      "desc": "只读指定合成数据文件。严格遵守 allowlist 与 denylist，拒绝优先。",
+      "file_actions": [
+        "read"
+      ],
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "授权合成数据文件的绝对路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "dynamic_ai_hint": "只允许用户指定的合成文件；denylist 优先，命中时不得授权。",
+            "static": {
+              "allowed_values": [],
+              "allowlist": [
+                "/home/hx/jjq/clawAVC/test/benchmark/rsi-1031/fixtures/metrics.txt"
+              ],
+              "default": "/home/hx/jjq/clawAVC/test/benchmark/rsi-1031/fixtures/metrics.txt",
+              "denylist": [
+                "/etc/**",
+                "/root/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1106,6 +1106,19 @@ def get_config_from_db() -> Dict[str, str]:
     return {}
 
 
+def load_param_content_rules() -> Optional[Dict[str, Any]]:
+    """从监控配置读取「参数内容深度检查规则」（JSON 字符串）；未配置返回 None（用内置默认）。"""
+    from typing import Any as _Any, Dict as _Dict, Optional as _Optional
+    raw = str(get_config_from_db().get("monitor_conf.param_content_rules", "") or "")
+    if not raw.strip():
+        return None
+    try:
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
+
+
 def load_injection_keywords() -> List[str]:
     """从监控配置读取「工具返回结果提示注入监测关键词」（每行一个）。"""
     raw = str(get_config_from_db().get("tool_result_injection_keywords", "") or "")
@@ -1922,7 +1935,8 @@ class MonitorOrchestrator:
                 if current_actions and current_ir_data:
                     try:
                         judge_result = judge(current_actions, current_ir_data,
-                                             injection_keywords=load_injection_keywords())
+                                             injection_keywords=load_injection_keywords(),
+                                             param_content_rules=load_param_content_rules())
                         import re as _re
                         score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
                         judge_score = float(score_match.group(1)) if score_match else -1.0
@@ -2074,7 +2088,8 @@ class MonitorOrchestrator:
                 if current_actions and current_ir_data:
                     try:
                         judge_result = judge(current_actions, current_ir_data,
-                                             injection_keywords=load_injection_keywords())
+                                             injection_keywords=load_injection_keywords(),
+                                             param_content_rules=load_param_content_rules())
                         import re as _re
                         score_match = _re.search(r"整体得分:\s*([0-9.]+)", judge_result)
                         judge_score = float(score_match.group(1)) if score_match else -1.0

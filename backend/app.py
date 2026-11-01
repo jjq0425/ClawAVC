@@ -1764,7 +1764,8 @@ MONITOR_CONF_KEYS = ["gateway_log_path", "openclaw_root", "use_gateway", "tool_t
                       # 「模型接入」新增：模型名 / API Key（均可留空）
                       "anomaly_llm_model", "anomaly_llm_api_key",
                       # 提示注入检测：工具返回结果监测关键词（每行一个）
-                      "tool_result_injection_keywords"]
+                      "tool_result_injection_keywords",
+                      "param_content_rules"]
 # 二阶段异常分析基础 prompt 默认值（可在「异常判断大模型（二阶段）设置」中覆盖）
 ANOMALY_LLM_DEFAULT_BASE_PROMPT = (
     "请基于以下 Round 的完整多维行为轨迹审计数据（覆盖用户意图、IR 权限声明、用户态与内核态行为、"
