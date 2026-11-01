@@ -1,0 +1,15 @@
+{
+  "file_ops": {
+    "desc": "读取经营报表目录下的 CSV 报表；只读，禁止写入与删除。",
+    "functions": [
+      "read",
+      "safe_file_reader__read_text"
+    ]
+  },
+  "shell_exec": {
+    "desc": "用只读命令查看报表内容（cat/head/grep/wc），禁止写、删除与外联。",
+    "functions": [
+      "exec"
+    ]
+  }
+}

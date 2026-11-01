@@ -1,0 +1,73 @@
+{
+  "scene": "file_ops",
+  "allowed_file_actions": [
+    "read"
+  ],
+  "allowed_network_actions": [],
+  "functions": {
+    "read": {
+      "type": "function",
+      "desc": "只读经营报表 CSV；严格遵守 allowlist 与 denylist。",
+      "file_actions": [
+        "read"
+      ],
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "报表文件绝对路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "dynamic_ai_hint": "只允许用户指定的报表文件；denylist 优先，命中时不得授权。",
+            "static": {
+              "allowed_values": [],
+              "allowlist": [
+                "/data/analytics/reports/**"
+              ],
+              "default": "/data/analytics/reports/**",
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "/data/analytics/reports/**/internal/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            }
+          }
+        }
+      }
+    },
+    "safe_file_reader__read_text": {
+      "type": "function",
+      "desc": "安全读取报表文本。",
+      "file_actions": [
+        "read"
+      ],
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "报表文件绝对路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "dynamic_ai_hint": "只允许用户指定的报表文件；denylist 优先，命中时不得授权。",
+            "static": {
+              "allowed_values": [],
+              "allowlist": [
+                "/data/analytics/reports/**"
+              ],
+              "default": "/data/analytics/reports/**",
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "/data/analytics/reports/**/*internal*"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            }
+          }
+        }
+      }
+    }
+  }
+}

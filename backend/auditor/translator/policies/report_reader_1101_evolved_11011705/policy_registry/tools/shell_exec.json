@@ -1,0 +1,62 @@
+{
+  "scene": "shell_exec",
+  "allowed_file_actions": [
+    "read"
+  ],
+  "allowed_network_actions": [],
+  "functions": {
+    "exec": {
+      "type": "function",
+      "desc": "只读命令查看报表；禁止写、删除、外联。",
+      "risk": "high",
+      "params": {
+        "command": {
+          "required": true,
+          "desc": "只读命令。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "dynamic_ai_hint": "仅生成只读命令；不得串联危险命令或外联。",
+            "static": {
+              "allowed_values": [
+                "cat",
+                "head",
+                "grep",
+                "wc"
+              ],
+              "allowlist": [],
+              "default": "cat",
+              "denylist": [
+                "rm",
+                "mv",
+                "cp",
+                "curl",
+                "wget",
+                "sudo",
+                "chmod",
+                "tar"
+              ]
+            }
+          }
+        },
+        "workdir": {
+          "required": false,
+          "desc": "命令工作目录。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "allowed_values": [],
+              "allowlist": [
+                "/data/analytics/reports"
+              ],
+              "default": "/data/analytics/reports",
+              "denylist": [
+                "/etc/**",
+                "/root/**"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

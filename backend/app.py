@@ -1934,13 +1934,30 @@ VALID_SEVERITIES = {"critical", "high", "medium", "low"}
 
 
 def validate_param_content_rules(value: str):
-    """校验参数内容检测规则配置：必须是 JSON 对象，严重级取值受限，关键数值为正整数。"""
+    """校验参数内容检测规则配置（兼容字符串 / 列表 / 对象三种写法）。
+
+    - 规则值可直接是严重级字符串（旧格式）
+    - 词表类规则（inject_markers / semantic_markers）可为字符串数组
+    - 对象写法支持 {"severity", "enabled", <阈值>}，用于前端表单（含启用开关）
+    """
     try:
         rules = json.loads(value)
     except Exception as exc:
         return False, f"不是合法 JSON（{exc}）"
     if not isinstance(rules, dict):
         return False, "顶层必须是 JSON 对象"
+
+    sev_keys = {
+        "traversal_escape", "traversal_attempt", "home_expand", "encoded_variant",
+        "proc_sys_dev", "tmp_write", "dotfile_write", "nul_control",
+        "encoded_blob", "cmd_co_occurrence", "inject_severity", "obfuscation",
+        "semantic_severity", "inject_markers", "semantic_markers",
+    }
+    int_constraints = {  # 段内路径 → (字段, 最小值, 最大值)
+        ("content", "encoded_blob", "min_token"): (8, 4096),
+        ("content", "cmd_co_occurrence", "classes"): (1, 6),
+    }
+
     for side in ("path", "content"):
         section = rules.get(side)
         if section is None:
@@ -1948,23 +1965,58 @@ def validate_param_content_rules(value: str):
         if not isinstance(section, dict):
             return False, f"{side} 必须是对象"
         for k, v in section.items():
-            if k.endswith("_severity") or k in (
-                    "traversal_escape", "traversal_attempt", "home_expand", "encoded_variant",
-                    "proc_sys_dev", "tmp_write", "dotfile_write", "nul_control", "inject_severity",
-                    "semantic_severity", "obfuscation"):
-                if v is not None and str(v) not in VALID_SEVERITIES:
-                    return False, f"{side}.{k} 严重级非法: {v}（可选 {sorted(VALID_SEVERITIES)}）"
-        co = section.get("cmd_co_occurrence")
-        if isinstance(co, dict):
-            for num_key in ("classes",):
-                if num_key in co:
-                    try:
-                        n = int(co[num_key])
-                    except Exception:
-                        return False, f"{side}.cmd_co_occurrence.{num_key} 必须是整数"
-                    if n < 1:
-                        return False, f"{side}.cmd_co_occurrence.{num_key} 必须 ≥ 1"
+            if k == "key_tokens":
+                if not isinstance(v, list) or not all(isinstance(t, str) for t in v):
+                    return False, f"{side}.key_tokens 必须是字符串数组"
+                continue
+            if k.endswith("_severity") or k in sev_keys:
+                if isinstance(v, str):
+                    if v not in VALID_SEVERITIES:
+                        return False, f"{side}.{k} 严重级非法: {v}（可选 {sorted(VALID_SEVERITIES)}）"
+                    continue
+                if isinstance(v, list):
+                    continue  # 词表
+                if not isinstance(v, dict):
+                    return False, f"{side}.{k} 必须是严重级字符串、词表数组或对象"
+                sev = v.get("severity")
+                if sev is not None and str(sev) not in VALID_SEVERITIES:
+                    return False, f"{side}.{k}.severity 严重级非法: {sev}"
+                if "enabled" in v and not isinstance(v["enabled"], bool):
+                    return False, f"{side}.{k}.enabled 必须是布尔值"
+                for extra_sev in ("escalate", "severity_single"):
+                    if extra_sev in v and str(v[extra_sev]) not in VALID_SEVERITIES:
+                        return False, f"{side}.{k}.{extra_sev} 严重级非法: {v[extra_sev]}"
+                for m in ("markers",):
+                    if m in v and not isinstance(v[m], list):
+                        return False, f"{side}.{k}.{m} 必须是数组"
+        for (sd, rule_key, field), (lo, hi) in int_constraints.items():
+            if sd != side:
+                continue
+            node = section.get(rule_key)
+            if isinstance(node, dict) and field in node:
+                try:
+                    n = int(node[field])
+                except Exception:
+                    return False, f"{side}.{rule_key}.{field} 必须是整数"
+                if not (lo <= n <= hi):
+                    return False, f"{side}.{rule_key}.{field} 应在 {lo}–{hi} 之间"
     return True, ""
+
+
+@app.route("/api/monitor/param-content-rules/catalog", methods=["GET"])
+def get_param_content_rules_catalog():
+    """返回参数检测规则的组件目录（供前端自动渲染配置表单）。
+
+    每条规则包含：key / 中文名 / 说明 / 默认严重级 / 可调参数（类型、范围、默认值）
+    以及当前生效值（active），前端无需硬编码任何规则列表。
+    """
+    try:
+        from auditor.monitor.judge import param_rules_catalog
+        raw = db.get_config("monitor_conf.param_content_rules") or ""
+        active = json.loads(raw) if str(raw).strip() else {}
+        return jsonify({"ok": True, "data": param_rules_catalog(active)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/monitor/param-content-rules/default", methods=["GET"])

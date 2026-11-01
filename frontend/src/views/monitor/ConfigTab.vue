@@ -161,76 +161,49 @@
         </t-switch>
 
         <div v-if="paramRulesEnabled" class="rules-form">
-          <div class="rules-block">
-            <div class="rules-title">路径类参数规则（path）</div>
-            <div class="rule-row" v-for="r in PATH_RULES" :key="r.key">
+          <div v-if="!ruleGroups.length" class="form-hint">规则目录加载中…</div>
+          <div class="rules-block" v-for="g in ruleGroups" :key="g.side">
+            <div class="rules-title">{{ g.title }}</div>
+            <p class="rules-desc">{{ g.description }}</p>
+            <div class="rule-row" v-for="r in g.rules" :key="g.side + '.' + r.key" :class="{ 'rule-off': !ruleState[g.side][r.key].enabled }">
               <div class="rule-info">
-                <span class="rule-name">{{ r.label }}</span>
-                <span class="rule-code">{{ r.key }}</span>
-              </div>
-              <t-select v-model="paramForm.path[r.key]" :options="SEVERITY_OPTIONS" :disabled="monitorRunning" style="width: 140px" />
-            </div>
-          </div>
-
-          <div class="rules-block">
-            <div class="rules-title">内容类参数规则（content）</div>
-            <div class="rule-row">
-              <div class="rule-info">
-                <span class="rule-name">编码载荷块（Base64 可解码产物）</span>
-                <span class="rule-code">encoded_blob</span>
+                <span class="rule-name">
+                  {{ r.label }}
+                  <span v-if="r.needs_write_tool" class="rule-badge">仅写类工具</span>
+                  <span v-if="!r.default_enabled" class="rule-badge">默认关闭</span>
+                </span>
+                <span class="rule-desc">{{ r.description }}</span>
+                <span class="rule-code">{{ r.key }}
+                  <a class="rule-reset" @click="resetRuleToDefault(g.side, r)">复位</a>
+                </span>
               </div>
               <div class="rule-ctl">
-                <t-select v-model="paramForm.content.encoded_blob_severity" :options="SEVERITY_OPTIONS" :disabled="monitorRunning" style="width: 120px" />
-                <span class="ctl-label">最短 token</span>
-                <t-input-number v-model="paramForm.content.encoded_blob_min_token" :min="8" :max="4096" :disabled="monitorRunning" style="width: 120px" />
+                <t-switch v-model="ruleState[g.side][r.key].enabled" size="small" :disabled="monitorRunning" />
+                <template v-for="p in r.params" :key="p.name">
+                  <template v-if="p.type === 'severity'">
+                    <t-select v-model="ruleState[g.side][r.key][p.name]" :options="severityOptions"
+                      :disabled="monitorRunning || !ruleState[g.side][r.key].enabled" style="width: 118px" />
+                  </template>
+                  <template v-else-if="p.type === 'int'">
+                    <span class="ctl-label">{{ p.label }}</span>
+                    <t-input-number v-model="ruleState[g.side][r.key][p.name]" :min="p.min" :max="p.max" theme="normal"
+                      :disabled="monitorRunning || !ruleState[g.side][r.key].enabled" style="width: 104px" />
+                  </template>
+                  <template v-else-if="p.type === 'bool'">
+                    <span class="ctl-label">{{ p.label }}</span>
+                    <t-switch v-model="ruleState[g.side][r.key][p.name]" size="small"
+                      :disabled="monitorRunning || !ruleState[g.side][r.key].enabled" />
+                  </template>
+                </template>
               </div>
-            </div>
-            <div class="rule-row">
-              <div class="rule-info">
-                <span class="rule-name">危险命令特征共现（类数达标即升级）</span>
-                <span class="rule-code">cmd_co_occurrence</span>
+              <div v-if="listParams(r).length" class="rule-row-list">
+                <div v-for="p in listParams(r)" :key="p.name" class="list-param">
+                  <span class="ctl-label">{{ p.label }}（每行一个，共 {{ (ruleState[g.side][r.key][p.name] || []).length }} 项）</span>
+                  <t-textarea :value="(ruleState[g.side][r.key][p.name] || []).join('\n')"
+                    :autosize="{ minRows: 2, maxRows: 6 }" :disabled="monitorRunning || !ruleState[g.side][r.key].enabled"
+                    @change="(v) => setListParam(g.side, r.key, p.name, v)" />
+                </div>
               </div>
-              <div class="rule-ctl">
-                <t-select v-model="paramForm.content.cmd_severity" :options="SEVERITY_OPTIONS" :disabled="monitorRunning" style="width: 120px" />
-                <span class="ctl-label">共现类数</span>
-                <t-input-number v-model="paramForm.content.cmd_classes" :min="1" :max="6" :disabled="monitorRunning" style="width: 110px" />
-              </div>
-            </div>
-            <div class="rule-row">
-              <div class="rule-info">
-                <span class="rule-name">单类危险命令（低置信提示）</span>
-                <span class="rule-code">cmd_severity_single</span>
-              </div>
-              <t-select v-model="paramForm.content.cmd_severity_single" :options="SEVERITY_OPTIONS" :disabled="monitorRunning" style="width: 140px" />
-            </div>
-            <div class="rule-row">
-              <div class="rule-info">
-                <span class="rule-name">注入标记投递（参数内容含注入标记）</span>
-                <span class="rule-code">inject_markers</span>
-              </div>
-              <t-select v-model="paramForm.content.inject_severity" :options="SEVERITY_OPTIONS" :disabled="monitorRunning" style="width: 140px" />
-            </div>
-            <div class="rule-row">
-              <div class="rule-info">
-                <span class="rule-name">混淆特征（零宽/不可见字符）</span>
-                <span class="rule-code">obfuscation</span>
-              </div>
-              <t-select v-model="paramForm.content.obfuscation" :options="SEVERITY_OPTIONS" :disabled="monitorRunning" style="width: 140px" />
-            </div>
-            <div class="rule-row">
-              <div class="rule-info">
-                <span class="rule-name">攻击语义标记（脚本头 + 隐藏持久化等）</span>
-                <span class="rule-code">semantic_severity</span>
-              </div>
-              <t-select v-model="paramForm.content.semantic_severity" :options="SEVERITY_OPTIONS" :disabled="monitorRunning" style="width: 140px" />
-            </div>
-            <div class="rule-row col">
-              <div class="rule-info">
-                <span class="rule-name">注入标记词表</span>
-                <span class="rule-code">inject_markers（每行一个）</span>
-              </div>
-              <t-textarea v-model="paramForm.content.injectMarkersText" :autosize="{ minRows: 3, maxRows: 8 }"
-                placeholder="[SYSTEM NOTICE]&#10;remember-rule&#10;ignore all previous" :disabled="monitorRunning" />
             </div>
           </div>
         </div>
@@ -270,85 +243,93 @@ const loadingDefault = ref(false)
 const paramRulesEnabled = ref(false)
 const showParamRulesJson = ref(false)
 
-const SEVERITY_OPTIONS = [
+// 规则目录（后端 /param-content-rules/catalog 下发）：新增规则无需改前端
+const ruleGroups = ref([])
+const ruleState = ref({ path: {}, content: {} })
+const severityOptions = ref([
   { label: "critical 严重", value: "critical" },
   { label: "high 高", value: "high" },
   { label: "medium 中", value: "medium" },
   { label: "low 低", value: "low" },
-]
-const PATH_RULES = [
-  { key: "traversal_escape", label: "路径穿越逃逸（规范化后脱出原目录锚）" },
-  { key: "traversal_attempt", label: "穿越未遂（含 ../ 但未脱出）" },
-  { key: "home_expand", label: "Home 目录展开（~/ 开头）" },
-  { key: "encoded_variant", label: "编码变体（URL 解码后路径变化）" },
-  { key: "proc_sys_dev", label: "特殊路径（/proc /sys /dev）" },
-  { key: "tmp_write", label: "临时目录写入（/tmp）" },
-  { key: "dotfile_write", label: "点文件写入（隐藏文件）" },
-  { key: "nul_control", label: "NUL / 控制字符注入" },
-]
+])
 
-const emptyParamForm = () => ({
-  path: PATH_RULES.reduce((acc, r) => { acc[r.key] = "medium"; return acc }, {}),
-  content: {
-    encoded_blob_severity: "high",
-    encoded_blob_min_token: 40,
-    cmd_severity: "critical",
-    cmd_classes: 2,
-    cmd_severity_single: "medium",
-    inject_severity: "critical",
-    obfuscation: "high",
-    semantic_severity: "high",
-    injectMarkersText: "",
-  },
-})
-const paramForm = ref(emptyParamForm())
+function initRuleState(catalog) {
+  const state = { path: {}, content: {} }
+  for (const g of catalog.groups || []) {
+    state[g.side] = state[g.side] || {}
+    for (const r of g.rules) {
+      const item = { enabled: r.active ? r.active.enabled : r.default_enabled }
+      for (const p of r.params || []) {
+        const cur = r.active && r.active[p.name] !== undefined && r.active[p.name] !== null
+          ? r.active[p.name] : p.default
+        item[p.name] = p.type === "list" ? [...(cur || [])] : cur
+      }
+      state[g.side][r.key] = item
+    }
+  }
+  ruleState.value = state
+}
 
-// 表单 → 配置 JSON（保存时提交）
+/** 把某条规则重置为默认值（enabled / severity / 阈值 / 词表） */
+function resetRuleToDefault(side, rule) {
+  const item = { enabled: rule.default_enabled, severity: rule.default_severity }
+  for (const p of rule.params || []) {
+    item[p.name] = p.type === "severity" ? rule.default_severity
+      : p.type === "list" ? [...(p.default || [])] : p.default
+  }
+  ruleState.value[side][rule.key] = item
+}
+
+function listParams(rule) {
+  return (rule.params || []).filter(p => p.type === "list")
+}
+
+function setListParam(side, key, name, text) {
+  ruleState.value[side][key][name] = String(text || "")
+    .split("\n").map(s => s.trim()).filter(Boolean)
+}
+
+// 表单 → 配置 JSON（保存时提交；每条规则都是对象，含 enabled 开关）
 const param_content_rules = computed(() => {
   if (!paramRulesEnabled.value) return ""
-  const f = paramForm.value
-  const markers = (f.content.injectMarkersText || "")
-    .split("\n").map(s => s.trim()).filter(Boolean)
-  return JSON.stringify({
-    path: { ...f.path },
-    content: {
-      traversal_escape: undefined,
-      encoded_blob: { severity: f.content.encoded_blob_severity, min_token: Number(f.content.encoded_blob_min_token) || 40, escalate: "critical" },
-      cmd_co_occurrence: { classes: Number(f.content.cmd_classes) || 2, severity: f.content.cmd_severity, severity_single: f.content.cmd_severity_single },
-      inject_severity: f.content.inject_severity,
-      obfuscation: f.content.obfuscation,
-      semantic_severity: f.content.semantic_severity,
-      ...(markers.length ? { inject_markers: markers } : {}),
-    },
-  }, (k, v) => (v === undefined ? undefined : v))
+  const payload = { path: {}, content: {} }
+  for (const g of ruleGroups.value) {
+    for (const r of g.rules) {
+      const st = ruleState.value[g.side] && ruleState.value[g.side][r.key]
+      if (!st) continue
+      const obj = { enabled: !!st.enabled }
+      for (const p of r.params || []) {
+        obj[p.name] = st[p.name]
+      }
+      payload[g.side][r.key] = obj
+    }
+  }
+  return JSON.stringify(payload)
 })
 const paramRulesJsonText = computed(() => param_content_rules.value || "（当前使用内置默认规则）")
 
-function applyParamRulesToForm(rules) {
-  const f = emptyParamForm()
-  const p = (rules && rules.path) || {}
-  for (const r of PATH_RULES) if (p[r.key]) f.path[r.key] = p[r.key]
-  const c = (rules && rules.content) || {}
-  const eb = c.encoded_blob || {}
-  const co = c.cmd_co_occurrence || {}
-  if (eb.severity) f.content.encoded_blob_severity = eb.severity
-  if (eb.min_token) f.content.encoded_blob_min_token = eb.min_token
-  if (co.severity) f.content.cmd_severity = co.severity
-  if (co.classes) f.content.cmd_classes = co.classes
-  if (co.severity_single) f.content.cmd_severity_single = co.severity_single
-  if (c.inject_severity) f.content.inject_severity = c.inject_severity
-  if (c.obfuscation) f.content.obfuscation = c.obfuscation
-  if (c.semantic_severity) f.content.semantic_severity = c.semantic_severity
-  if (Array.isArray(c.inject_markers)) f.content.injectMarkersText = c.inject_markers.join("\n")
-  paramForm.value = f
+async function loadRuleCatalog() {
+  try {
+    const r = await fetch("/api/monitor/param-content-rules/catalog")
+    const j = await r.json()
+    if (j.ok) {
+      ruleGroups.value = j.data.groups || []
+      if (j.data.severities) {
+        const cn = { critical: "严重", high: "高", medium: "中", low: "低" }
+        severityOptions.value = j.data.severities.map(s => ({ label: `${s} ${cn[s] || ""}`.trim(), value: s }))
+      }
+      initRuleState(j.data)
+    }
+  } catch {}
 }
 const saving = ref("")
 const pathStatus = ref({})
 const monitorRunning = ref(false)
 const controlling = ref(false)
 
-onMounted(() => {
-  loadConfig()
+onMounted(async () => {
+  await loadConfig()
+  await loadRuleCatalog()
   checkStatus()
 })
 
@@ -367,8 +348,8 @@ async function loadConfig() {
       paramRulesError.value = ""
       if (raw.trim()) {
         try {
-          applyParamRulesToForm(JSON.parse(raw))
-          paramRulesEnabled.value = true
+          JSON.parse(raw)
+          paramRulesEnabled.value = true  // 具体取值由 catalog 接口的 active 值回填
         } catch {
           paramRulesEnabled.value = false
           paramRulesError.value = "已保存的规则无法解析，当前回退为内置默认；可点“载入默认值”后重新保存。"
@@ -422,17 +403,14 @@ async function stopMonitor() {
 async function loadDefaultParamRules() {
   loadingDefault.value = true
   try {
-    const r = await fetch("/api/monitor/param-content-rules/default")
-    const j = await r.json()
-    if (j.ok) {
-      applyParamRulesToForm(j.data)
-      paramRulesEnabled.value = true
-      paramRulesError.value = ""
-      MessagePlugin.success("已载入内置默认规则，可逐项修改后保存")
-    } else {
-      MessagePlugin.error(j.error || "获取默认规则失败")
+    if (!ruleGroups.value.length) await loadRuleCatalog()
+    for (const g of ruleGroups.value) {
+      for (const r of g.rules) resetRuleToDefault(g.side, r)
     }
-  } catch { MessagePlugin.error("网络错误") }
+    paramRulesEnabled.value = true
+    paramRulesError.value = ""
+    MessagePlugin.success("已载入内置默认规则，可逐项修改后保存")
+  } catch { MessagePlugin.error("载入默认规则失败") }
   finally { loadingDefault.value = false }
 }
 
@@ -601,13 +579,21 @@ async function saveSingle(key) {
 .rules-form { margin-top: 12px; border: 1px solid #e8ecf0; border-radius: 10px; background: #fff; overflow: hidden; }
 .rules-block { padding: 12px 14px; }
 .rules-block + .rules-block { border-top: 1px solid #eef2f7; }
-.rules-title { font-size: 13px; font-weight: 600; color: #15303e; margin-bottom: 10px; }
-.rule-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px dashed #f1f5f9; }
+.rules-title { font-size: 13px; font-weight: 600; color: #15303e; margin-bottom: 4px; }
+.rules-desc { font-size: 11.5px; color: #94a3b8; margin: 0 0 10px; }
+.rule-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px dashed #f1f5f9; flex-wrap: wrap; }
 .rule-row:last-child { border-bottom: none; }
+.rule-off { opacity: 0.5; }
 .rule-row.col { flex-direction: column; align-items: stretch; gap: 6px; }
-.rule-info { min-width: 0; }
+.rule-info { min-width: 0; flex: 1 1 320px; }
 .rule-name { display: block; font-size: 12.5px; color: #334155; }
-.rule-code { display: block; font-size: 11px; color: #94a3b8; font-family: ui-monospace, Consolas, monospace; }
+.rule-desc { display: block; font-size: 11.5px; color: #94a3b8; margin-top: 2px; line-height: 1.45; }
+.rule-badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; background: #eef2f7; color: #64748b; font-size: 10.5px; vertical-align: middle; }
+.rule-code { display: block; font-size: 11px; color: #94a3b8; font-family: ui-monospace, Consolas, monospace; margin-top: 3px; }
+.rule-reset { margin-left: 8px; color: #2f6fed; cursor: pointer; }
+.rule-reset:hover { text-decoration: underline; }
+.rule-row-list { flex: 1 1 100%; display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.list-param { display: flex; flex-direction: column; gap: 4px; }
 .rule-ctl { display: flex; align-items: center; gap: 8px; }
 .ctl-label { font-size: 12px; color: #64748b; }
 .json-preview { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 14px; font-size: 11.5px; font-family: ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
