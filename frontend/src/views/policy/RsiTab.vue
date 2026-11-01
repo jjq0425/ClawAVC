@@ -124,88 +124,13 @@
     <div class="panel" v-show="step === 2 || step === 3">
       <div class="panel-head"><t-icon name="dashboard" /> 步骤 3 · AI 分析结论</div>
       <div class="stream" v-if="streamText"><pre>{{ streamText }}</pre></div>
-      <div v-if="result" class="concl">
-        <div class="concl-summary">
-          <div class="dim">总体结论</div>
-          <div>{{ result.summary || '—' }}</div>
-          <div class="dim" v-if="result.assumptions">假设：{{ result.assumptions }}</div>
-        </div>
-
-        <div class="concl-col">
-          <div class="col-head risk"><t-icon name="error-circle" /> 越权风险（收紧） · {{ result.risks.length }}</div>
-          <div v-for="(r, i) in result.risks" :key="'rk' + i" class="concl-item" :class="{ on: adopted.risks.includes(i) }">
-            <t-checkbox :model-value="adopted.risks.includes(i)" @change="v => toggle('risks', i, v)" />
-            <div class="ci-body">
-              <div class="ci-line"><b>{{ r.scene || '-' }} / {{ r.tool || '-' }}</b>
-                <t-tag :theme="sevTheme(r.severity)" size="small" variant="light">{{ r.severity }}</t-tag>
-                <t-tag size="small" variant="outline">{{ r.round_id }}</t-tag></div>
-              <div class="dim">行为：{{ r.behavior }}</div>
-              <div>越权点：{{ r.violation }}</div>
-              <div class="ci-act">建议：{{ r.action }}</div>
-            </div>
-          </div>
-          <t-empty v-if="!result.risks.length" description="未识别出越权风险" size="small" />
-        </div>
-
-        <div class="concl-col">
-          <div class="col-head relax"><t-icon name="unlock" /> 应放宽 · {{ result.relax.length }}</div>
-          <div v-for="(r, i) in result.relax" :key="'rx' + i" class="concl-item" :class="{ on: adopted.relax.includes(i) }">
-            <t-checkbox :model-value="adopted.relax.includes(i)" @change="v => toggle('relax', i, v)" />
-            <div class="ci-body">
-              <div class="ci-line"><b>{{ r.scene || '-' }} / {{ r.tool || '-' }}</b>
-                <t-tag size="small" variant="outline">{{ r.round_id }}</t-tag></div>
-              <div class="dim">被拦行为：{{ r.blocked_behavior }}</div>
-              <div>理由：{{ r.reason }}</div>
-              <div class="ci-act">建议：{{ r.action }}</div>
-            </div>
-          </div>
-          <t-empty v-if="!result.relax.length" description="无需放宽项" size="small" />
-        </div>
-
-        <div class="concl-col">
-          <div class="col-head trans"><t-icon name="edit-1" /> 策略改造 · {{ result.transform.length }}</div>
-          <div v-for="(t, i) in result.transform" :key="'tf' + i" class="concl-item" :class="{ on: adopted.transform.includes(i) }">
-            <t-checkbox :model-value="adopted.transform.includes(i)" @change="v => toggle('transform', i, v)" />
-            <div class="ci-body">
-              <div class="ci-line"><b>{{ t.target }}</b>
-                <t-tag :theme="sevTheme(t.risk_level)" size="small" variant="light">{{ t.risk_level }}</t-tag></div>
-              <div class="mono dim">{{ t.path }}</div>
-              <div class="ci-act">现值 → 建议值：{{ fmtVal(t.current) }} → {{ fmtVal(t.proposed) }}</div>
-              <div class="dim">理由：{{ t.reason }}</div>
-            </div>
-          </div>
-          <t-empty v-if="!result.transform.length" description="无改造建议" size="small" />
-        </div>
-      </div>
+      <RsiResultView :result="result" :adopted="adopted" selectable @toggle="(cat, i, v) => toggle(cat, i, v)" />
       <div class="row-actions">
         <t-button theme="primary" :disabled="!result" @click="doPlan">
           <template #icon><t-icon name="check" /></template>生成变更计划（{{ adoptedCount }} 项已勾选）
         </t-button>
       </div>
-      <div v-if="plan?.changes?.length" class="plan">
-        <div class="plan-head">
-          变更计划（{{ plan.changes.length }} 条）
-          <span class="dim">
-            可直接落盘 {{ plan.changes.filter((c) => c.path).length }} 条 ·
-            需补字段路径 {{ plan.changes.filter((c) => !c.path).length }} 条（在表格中补全 path 与建议值后即可一并应用）
-          </span>
-        </div>
-        <t-table :data="plan.changes" :columns="planCols" row-key="idx" size="small" bordered class="rsi-table">
-          <template #kind="{ row }">
-            <t-tag :theme="kindTheme(row.kind)" size="small" variant="light">{{ row.kind }}</t-tag>
-          </template>
-          <template #path="{ row }">
-            <t-input v-model="row.path" size="small" placeholder="点分路径，如 functions.exec.params.command.constraint_spec.static.denylist" />
-          </template>
-          <template #proposed="{ row }">
-            <t-input v-model="row.proposedTxt" size="small" :placeholder="'建议值（JSON，如 [&quot;/data/analytics/**&quot;]）'"
-                     @change="(v) => (row.proposedTxt = v)" />
-          </template>
-          <template #risk="{ row }">
-            <t-tag :theme="sevTheme(row.risk_level)" size="small" variant="light">{{ row.risk_level }}</t-tag>
-          </template>
-        </t-table>
-      </div>
+      <RsiPlanView :changes="plan?.changes || []" editable />
       <div class="row-actions" v-if="plan?.changes?.length">
         <t-button theme="primary" @click="step = 4">
           <template #icon><t-icon name="arrow-right" /></template>下一步：应用
@@ -283,6 +208,8 @@
 import { ref, computed, onMounted } from "vue"
 import { MessagePlugin } from "tdesign-vue-next"
 import RsiConfigDrawer from "./RsiConfigDrawer.vue"
+import RsiResultView from "./RsiResultView.vue"
+import RsiPlanView from "./RsiPlanView.vue"
 
 const ADMIN_HEAD = () => ({
   "Content-Type": "application/json",
@@ -312,6 +239,7 @@ const roleTitle = ref("")
 const evolvedName = ref("")
 const applied = ref(null)
 const savedRun = ref("")
+const taskId = ref("")
 
 const baseOptions = computed(() => {
   const opts = policyList.value.map((p) => ({ label: p.name, value: p.name }))
@@ -432,6 +360,20 @@ function tryParseVal(s) {
 
 function onSelect(keys) { selected.value = keys }
 
+// 自进化任务日志：每完成一步写入后端任务文件；失败仅告警，不阻断主流程
+async function logTaskStep(step, name, data) {
+  try {
+    const j = await jfetch("/api/translator/rsi/tasks/step", {
+      method: "POST", headers: ADMIN_HEAD(),
+      body: JSON.stringify({ task_id: taskId.value, step, name, data,
+                             role: evolvedName.value || selRole.value || "", base: base.value || "" }),
+    })
+    if (j.ok && j.data?.task_id) taskId.value = j.data.task_id
+  } catch (e) {
+    console.warn("自进化任务日志写入失败", e)
+  }
+}
+
 async function gotoContext() {
   busy.value = true
   try {
@@ -440,7 +382,15 @@ async function gotoContext() {
       body: JSON.stringify({ round_ids: selected.value, role_desc: roleDesc.value,
                              user_prompt: userPrompt.value, parent_feedback: parentFeedback.value }),
     })
-    if (j.ok) { ctx.value = j.data; step.value = 1 }
+    if (j.ok) {
+      ctx.value = j.data; step.value = 1
+      // 步骤 1 选样本 + 步骤 2 上下文：记录当时选了哪些 round、角色说明与提示词
+      await logTaskStep(1, "选样本", { role: selRole.value, round_ids: selected.value,
+        role_desc: roleDesc.value, user_prompt: userPrompt.value, parent_feedback: parentFeedback.value })
+      await logTaskStep(2, "上下文", { items: (j.data.items || []).length,
+        policy: j.data.policy_summary?.policy || "", scenes: j.data.policy_summary?.scenes || [],
+        tools: Object.keys(j.data.policy_summary?.tools || {}) })
+    }
   } finally { busy.value = false }
 }
 
@@ -479,6 +429,8 @@ async function doAnalyze() {
       adopted.value = { risks: [], relax: [], transform: [] }
       step.value = 2
       MessagePlugin.success("AI 分析完成")
+      // 步骤 3：记录 AI 当时给出的完整结论与模型信息
+      await logTaskStep(3, "AI 分析", { result: data.result, meta: data.meta || {}, round_ids: selected.value })
     }
   } catch (e) { MessagePlugin.error(String(e)) } finally { busy.value = false }
 }
@@ -502,6 +454,8 @@ async function doPlan() {
       evolvedName.value = `${selRole.value}_evolved_${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}`
       if (!roleTitle.value) roleTitle.value = "进化后的角色库"
     }
+    // 步骤 4：记录人工勾选结果与生成的变更计划
+    await logTaskStep(4, "评审", { adopted: adopted.value, changes: plan.value.changes })
   }
 }
 
@@ -515,9 +469,14 @@ async function doApply() {
     const j = await jfetch("/api/translator/rsi/apply", {
       method: "POST", headers: ADMIN_HEAD(),
       body: JSON.stringify({ role: evolvedName.value, base: base.value, title: roleTitle.value,
-                             force: false, changes }),
+                             force: false, changes, task_id: taskId.value }),
     })
-    if (j.ok) { applied.value = j.data; MessagePlugin.success("已应用并校验完成"); step.value = 4 }
+    if (j.ok) {
+      applied.value = j.data
+      // 步骤 5 由后端在应用成功时写入；无 task_id 时后端自动新建任务
+      if (j.data?.task_id) taskId.value = j.data.task_id
+      MessagePlugin.success("已应用并校验完成"); step.value = 4
+    }
   } finally { busy.value = false }
 }
 
@@ -531,7 +490,11 @@ async function doSaveRun() {
       backtest: { enabled: false }, status: "applied",
     }),
   })
-  if (j.ok) { savedRun.value = j.data.run_id; MessagePlugin.success(`已归档 ${j.data.run_id}`) }
+  if (j.ok) {
+    savedRun.value = j.data.run_id
+    MessagePlugin.success(`已归档 ${j.data.run_id}`)
+    await logTaskStep(7, "归档", { run_id: j.data.run_id })
+  }
 }
 
 // 开始下一轮：以本轮新建的进化角色为新角色，自动带入本轮改进上下文作为反馈

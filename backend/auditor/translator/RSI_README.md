@@ -23,7 +23,7 @@
 
 ## 2. 字段契约
 
-### 进化轮次（`.rsi_runs/rsi-YYYYMMDD-NNNN.json`）
+### 进化轮次（`infos/translator/rsi_runs/rsi-YYYYMMDD-NNNN.json`）
 
 ```json
 {
@@ -115,5 +115,5 @@ print(rsi.get_config()["ok"], rsi.get_prompts()["ok"], rsi.list_runs()["ok"])
 PY
 ```
 
-回滚：每轮应用在写盘前自动快照 `.ai_writer_snapshots/<role>/<ts>`，
+回滚：每轮应用在写盘前自动快照 `infos/translator/ai_writer_snapshots/<role>/<ts>`，
 `POST /api/translator/rsi/rollback {"role": ...}` 即可恢复；也可在前端「应用」步骤点回滚。

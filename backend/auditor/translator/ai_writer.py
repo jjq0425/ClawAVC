@@ -30,8 +30,11 @@ SKILL_DIR = REPO_ROOT / ".codebuddy" / "skills" / "clawavc-policy-creator"
 SKILL_MD = SKILL_DIR / "SKILL.md"
 SKILL_SCRIPTS = SKILL_DIR / "scripts"
 SKILL_BACKUPS = SKILL_DIR / "backups"
-SNAPSHOT_ROOT = _HERE / ".ai_writer_snapshots"
-STATE_ROOT = _HERE / ".ai_writer_state"
+# 运行时产物统一落在 <repo>/infos/translator/ 下（与 infos/db、infos/kernel_* 同级）
+INFOS_TRANSLATOR = REPO_ROOT / "infos" / "translator"
+SNAPSHOT_ROOT = INFOS_TRANSLATOR / "ai_writer_snapshots"
+STATE_ROOT = INFOS_TRANSLATOR / "ai_writer_state"
+AIW_TASKS_ROOT = INFOS_TRANSLATOR / "ai_writer_tasks"
 
 CFG_PREFIX = "ai_writer."
 ROLE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -748,3 +751,127 @@ def apply_patches(role: str, reset: bool = True) -> Dict[str, Any]:
 def get_state(role: str) -> Dict[str, Any]:
     return {"ok": True, "data": {"role": role, "spec": build_spec(role),
                                  "base_spec": load_spec(role), "patches": load_patches(role)}}
+
+
+# ─────────────────────────── AI 帮写任务日志 ───────────────────────────
+# 与 RSI 自进化任务同构：一次建角色过程 = 一个任务，按步骤记录输入、AI 产出与结果，
+# 供只读回看（落盘在 infos/translator/ai_writer_tasks/）。
+AW_STEP_NAMES = {1: "建目录结构", 2: "AI 规划场景", 3: "AI 填充场景", 4: "应用落盘",
+                 5: "结构校验", 6: "切换生效", 7: "回滚"}
+AW_STEP_STATUS = {1: "scaffolded", 2: "scenes_planned", 3: "patched",
+                  4: "applied", 5: "validated", 6: "switched"}
+_AW_MAX_STR = 4000
+_AW_MAX_ITEMS = 100
+
+
+def _aw_json_safe(v: Any, depth: int = 0) -> Any:
+    if depth > 6:
+        return str(v)[:_AW_MAX_STR]
+    if isinstance(v, str):
+        return v if len(v) <= _AW_MAX_STR else v[:_AW_MAX_STR] + "…(截断)"
+    if isinstance(v, list):
+        return [_aw_json_safe(x, depth + 1) for x in v[:_AW_MAX_ITEMS]]
+    if isinstance(v, dict):
+        return {k: _aw_json_safe(x, depth + 1) for k, x in list(v.items())[:_AW_MAX_ITEMS]}
+    return v
+
+
+def new_aw_task_id() -> str:
+    ts = time.strftime("%Y%m%d")
+    seq = 1
+    AIW_TASKS_ROOT.mkdir(parents=True, exist_ok=True)
+    while (AIW_TASKS_ROOT / f"aiw-task-{ts}-{seq:04d}.json").exists():
+        seq += 1
+    return f"aiw-task-{ts}-{seq:04d}"
+
+
+def _aw_task_path(task_id: str) -> Path:
+    return AIW_TASKS_ROOT / f"{task_id}.json"
+
+
+def _write_aw_task(task: Dict[str, Any]) -> None:
+    AIW_TASKS_ROOT.mkdir(parents=True, exist_ok=True)
+    fp = _aw_task_path(task["task_id"])
+    tmp = fp.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(task, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, fp)
+
+
+def _load_aw_task(task_id: str) -> Optional[Dict[str, Any]]:
+    fp = _aw_task_path(task_id or "")
+    if not task_id or not fp.is_file():
+        return None
+    try:
+        return json.loads(fp.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def start_aw_task(role: str = "", base: str = "", title: str = "", instruction: str = "",
+                  task_id: str = "") -> Dict[str, Any]:
+    exist = _load_aw_task(task_id)
+    if exist:
+        return {"ok": True, "data": exist, "reused": True}
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    task = {"task_id": task_id or new_aw_task_id(), "created_at": now, "updated_at": now,
+            "role": role, "base": base, "title": title, "instruction": instruction,
+            "status": "draft", "steps": []}
+    _write_aw_task(task)
+    return {"ok": True, "data": task, "reused": False}
+
+
+def log_aw_step(task_id: str, step: int, name: str = "", data: Any = None,
+                role: str = "", base: str = "", status: str = "") -> Dict[str, Any]:
+    """记录 AI 帮写任务某一步；任务不存在则按 role/base 自动创建。"""
+    try:
+        step = int(step)
+    except Exception:
+        return {"ok": False, "error": "step 必须为数字"}
+    task = _load_aw_task(task_id)
+    if task is None:
+        created = start_aw_task(role=role, base=base, task_id=task_id)
+        if not created.get("ok"):
+            return created
+        task = created["data"]
+    if role:
+        task["role"] = role
+    if base:
+        task["base"] = base
+    entry = {"step": step, "name": name or AW_STEP_NAMES.get(step, f"步骤{step}"),
+             "time": time.strftime("%Y-%m-%d %H:%M:%S"), "data": _aw_json_safe(data)}
+    steps = task.get("steps") or []
+    idx = next((i for i, s in enumerate(steps) if s.get("step") == step), None)
+    if idx is None:
+        steps.append(entry)
+    else:
+        steps[idx] = entry
+    steps.sort(key=lambda s: s.get("step", 0))
+    task["steps"] = steps
+    task["updated_at"] = entry["time"]
+    task["status"] = status or AW_STEP_STATUS.get(step, task.get("status", "draft"))
+    _write_aw_task(task)
+    return {"ok": True, "data": {"task_id": task["task_id"], "step": step, "status": task["status"]}}
+
+
+def list_aw_tasks(role: str = "", limit: int = 50) -> Dict[str, Any]:
+    AIW_TASKS_ROOT.mkdir(parents=True, exist_ok=True)
+    items: List[Dict[str, Any]] = []
+    for fp in sorted(AIW_TASKS_ROOT.glob("aiw-task-*.json"), reverse=True)[:limit]:
+        try:
+            obj = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if role and obj.get("role") != role:
+            continue
+        items.append({"task_id": obj.get("task_id"), "created_at": obj.get("created_at"),
+                      "updated_at": obj.get("updated_at"), "role": obj.get("role"),
+                      "base": obj.get("base"), "title": obj.get("title"),
+                      "status": obj.get("status"), "step_count": len(obj.get("steps") or [])})
+    return {"ok": True, "data": {"items": items}}
+
+
+def get_aw_task(task_id: str) -> Dict[str, Any]:
+    task = _load_aw_task(task_id)
+    if task is None:
+        return {"ok": False, "error": f"任务不存在：{task_id}"}
+    return {"ok": True, "data": task}

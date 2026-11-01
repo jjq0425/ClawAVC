@@ -21,6 +21,56 @@
       <t-step-item title="校验与生效" content="结构校验并切换生效" />
     </t-steps>
 
+    <!-- ②·5 生成日志（只读回看） -->
+    <div class="panel">
+      <div class="panel-head"><t-icon name="folder" /> 生成日志（只读）</div>
+      <div class="row-actions">
+        <t-button size="small" variant="outline" @click="loadAwTasks">刷新</t-button>
+        <span class="dim">当前角色：{{ form.role || '（未填写角色名）' }}；记录每一步的输入、AI 产出与结果，不可修改</span>
+      </div>
+      <t-table v-if="awTasks.length" :data="awTasks" :columns="taskCols" row-key="task_id" size="small" bordered class="log-table">
+        <template #ops="{ row }">
+          <t-button size="small" variant="text" theme="primary" @click="openAwTask(row.task_id)">查看</t-button>
+        </template>
+      </t-table>
+      <t-empty v-else description="该角色暂无生成日志" size="small" />
+      <div v-if="awCurrent" class="steps-log">
+        <div class="dim log-meta">任务 {{ awCurrent.task_id }} · 状态 {{ awCurrent.status }} · 角色 {{ awCurrent.role }} · 基线 {{ awCurrent.base }}</div>
+        <div v-for="s in awCurrent.steps || []" :key="s.step" class="step-item">
+          <div class="step-head">
+            <t-tag size="small" variant="outline">{{ s.step }}</t-tag>
+            <b>{{ s.name }}</b>
+            <span class="dim">{{ s.time }}</span>
+          </div>
+          <div class="step-body">
+            <div v-if="s.step === 1">
+              角色 {{ s.data.role }} · 基线 {{ s.data.base }} · 标题 {{ s.data.title || '—' }}
+              <div class="dim">权限说明：{{ s.data.instruction || '—' }}</div>
+            </div>
+            <div v-else-if="s.step === 2">
+              禁用场景 {{ (s.data.disable || []).length }} 个：{{ (s.data.disable || []).join('、') || '—' }}
+              <div class="dim">AI 摘要：{{ s.data.summary || '—' }}</div>
+            </div>
+            <div v-else-if="s.step === 3">
+              场景 {{ s.data.scene }} 的补丁：
+              <pre class="mini">{{ JSON.stringify(s.data.patch, null, 2) }}</pre>
+            </div>
+            <div v-else-if="s.step === 4">
+              落盘变更 {{ (s.data.changes || []).length }} 条 · 快照 {{ s.data.snapshot || '—' }} ·
+              校验 {{ s.data.validation?.ok ? '通过' : '存在阻断错误' }}
+              <div v-for="c in (s.data.changes || []).slice(0, 8)" :key="c" class="dim">· {{ c }}</div>
+            </div>
+            <div v-else-if="s.step === 5">
+              校验 {{ s.data.ok ? '通过' : '存在阻断错误' }} · 错误 {{ (s.data.errors || []).length }} ·
+              警告 {{ (s.data.warnings || []).length }}
+            </div>
+            <div v-else-if="s.step === 6">已切换生效：{{ s.data.role }}</div>
+            <div v-else-if="s.step === 7">回滚至快照 {{ s.data.ts || '最新' }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ③ 阶段 A：建目录 -->
     <div class="panel" v-show="step === 0">
       <div class="panel-head"><t-icon name="folder-add" /> 阶段 A · 创建基础目录结构</div>
@@ -167,11 +217,21 @@ const lastChanges = ref([])
 const snapshots = ref([])
 const rollbackTs = ref("")
 const sceneBusy = ref("")
+const taskId = ref("")
+const awTasks = ref([])
+const awCurrent = ref(null)
 
 const form = ref({ role: "", base: "default", title: "", instruction: "", force: false })
 const baseOptions = [{ label: "default（普通办公/开发/分析）", value: "default" },
                      { label: "ops（运维/系统管理）", value: "ops" }]
 
+const taskCols = [
+  { colKey: "task_id", title: "任务", width: 190 },
+  { colKey: "created_at", title: "创建时间", width: 170 },
+  { colKey: "status", title: "状态", width: 120 },
+  { colKey: "step_count", title: "步骤", width: 80 },
+  { colKey: "ops", title: "操作", width: 90 },
+]
 const sceneCols = [
   { colKey: "name", title: "场景", width: 180 },
   { colKey: "desc", title: "说明", ellipsis: true },
@@ -213,6 +273,32 @@ async function ssePost(url, body, onText) {
   return done
 }
 
+// AI 帮写任务日志：写入一步（失败仅告警，不阻断生成流程）
+async function logStep(step, name, data) {
+  try {
+    const j = await jfetch("/api/translator/ai-writer/tasks/step", {
+      method: "POST", headers: ADMIN_HEAD(),
+      body: JSON.stringify({ task_id: taskId.value, step, name, data,
+                             role: form.value.role, base: form.value.base }),
+    })
+    if (j.ok && j.data?.task_id) taskId.value = j.data.task_id
+  } catch (e) {
+    console.warn("AI 帮写任务日志写入失败", e)
+  }
+}
+
+async function loadAwTasks() {
+  if (!form.value.role) return
+  const j = await jfetch(`/api/translator/ai-writer/tasks?role=${form.value.role}&limit=20`)
+  if (j.ok) awTasks.value = j.data.items || []
+}
+
+async function openAwTask(id) {
+  const j = await jfetch(`/api/translator/ai-writer/tasks/${encodeURIComponent(id)}`)
+  awCurrent.value = j.ok ? j.data : null
+  if (!j.ok) MessagePlugin.error(j.error || "任务读取失败")
+}
+
 async function loadBaseScenes() {
   const j = await jfetch(`/api/translator/ai-writer/base-scenes?base=${form.value.base}`)
   if (!j.ok) return
@@ -229,6 +315,8 @@ async function doScaffold() {
     })
     if (j.ok) {
       scaffoldInfo.value = j.data
+      // 步骤 1 由后端记录；这里保存任务 ID 供后续步骤关联
+      if (j.data.task_id) taskId.value = j.data.task_id
       MessagePlugin.success(`已创建 ${j.data.role}（${j.data.tool_count} 个工具文件）`)
       step.value = 1
       await loadSnapshots()
@@ -247,6 +335,10 @@ async function doGenerateScenes() {
     const reason = data.reason || {}
     sceneRows.value = sceneRows.value.map(r => ({ ...r, disable: disableSet.has(r.name), reason: reason[r.name] || "" }))
     MessagePlugin.success(`AI 规划完成：禁用 ${data.disable?.length || 0} 个场景`)
+    // 步骤 2：记录 AI 当时的场景增删决策与理由
+    await logStep(2, "AI 规划场景", { instruction: form.value.instruction, hint: hintB.value,
+      disable: data.disable || [], keep: data.keep || [], functions_remove: data.functions_remove || [],
+      reason: data.reason || {}, summary: data.summary || "", meta: data.meta || {} })
   } catch (e) { MessagePlugin.error(String(e)) } finally { busy.value = false }
 }
 
@@ -254,12 +346,15 @@ async function applyScenes() {
   const disable = sceneRows.value.filter(r => r.disable).map(r => r.name)
   const j = await jfetch("/api/translator/ai-writer/patch", {
     method: "PUT", headers: ADMIN_HEAD(),
-    body: JSON.stringify({ role: form.value.role, scene: "__scenes__", patch: { scenes: { disable } } }),
+    body: JSON.stringify({ role: form.value.role, scene: "__scenes__", patch: { scenes: { disable } },
+                           task_id: taskId.value }),
   })
   if (!j.ok) return
   const ap = await jfetch("/api/translator/ai-writer/apply", {
-    method: "POST", headers: ADMIN_HEAD(), body: JSON.stringify({ role: form.value.role, reset: true }),
+    method: "POST", headers: ADMIN_HEAD(),
+    body: JSON.stringify({ role: form.value.role, reset: true, task_id: taskId.value }),
   })
+  if (ap.ok && ap.data.task_id) taskId.value = ap.data.task_id
   if (ap.ok) { lastChanges.value = ap.data.changes; validation.value = ap.data.validation }
   MessagePlugin.success(`已应用场景规划（禁用 ${disable.length} 个）`)
   step.value = 2
@@ -278,7 +373,7 @@ async function doGenerateScene(scene) {
     patchText.value = { ...patchText.value, [scene]: JSON.stringify(patch, null, 2) }
     await jfetch("/api/translator/ai-writer/patch", {
       method: "PUT", headers: ADMIN_HEAD(),
-      body: JSON.stringify({ role: form.value.role, scene, patch }),
+      body: JSON.stringify({ role: form.value.role, scene, patch, task_id: taskId.value }),
     })
     MessagePlugin.success(`${scene} 约束已生成（可在文本框内微调后应用）`)
   } catch (e) { MessagePlugin.error(String(e)) } finally { sceneBusy.value = "" }
@@ -302,14 +397,16 @@ async function doApply() {
         patches.value = { ...patches.value, [scene]: obj }
         await jfetch("/api/translator/ai-writer/patch", {
           method: "PUT", headers: ADMIN_HEAD(),
-          body: JSON.stringify({ role: form.value.role, scene, patch: obj }),
+          body: JSON.stringify({ role: form.value.role, scene, patch: obj, task_id: taskId.value }),
         })
       } catch { MessagePlugin.warning(`${scene} 的 JSON 无法解析，已跳过该场景`) }
     }
     const ap = await jfetch("/api/translator/ai-writer/apply", {
-      method: "POST", headers: ADMIN_HEAD(), body: JSON.stringify({ role: form.value.role, reset: true }),
+      method: "POST", headers: ADMIN_HEAD(),
+      body: JSON.stringify({ role: form.value.role, reset: true, task_id: taskId.value }),
     })
     if (ap.ok) {
+      if (ap.data.task_id) taskId.value = ap.data.task_id
       lastChanges.value = ap.data.changes
       validation.value = ap.data.validation
       MessagePlugin.success("已落盘并完成校验")
@@ -321,7 +418,8 @@ async function doApply() {
 
 async function doValidate() {
   const j = await jfetch("/api/translator/ai-writer/validate", {
-    method: "POST", headers: ADMIN_HEAD(), body: JSON.stringify({ role: form.value.role }),
+    method: "POST", headers: ADMIN_HEAD(),
+    body: JSON.stringify({ role: form.value.role, task_id: taskId.value }),
   })
   if (j.ok) validation.value = j.data
 }
@@ -335,7 +433,7 @@ async function loadSnapshots() {
 async function doRollback() {
   const j = await jfetch("/api/translator/ai-writer/rollback", {
     method: "POST", headers: ADMIN_HEAD(),
-    body: JSON.stringify({ role: form.value.role, ts: rollbackTs.value }),
+    body: JSON.stringify({ role: form.value.role, ts: rollbackTs.value, task_id: taskId.value }),
   })
   if (j.ok) { MessagePlugin.success("已回滚"); await doValidate() }
 }
@@ -344,16 +442,30 @@ async function doSwitch() {
   const j = await jfetch("/api/translator/policies/switch", {
     method: "POST", headers: ADMIN_HEAD(), body: JSON.stringify({ name: form.value.role }),
   })
-  if (j.ok) { MessagePlugin.success(`已切换生效：${form.value.role}`); switchDlg.value = false }
+  if (j.ok) {
+    MessagePlugin.success(`已切换生效：${form.value.role}`); switchDlg.value = false
+    // 步骤 6：记录切换生效
+    await logStep(6, "切换生效", { role: form.value.role })
+  }
 }
 
 function onStepChange(v) { step.value = typeof v === "number" ? v : step.value }
 
-onMounted(() => { loadBaseScenes() })
+onMounted(() => { loadBaseScenes(); loadAwTasks() })
 </script>
 
 <style scoped>
 .aiw { display: flex; flex-direction: column; gap: 16px; }
+.dim { color: #A6A6A6; font-size: 12px; }
+.log-table { margin-top: 8px; }
+.steps-log { margin-top: 14px; }
+.log-meta { margin-bottom: 8px; }
+.step-item { border-top: 1px dashed #E5E7EB; padding: 10px 0; }
+.step-item:first-of-type { border-top: none; }
+.step-head { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.step-body { margin-top: 6px; font-size: 13px; }
+.mini { margin: 6px 0 0; padding: 8px; background: #0F172A; color: #CBD5E1; border-radius: 6px;
+  font-size: 11px; max-height: 220px; overflow: auto; }
 .hero-card { display: flex; align-items: flex-start; gap: 14px; padding: 18px 20px; border-radius: 12px;
   background: linear-gradient(135deg, #E8F0FE 0%, #FFFFFF 60%); border: 1px solid #DCE6F7; }
 .hero-icon { flex: 0 0 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;

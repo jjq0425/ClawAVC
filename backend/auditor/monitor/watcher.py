@@ -1109,7 +1109,8 @@ def get_config_from_db() -> Dict[str, str]:
 def load_param_content_rules() -> Optional[Dict[str, Any]]:
     """从监控配置读取「参数内容深度检查规则」（JSON 字符串）；未配置返回 None（用内置默认）。"""
     from typing import Any as _Any, Dict as _Dict, Optional as _Optional
-    raw = str(get_config_from_db().get("monitor_conf.param_content_rules", "") or "")
+    # 注意：get_config_from_db() 返回的是 /api/monitor/config 的 data，键名不带 monitor_conf. 前缀
+    raw = str(get_config_from_db().get("param_content_rules", "") or "")
     if not raw.strip():
         return None
     try:

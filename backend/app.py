@@ -1368,9 +1368,20 @@ def ai_writer_scaffold():
     if guard:
         return guard
     d = request.get_json(force=True)
-    return jsonify(_aiw().scaffold(d.get("role", ""), d.get("base", "default"),
-                                   d.get("title", ""), d.get("instruction", ""),
-                                   bool(d.get("force", False))))
+    role = d.get("role", "")
+    res = _aiw().scaffold(role, d.get("base", "default"),
+                          d.get("title", ""), d.get("instruction", ""),
+                          bool(d.get("force", False)))
+    # 步骤 1：建目录即开任务，记录角色名、基线、标题与权限说明
+    if res.get("ok"):
+        aw_res = _aiw().log_aw_step(d.get("task_id", ""), 1, "建目录结构",
+                                    {"role": role, "base": d.get("base", "default"),
+                                     "title": d.get("title", ""), "instruction": d.get("instruction", ""),
+                                     "result": res.get("data")},
+                                    role=role, base=d.get("base", "default"))
+        if aw_res.get("ok"):
+            res.setdefault("data", {})["task_id"] = aw_res["data"]["task_id"]
+    return jsonify(res)
 
 
 @app.route("/api/translator/ai-writer/generate-scenes", methods=["POST"])
@@ -1429,6 +1440,10 @@ def put_ai_writer_patch():
     role, scene, patch = d.get("role", ""), d.get("scene", ""), d.get("patch")
     aw = _aiw()
     store = aw.delete_patch(role, scene) if not patch else aw.save_patch(role, scene, patch)
+    # 步骤 3：记录该场景的补丁内容（AI 填充或人工编辑后保存）
+    if patch:
+        aw.log_aw_step(d.get("task_id", ""), 3, "AI 填充场景",
+                       {"role": role, "scene": scene, "patch": patch}, role=role)
     return jsonify({"ok": True, "data": {"role": role, "scene": scene, "patches": store}})
 
 
@@ -1439,14 +1454,29 @@ def ai_writer_apply():
     if guard:
         return guard
     d = request.get_json(force=True) or {}
-    return jsonify(_aiw().apply_patches(d.get("role", ""), reset=bool(d.get("reset", True))))
+    res = _aiw().apply_patches(d.get("role", ""), reset=bool(d.get("reset", True)))
+    # 步骤 4：落盘即记录（合并后的 spec、变更列表、快照与校验），无 task_id 时自动新建任务
+    if res.get("ok"):
+        aw_res = _aiw().log_aw_step(d.get("task_id", ""), 4, "应用落盘",
+                                    {"spec": res["data"].get("spec"),
+                                     "changes": res["data"].get("changes"),
+                                     "snapshot": res["data"].get("snapshot"),
+                                     "validation": res["data"].get("validation")},
+                                    role=d.get("role", ""))
+        if aw_res.get("ok"):
+            res.setdefault("data", {})["task_id"] = aw_res["data"]["task_id"]
+    return jsonify(res)
 
 
 @app.route("/api/translator/ai-writer/validate", methods=["POST"])
 def ai_writer_validate():
     """校验角色策略库结构（E 级阻断 / W 级提示）。"""
     d = request.get_json(force=True) or {}
-    return jsonify(_aiw().validate(d.get("role", "")))
+    res = _aiw().validate(d.get("role", ""))
+    # 步骤 5：记录结构校验结果（E 级阻断 / W 级提示）
+    if res.get("ok") and d.get("task_id"):
+        _aiw().log_aw_step(d.get("task_id"), 5, "结构校验", res.get("data"), role=d.get("role", ""))
+    return jsonify(res)
 
 
 @app.route("/api/translator/ai-writer/snapshots", methods=["GET"])
@@ -1460,7 +1490,54 @@ def ai_writer_rollback():
     if guard:
         return guard
     d = request.get_json(force=True) or {}
-    return jsonify(_aiw().rollback(d.get("role", ""), d.get("ts", "")))
+    res = _aiw().rollback(d.get("role", ""), d.get("ts", ""))
+    # 步骤 7：记录回滚（快照时间点与角色）
+    if res.get("ok") and d.get("task_id"):
+        _aiw().log_aw_step(d.get("task_id"), 7, "回滚",
+                           {"role": d.get("role", ""), "ts": d.get("ts", ""), "result": res.get("data")},
+                           role=d.get("role", ""), status="rolled_back")
+    return jsonify(res)
+
+
+@app.route("/api/translator/ai-writer/tasks", methods=["GET"])
+def list_ai_writer_tasks():
+    """AI 帮写任务列表（只读回看；可按 role 过滤）。"""
+    return jsonify(_aiw().list_aw_tasks(request.args.get("role", ""),
+                                        int(request.args.get("limit", 50))))
+
+
+@app.route("/api/translator/ai-writer/tasks", methods=["POST"])
+def save_ai_writer_task():
+    """创建 AI 帮写任务。body: {role, base, title, instruction, task_id?}"""
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True) or {}
+    return jsonify(_aiw().start_aw_task(d.get("role", ""), d.get("base", ""),
+                                        d.get("title", ""), d.get("instruction", ""),
+                                        d.get("task_id", "")))
+
+
+@app.route("/api/translator/ai-writer/tasks/step", methods=["POST"])
+def log_ai_writer_task_step():
+    """记录 AI 帮写任务的一步；无 task_id 时自动创建任务并返回 task_id。
+
+    body: {task_id?, step, name?, data, role?, base?, status?}
+    step: 1 建目录 / 2 AI 规划场景 / 3 AI 填充场景 / 4 应用落盘 / 5 结构校验 / 6 切换生效 / 7 回滚
+    """
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True) or {}
+    return jsonify(_aiw().log_aw_step(d.get("task_id", ""), d.get("step", 0), d.get("name", ""),
+                                      d.get("data"), d.get("role", ""), d.get("base", ""),
+                                      d.get("status", "")))
+
+
+@app.route("/api/translator/ai-writer/tasks/<task_id>", methods=["GET"])
+def get_ai_writer_task(task_id):
+    """AI 帮写任务详情（含每一步输入、AI 产出与结果）。"""
+    return jsonify(_aiw().get_aw_task(task_id))
 
 
 # ==================== RSI 自进化：策略库迭代优化 ====================
@@ -1568,9 +1645,21 @@ def rsi_apply():
     if guard:
         return guard
     d = request.get_json(force=True) or {}
-    return jsonify(_rsi().apply_plan(d.get("role", ""), d.get("base", "default"),
-                                     d.get("changes") or [], d.get("title", ""),
-                                     bool(d.get("force", False))))
+    res = _rsi().apply_plan(d.get("role", ""), d.get("base", "default"),
+                            d.get("changes") or [], d.get("title", ""),
+                            bool(d.get("force", False)))
+    # 只要执行了「新建角色并应用」就落自进化任务（步骤 5），无 task_id 时自动新建任务
+    if res.get("ok"):
+        task_res = _rsi().log_step(
+            d.get("task_id", ""), 5, "应用",
+            {"apply_request": {"role": d.get("role", ""), "base": d.get("base", "default"),
+                               "title": d.get("title", ""), "force": bool(d.get("force", False)),
+                               "changes": d.get("changes") or []},
+             "apply_result": res.get("data")},
+            role=d.get("role", ""), base=d.get("base", "default"))
+        if task_res.get("ok"):
+            res.setdefault("data", {})["task_id"] = task_res["data"]["task_id"]
+    return jsonify(res)
 
 
 @app.route("/api/translator/rsi/rollback", methods=["POST"])
@@ -1592,7 +1681,13 @@ def rsi_validate():
 def rsi_backtest():
     """可选回测：改动前后对同一批 round 各判定一次并对比。"""
     d = request.get_json(force=True) or {}
-    return jsonify(_rsi().backtest(d.get("round_ids") or [], d.get("role", ""), d.get("mode", "static")))
+    res = _rsi().backtest(d.get("round_ids") or [], d.get("role", ""), d.get("mode", "static"))
+    # 带 task_id 时把回测结果并入自进化任务（步骤 6）
+    if res.get("ok") and d.get("task_id"):
+        _rsi().log_step(d.get("task_id"), 6, "回测",
+                        {"round_ids": d.get("round_ids") or [], "role": d.get("role", ""),
+                         "mode": d.get("mode", "static"), "backtest_result": res.get("data")})
+    return jsonify(res)
 
 
 @app.route("/api/translator/rsi/runs", methods=["GET"])
@@ -1617,6 +1712,47 @@ def get_rsi_run(run_id):
 def next_rsi_run(run_id):
     """基于上一轮发起新一轮（继承上下文与回测反馈）。"""
     return jsonify(_rsi().next_run(run_id))
+
+
+@app.route("/api/translator/rsi/tasks", methods=["GET"])
+def list_rsi_tasks():
+    """自进化任务列表（只读回看用）。"""
+    return jsonify(_rsi().list_tasks(int(request.args.get("limit", 50))))
+
+
+@app.route("/api/translator/rsi/tasks", methods=["POST"])
+def save_rsi_task():
+    """创建自进化任务。body: {role, base, title, round_ids, parent_feedback}。"""
+    guard = _rsi_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True) or {}
+    res = _rsi().start_task(d.get("role", ""), d.get("base", ""), d.get("title", ""),
+                            d.get("round_ids") or [], d.get("task_id", ""),
+                            d.get("parent_feedback", ""))
+    return jsonify(res)
+
+
+@app.route("/api/translator/rsi/tasks/step", methods=["POST"])
+def log_rsi_task_step():
+    """记录自进化任务的一步；无 task_id 时自动创建任务并返回 task_id。
+
+    body: {task_id?, step, name?, data, role?, base?, status?}
+    step: 1 选样本 / 2 上下文 / 3 AI 分析 / 4 评审 / 5 应用 / 6 回测 / 7 归档
+    """
+    guard = _rsi_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True) or {}
+    return jsonify(_rsi().log_step(d.get("task_id", ""), d.get("step", 0), d.get("name", ""),
+                                   d.get("data"), d.get("role", ""), d.get("base", ""),
+                                   d.get("status", "")))
+
+
+@app.route("/api/translator/rsi/tasks/<task_id>", methods=["GET"])
+def get_rsi_task(task_id):
+    """自进化任务详情（含每一步的输入、输出与结果）。"""
+    return jsonify(_rsi().get_task(task_id))
 
 @app.route("/api/translator/registry", methods=["GET"])
 def get_registry():
@@ -1794,6 +1930,53 @@ def get_monitor_config():
     data["_path_status"] = path_status
     return jsonify({"ok": True, "data": data})
 
+VALID_SEVERITIES = {"critical", "high", "medium", "low"}
+
+
+def validate_param_content_rules(value: str):
+    """校验参数内容检测规则配置：必须是 JSON 对象，严重级取值受限，关键数值为正整数。"""
+    try:
+        rules = json.loads(value)
+    except Exception as exc:
+        return False, f"不是合法 JSON（{exc}）"
+    if not isinstance(rules, dict):
+        return False, "顶层必须是 JSON 对象"
+    for side in ("path", "content"):
+        section = rules.get(side)
+        if section is None:
+            continue
+        if not isinstance(section, dict):
+            return False, f"{side} 必须是对象"
+        for k, v in section.items():
+            if k.endswith("_severity") or k in (
+                    "traversal_escape", "traversal_attempt", "home_expand", "encoded_variant",
+                    "proc_sys_dev", "tmp_write", "dotfile_write", "nul_control", "inject_severity",
+                    "semantic_severity", "obfuscation"):
+                if v is not None and str(v) not in VALID_SEVERITIES:
+                    return False, f"{side}.{k} 严重级非法: {v}（可选 {sorted(VALID_SEVERITIES)}）"
+        co = section.get("cmd_co_occurrence")
+        if isinstance(co, dict):
+            for num_key in ("classes",):
+                if num_key in co:
+                    try:
+                        n = int(co[num_key])
+                    except Exception:
+                        return False, f"{side}.cmd_co_occurrence.{num_key} 必须是整数"
+                    if n < 1:
+                        return False, f"{side}.cmd_co_occurrence.{num_key} 必须 ≥ 1"
+    return True, ""
+
+
+@app.route("/api/monitor/param-content-rules/default", methods=["GET"])
+def get_default_param_content_rules():
+    """返回内置默认参数内容检测规则，供前端一键填入并在此基础上修改。"""
+    try:
+        from auditor.monitor.judge import DEFAULT_PARAM_CONTENT_RULES
+        return jsonify({"ok": True, "data": DEFAULT_PARAM_CONTENT_RULES})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/monitor/config", methods=["PUT"])
 def put_monitor_config():
     body = request.get_json(force=True)
@@ -1804,6 +1987,11 @@ def put_monitor_config():
     # API Key 留空提交 = 不修改（避免误清空已配置的值）
     if key == "anomaly_llm_api_key" and not str(value).strip():
         return jsonify({"ok": True, "data": {"skipped": True, "reason": "留空不修改"}})
+    # 参数内容检测规则：保存前做结构与严重级校验，避免错误配置在检测阶段抛异常
+    if key == "param_content_rules" and str(value).strip():
+        ok, err = validate_param_content_rules(value)
+        if not ok:
+            return jsonify({"ok": False, "error": f"规则校验失败: {err}"}), 400
     db.set_config(f"monitor_conf.{key}", value)
     result = {"ok": True}
     # Check path validity for path fields

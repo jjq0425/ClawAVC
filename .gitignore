@@ -54,10 +54,12 @@ scripts/*
 *.pptx
 *.ppt
 *.pdf
-# AI 帮写运行时产物（快照 / 工作状态 / SKILL.md 备份）
-backend/auditor/translator/.ai_writer_snapshots/
-backend/auditor/translator/.ai_writer_state/
-backend/auditor/translator/.rsi_runs/
+# 翻译/AI 帮写/RSI 运行时产物（已统一迁至 infos/translator/ 下）
+infos/translator/ai_writer_snapshots/
+infos/translator/ai_writer_state/
+infos/translator/ai_writer_tasks/
+infos/translator/rsi_runs/
+infos/translator/rsi_tasks/
 .codebuddy/skills/clawavc-policy-creator/backups/
 selinux/tmp/
 
