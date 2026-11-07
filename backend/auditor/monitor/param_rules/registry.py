@@ -27,9 +27,12 @@ _SEVERITIES = {"critical", "high", "medium", "low"}
 
 
 def _rule_defaults(rule: Rule) -> Dict[str, Any]:
-    cfg: Dict[str, Any] = {"enabled": rule.default_enabled, "severity": rule.severity}
+    cfg: Dict[str, Any] = {"enabled": rule.default_enabled}
     for p in ([rule.param] if rule.param else []) + rule.extra_params:
         cfg[p.name] = p.default
+    # 规则自身的默认严重级优先于 severity 参数的通用默认值，
+    # 否则各规则会被统一覆盖成同一个级别（曾导致 P1 默认显示为 high）。
+    cfg["severity"] = rule.severity
     return cfg
 
 

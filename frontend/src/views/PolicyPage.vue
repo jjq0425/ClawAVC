@@ -33,6 +33,9 @@
           <AiWriterTab />
         </div>
       </t-tab-panel>
+      <t-tab-panel value="sensitive" label="敏感文件配置">
+        <SensitiveFilesTab />
+      </t-tab-panel>
       <t-tab-panel value="rsi" label="RSI 自进化">
         <t-tabs v-model="subRsi" class="sub-tabs">
           <t-tab-panel value="flow" label="自进化流程">
@@ -57,6 +60,7 @@ import LogsTab from "./policy/LogsTab.vue"
 import DefaultPolicyTab from "./policy/DefaultPolicyTab.vue"
 import AiWriterTab from "./policy/AiWriterTab.vue"
 import RsiTab from "./policy/RsiTab.vue"
+import SensitiveFilesTab from "./policy/SensitiveFilesTab.vue"
 import RsiTaskHistory from "./policy/RsiTaskHistory.vue"
 
 const topTab = ref("translate")

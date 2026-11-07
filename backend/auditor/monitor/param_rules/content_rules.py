@@ -28,15 +28,23 @@ def _b64_tokens(text: str, min_len: int) -> List[str]:
 
 
 def _decode_b64(token: str) -> str:
+    """解码 base64 token；产物须为可解码文本（UTF-8，含中文）且控制字符占比低。
+
+    早期实现只统计 ASCII 可打印字节，导致中文产物（UTF-8 多字节）被整体丢弃，
+    中文场景的编码载荷无法识别——现改为「UTF-8 可解码 + 控制字符比例」判定。
+    """
     try:
         pad = "=" * (-len(token) % 4)
         raw = base64.b64decode(token + pad)
         if not raw:
             return ""
-        printable = sum(1 for b in raw if 32 <= b < 127 or b in (9, 10, 13))
-        if printable / max(len(raw), 1) < 0.8:
+        text = raw.decode("utf-8", errors="strict")
+        if not text.strip():
             return ""
-        return raw.decode("utf-8", errors="replace")
+        ctrl = sum(1 for ch in text if ord(ch) < 9 or ord(ch) in (11, 12) or ord(ch) == 0)
+        if ctrl / max(len(text), 1) > 0.05:
+            return ""
+        return text
     except Exception:
         return ""
 

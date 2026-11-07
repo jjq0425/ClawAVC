@@ -1540,6 +1540,71 @@ def get_ai_writer_task(task_id):
     return jsonify(_aiw().get_aw_task(task_id))
 
 
+# ==================== 敏感文件（资源）规则配置 ====================
+def _sensitive():
+    from auditor.translator import sensitive
+    return sensitive
+
+
+@app.route("/api/translator/sensitive/config", methods=["GET"])
+def get_sensitive_config():
+    """读取敏感文件规则配置（分组列表与元信息）。"""
+    return jsonify({"ok": True, "data": _sensitive().load_config()})
+
+
+@app.route("/api/translator/sensitive/config", methods=["PUT"])
+def put_sensitive_config():
+    """人工保存敏感文件规则；写入前做字段与红线校验（E 级阻断）。"""
+    d = request.get_json(force=True) or {}
+    return jsonify(_sensitive().save_config(d))
+
+
+@app.route("/api/translator/sensitive/ai-config", methods=["GET"])
+def get_sensitive_ai_config():
+    """敏感文件配置专用的 AI 参数（与其他模块互不影响）。"""
+    return jsonify(_sensitive().get_ai_config())
+
+
+@app.route("/api/translator/sensitive/ai-config", methods=["PUT"])
+def put_sensitive_ai_config():
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    return jsonify(_sensitive().set_ai_config(request.get_json(force=True) or {}))
+
+
+@app.route("/api/translator/sensitive/test", methods=["POST"])
+def test_sensitive_llm():
+    """敏感文件配置专用模型的连通性自检。"""
+    try:
+        return jsonify(_sensitive().test_connection())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:300]}), 200
+
+
+@app.route("/api/translator/sensitive/generate", methods=["POST"])
+def sensitive_generate():
+    """SSE：AI 依据业务需求给出敏感规则建议（只输出建议，采纳由人工决定）。"""
+    guard = _aiw_admin()
+    if guard:
+        return guard
+    d = request.get_json(force=True) or {}
+
+    def worker():
+        yield {"type": "stage", "stage": "generate", "message": "正在读取当前敏感文件配置…"}
+        res = _sensitive().generate(d)
+        if not res.get("ok"):
+            yield {"type": "error", "message": res.get("error", "生成失败")}
+            return
+        data = res["data"]
+        yield {"type": "stage", "stage": "generate",
+               "message": f"已生成 {len(data.get('suggestions', []))} 条建议，请人工确认后保存"}
+        yield {"type": "text", "data": json.dumps(data.get("suggestions", []), ensure_ascii=False, indent=2)}
+        yield {"type": "done", "data": data}
+
+    return _aiw_sse(worker)
+
+
 # ==================== RSI 自进化：策略库迭代优化 ====================
 def _rsi():
     from auditor.translator import rsi

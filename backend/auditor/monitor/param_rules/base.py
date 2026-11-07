@@ -100,7 +100,14 @@ class Rule:
     needs_write_tool: bool = False  # True 时只对写类工具生效
 
     def to_dict(self) -> Dict[str, Any]:
-        d = {
+        params = []
+        for p in ([self.param] if self.param else []) + self.extra_params:
+            pd = p.to_dict()
+            # severity 参数的默认值跟随规则自身的默认级别
+            if p.name == "severity":
+                pd["default"] = self.severity
+            params.append(pd)
+        return {
             "key": self.key,
             "side": self.side,
             "label": self.label,
@@ -108,9 +115,8 @@ class Rule:
             "default_severity": self.severity,
             "default_enabled": self.default_enabled,
             "needs_write_tool": self.needs_write_tool,
-            "params": [p.to_dict() for p in ([self.param] if self.param else []) + self.extra_params],
+            "params": params,
         }
-        return d
 
 
 @dataclass
