@@ -50,6 +50,16 @@ CFG_PATH = "registry_path"
 
 # ─── 配置读写 ────────────────────────────────────────────────────
 def _cfg(key: str, default: str = "") -> str:
+    """
+    读取角色策略库相关配置键。
+
+    Args:
+        key: 配置键名（policy_* 前缀族）。
+        default: 缺省值。
+
+    Returns:
+        配置值字符串。
+    """
     try:
         import sys
         sys.path.insert(0, str(_TRANSLATOR_DIR.parent.parent))  # backend/
@@ -62,6 +72,15 @@ def _cfg(key: str, default: str = "") -> str:
 
 
 def _set_cfg(key: str, value: str) -> None:
+    """
+    写入角色策略库相关配置键（立即落库）。
+
+    Args:
+        key / value: 配置键与值。
+
+    Returns:
+        None。
+    """
     import sys
 
     sys.path.insert(0, str(_TRANSLATOR_DIR.parent.parent))  # backend/
@@ -70,12 +89,14 @@ def _set_cfg(key: str, value: str) -> None:
     db.set_config(f"ir_translator.{key}", value)
 
 
+# 读取注册表路径模板配置
 def get_template() -> str:
     """当前路径模板（含 {policy} 占位符），未配置则用默认。"""
     tpl = (_cfg(CFG_TEMPLATE, "") or "").strip()
     return tpl or _DEFAULT_TEMPLATE
 
 
+# 读取当前生效角色名
 def get_current_policy() -> str:
     """当前生效的 Policy 名。"""
     name = (_cfg(CFG_CURRENT, "") or "").strip()
@@ -83,12 +104,14 @@ def get_current_policy() -> str:
 
 
 # ─── 路径解析 ────────────────────────────────────────────────────
+# 模板 + 角色名 → 注册表绝对路径（F-1-1 ⑧ 路径模板校验的落点）
 def resolve_registry_path(policy: Optional[str] = None) -> str:
     """用给定（或当前）Policy 名替换模板中的 {policy} 占位符，返回真实路径。"""
     name = (policy or get_current_policy()).strip() or _DEFAULT_POLICY
     return get_template().replace("{policy}", name)
 
 
+# 拆分模板为父目录与结尾部分（用于校验与展示）
 def _template_parts(tpl: str) -> Tuple[Optional[Path], str]:
     """把模板拆成 (父目录, {policy} 之后的相对后缀)。"""
     if "{policy}" not in tpl:
@@ -97,6 +120,7 @@ def _template_parts(tpl: str) -> Tuple[Optional[Path], str]:
     return Path(root.rstrip("/\\")), suffix.strip("/\\")
 
 
+# 角色对应的注册表目录
 def _policy_dir_of(name: str) -> Path:
     """某个 Policy 名对应的策略库目录。"""
     root, suffix = _template_parts(get_template())
@@ -105,6 +129,7 @@ def _policy_dir_of(name: str) -> Path:
     return root / name / suffix if suffix else root / name
 
 
+# 角色容器目录（含注册表与快照/回滚产物）
 def _policy_container_dir_of(name: str) -> Path:
     """Policy 的容器目录（<root>/<name>），其内才是 policy_registry。
 
@@ -116,6 +141,7 @@ def _policy_container_dir_of(name: str) -> Path:
     return root / name
 
 
+# 判断目录是否为合法注册表（存在 scenes.json 即视为有效）
 def _is_valid_registry(path) -> bool:
     """策略库目录有效性：含 scenes.json 与 tools/。"""
     p = Path(path)
@@ -123,6 +149,15 @@ def _is_valid_registry(path) -> bool:
 
 
 def _count_scenes(path) -> int:
+    """
+    统计指定注册表目录的场景数。
+
+    供 list_policies 展示每个角色的场景规模，
+    目录无效时返回 0 而不抛异常。
+
+    Returns:
+        scenes.json 中的场景数量。
+    """
     try:
         with open(Path(path) / "scenes.json", "r", encoding="utf-8") as f:
             obj = json.load(f)
@@ -131,6 +166,7 @@ def _count_scenes(path) -> int:
         return 0
 
 
+# 切换后立即热重载翻译模块注册表，保证新角色即时生效
 def _reload() -> None:
     """热重载策略库，使切换立即生效。"""
     try:
@@ -149,6 +185,7 @@ def _reload() -> None:
 
 
 # ─── 列出 ────────────────────────────────────────────────────────
+# 列出全部角色及各自场景数（策略库页面的数据来源）
 def list_policies() -> Dict[str, Any]:
     """列出全部 Policy（名/路径/场景数/健康）及当前 Policy、模板、解析路径。"""
     tpl = get_template()
@@ -183,6 +220,20 @@ def list_policies() -> Dict[str, Any]:
 
 # ─── 切换（免特权） ──────────────────────────────────────────────
 def switch_policy(name: str) -> Tuple[Dict[str, Any], int]:
+    """
+    切换当前生效的角色策略库。
+
+    流程：
+        1. 名称合法性与目标目录校验（防路径穿越）；
+        2. 替换配置中的当前角色并写回 config；
+        3. 立即热重载翻译模块注册表（无需重启）。
+
+    Args:
+        name: 目标角色名。
+
+    Raises:
+        ValueError: 名称非法或目录不存在。
+    """
     name = (name or "").strip()
     if not POLICY_NAME_RE.match(name):
         return {"ok": False, "error": "Policy 名只能包含字母、数字、下划线和中划线（1-64 字符）"}, 400
@@ -199,6 +250,19 @@ def switch_policy(name: str) -> Tuple[Dict[str, Any], int]:
 
 # ─── 新建 / 复制 ─────────────────────────────────────────────────
 def create_policy(name: str, src: Optional[str] = None) -> Tuple[Dict[str, Any], int]:
+    """
+    新建角色策略库。
+
+    src 为 default / ops 时复制对应基线库，
+    否则生成仅含 scenes.json 与 tools/ 的空骨架。
+
+    Args:
+        name: 新角色名（经合法名校验）。
+        src: 复制来源角色，缺省为空骨架。
+
+    Raises:
+        ValueError: 名称已存在或非法。
+    """
     name = (name or "").strip()
     if not POLICY_NAME_RE.match(name):
         return {"ok": False, "error": "Policy 名只能包含字母、数字、下划线和中划线（1-64 字符）"}, 400
@@ -230,6 +294,15 @@ def create_policy(name: str, src: Optional[str] = None) -> Tuple[Dict[str, Any],
 
 # ─── 重命名 ──────────────────────────────────────────────────────
 def rename_policy(old: str, new: str) -> Tuple[Dict[str, Any], int]:
+    """
+    重命名角色策略库。
+
+    容器目录整体移动；重命名当前生效角色时，
+    同步更新配置并立即热重载，保证会话不中断。
+
+    Args:
+        old / new: 原名与新角色名。
+    """
     old, new = (old or "").strip(), (new or "").strip()
     if not POLICY_NAME_RE.match(new):
         return {"ok": False, "error": "新 Policy 名只能包含字母、数字、下划线和中划线（1-64 字符）"}, 400
@@ -259,6 +332,18 @@ def rename_policy(old: str, new: str) -> Tuple[Dict[str, Any], int]:
 
 # ─── 删除 ────────────────────────────────────────────────────────
 def delete_policy(name: str) -> Tuple[Dict[str, Any], int]:
+    """
+    删除角色策略库（带删除保护）。
+
+    当前生效中的角色禁止删除；其余角色删除前
+    先在备份目录留存容器目录快照，可追溯恢复。
+
+    Args:
+        name: 待删除角色名。
+
+    Raises:
+        ValueError: 目标为当前角色或不存在。
+    """
     name = (name or "").strip()
     if not POLICY_NAME_RE.match(name):
         return {"ok": False, "error": "Policy 名不合法"}, 400
@@ -290,6 +375,7 @@ def delete_policy(name: str) -> Tuple[Dict[str, Any], int]:
 
 
 # ─── 自进化角色覆盖 ──────────────────────────────────────────────
+# 覆盖目标策略库：备份 → 删除 → 复制并校验，失败可回滚
 def overwrite_policy(source: str, target: str) -> Tuple[Dict[str, Any], int]:
     """把自进化角色（名含 _evolved_）的 policy_registry 覆盖到基础角色（名不含 _evolved_）。
 
@@ -337,6 +423,18 @@ def overwrite_policy(source: str, target: str) -> Tuple[Dict[str, Any], int]:
 
 # ─── 模板配置 ────────────────────────────────────────────────────
 def set_template(tpl: str) -> Tuple[Dict[str, Any], int]:
+    """
+    设置注册表路径模板。
+
+    四项校验：非空 / 含 {policy} 占位符 / 以 policy_registry
+    结尾 / 父目录存在；全部通过后写回配置。
+
+    Args:
+        tpl: 新模板字符串。
+
+    Raises:
+        ValueError: 任一校验不通过。
+    """
     tpl = (tpl or "").strip()
     if not tpl:
         return {"ok": False, "error": "路径模板不能为空"}, 400
@@ -361,6 +459,7 @@ def set_template(tpl: str) -> Tuple[Dict[str, Any], int]:
 
 
 # ─── 启动同步 ────────────────────────────────────────────────────
+# 配置与「模板+当前角色」不一致时自动纠正并热重载（F-1-1 ⑩ 启动同步）
 def sync_registry_path() -> bool:
     """启动时确保 registry_path 与「模板 + 当前 Policy」一致（迁移/纠错场景）。
 

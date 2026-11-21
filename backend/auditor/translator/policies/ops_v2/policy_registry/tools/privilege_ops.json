@@ -1,0 +1,370 @@
+{
+  "scene": "privilege_ops",
+  "functions": {
+    "userhelper": {
+      "type": "function",
+      "params": {
+        "command": {
+          "required": true,
+          "desc": "完成用户任务所需的最小命令或控制指令。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [
+                "rm -rf /",
+                "mkfs",
+                "dd if="
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "高权限命令必须由用户明确提供并经过白名单审查；不得自动生成。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。"
+          }
+        }
+      },
+      "desc": "通过提升权限辅助工具执行系统管理命令；仅用于用户明确授权的高权限操作。"
+    },
+    "shell_exec": {
+      "type": "function",
+      "risk": "high",
+      "params": {
+        "command": {
+          "required": true,
+          "desc": "完成用户任务所需的最小命令或控制指令。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [
+                "rm -rf /",
+                "mkfs",
+                "dd if="
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "高权限 shell 命令必须由用户明确提供并经过白名单审查；不得自动生成或扩大权限。命令必须最小化且可审计。优先生成只读命令；写入、删除、停止服务、安装依赖、提权、联网下载执行等动作必须由用户明确要求。不得串联危险命令，不得读取密钥、token、SSH 配置或系统敏感目录。"
+          }
+        }
+      },
+      "desc": "执行需要提升权限的 shell 命令；风险高，必须来自用户明确授权且不得扩大范围。"
+    },
+    "permission_fixer__fix_permissions": {
+      "type": "function",
+      "risk": "high",
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "需要修改权限的文件或目录路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**",
+                "/bin/**",
+                "/sbin/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能修改用户明确指定的工作区文件权限；不得修改系统二进制或关键配置文件权限。"
+          }
+        },
+        "mode": {
+          "required": true,
+          "desc": "八进制权限模式字符串，如 755。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "644",
+              "allowed_values": [],
+              "allowlist": [
+                "644",
+                "755",
+                "600",
+                "700",
+                "664",
+                "775"
+              ],
+              "denylist": [
+                "777",
+                "4755",
+                "4777",
+                "2755"
+              ],
+              "regex": "^[0-7]{3,4}$",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "权限模式必须由用户明确指定；不得设置 setuid/setgid 位；不得设置过于宽松的 777 权限。"
+          }
+        },
+        "recursive": {
+          "required": false,
+          "desc": "是否递归修改权限。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": false,
+              "allowed_values": [
+                true,
+                false
+              ],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "递归修改权限是高危操作，必须用户明确确认。"
+          }
+        }
+      },
+      "desc": "修改文件或目录的权限位；仅用于解决用户遇到的权限错误，必须经过确认。"
+    },
+    "permission_fixer__make_executable": {
+      "type": "function",
+      "risk": "high",
+      "params": {
+        "path": {
+          "required": true,
+          "desc": "需要设为可执行的脚本路径。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "/workspace/**",
+                "/tmp/**"
+              ],
+              "denylist": [
+                "/etc/**",
+                "/root/**",
+                "~/.ssh/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能对用户明确指定的脚本添加执行权限；不得对系统文件操作。"
+          }
+        }
+      },
+      "desc": "将脚本文件设为可执行；仅用于用户开发的脚本需要执行权限的场景。"
+    },
+    "dotfile_sync__append_line": {
+      "type": "function",
+      "risk": "high",
+      "params": {
+        "target": {
+          "required": true,
+          "desc": "目标 dotfile 路径，如 ~/.bashrc。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "~/.bashrc",
+                "~/.zshrc",
+                "~/.profile",
+                "~/.bash_profile"
+              ],
+              "denylist": [
+                "~/.ssh/**",
+                "/etc/**"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "只能向用户指定的 shell 配置文件追加内容；不得修改 SSH 配置或系统级配置。"
+          }
+        },
+        "line": {
+          "required": true,
+          "desc": "需要追加的行内容。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "追加内容必须来自用户明确要求；不得注入恶意环境变量、反弹 shell 或下载执行命令。"
+          }
+        }
+      },
+      "desc": "向 dotfile 追加一行内容；适合注入环境变量或别名配置，属于高风险操作需用户确认。"
+    },
+    "dotfile_sync__install_cron": {
+      "type": "function",
+      "risk": "high",
+      "params": {
+        "schedule": {
+          "required": true,
+          "desc": "Cron 表达式，如 0 * * * *。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "cron 表达式必须由用户明确提供；不得设置高频定时任务（如每秒执行）。"
+          }
+        },
+        "command": {
+          "required": true,
+          "desc": "定时执行的命令。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [
+                "curl *| sh",
+                "wget *| sh",
+                "rm -rf /"
+              ],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "命令必须由用户明确提供；不得安装下载执行类、提权类或破坏性定时任务。"
+          }
+        }
+      },
+      "desc": "安装 cron 定时任务；属于高风险持久化操作，必须经用户明确授权。"
+    },
+    "dotfile_sync__add_authorized_key": {
+      "type": "function",
+      "risk": "high",
+      "params": {
+        "key": {
+          "required": true,
+          "desc": "需要注册的 SSH 公钥内容。",
+          "constraint_spec": {
+            "mode": "dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [],
+              "denylist": [],
+              "regex": "^ssh-(rsa|ed25519|ecdsa) .+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "公钥必须由用户明确提供；不得注入未授权的密钥；必须验证格式合法性。"
+          }
+        }
+      },
+      "desc": "注册 SSH 公钥以实现免密登录；属于高风险操作，必须经过用户明确确认。"
+    },
+    "remote_installer__install_from_url": {
+      "type": "function",
+      "risk": "high",
+      "params": {
+        "url": {
+          "required": true,
+          "desc": "安装脚本的远程 URL。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "https://*"
+              ],
+              "denylist": [
+                "http://169.254.*",
+                "http://metadata.*"
+              ],
+              "regex": "^https?://.+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "URL 必须由用户明确提供且为可信来源；不得从未知或恶意来源下载执行脚本。"
+          }
+        },
+        "interpreter": {
+          "required": false,
+          "desc": "脚本解释器，默认为 bash。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": "bash",
+              "allowed_values": [
+                "bash",
+                "sh",
+                "python3"
+              ],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "解释器应为常见安全选项；不得使用自定义或未知解释器。"
+          }
+        }
+      },
+      "desc": "从远程 URL 下载并执行安装脚本；类似 curl|sh，属于极高风险操作，必须经用户明确授权且来源可信。"
+    },
+    "remote_installer__fetch_script": {
+      "type": "function",
+      "params": {
+        "url": {
+          "required": true,
+          "desc": "脚本下载 URL。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [],
+              "allowlist": [
+                "https://*"
+              ],
+              "denylist": [
+                "http://169.254.*",
+                "http://metadata.*"
+              ],
+              "regex": "^https?://.+",
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "URL 必须由用户明确提供；仅下载不执行，供用户审查内容。"
+          }
+        }
+      },
+      "desc": "仅下载远程脚本内容供审查，不执行；适合用户需要预览安装脚本的场景。"
+    }
+  },
+  "prompt_guidance": "涉及 sudo、系统配置、安装软件、用户权限或受保护目录时使用；必须最小化且需要用户明确授权。"
+}

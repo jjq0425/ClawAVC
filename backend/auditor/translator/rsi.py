@@ -92,6 +92,12 @@ DEFAULT_PROMPTS = {
 
 # ──────────────────────────────── 配置读写 ────────────────────────────────
 def _db():
+    """
+    取平台数据库连接（延迟 import，便于单元测试替换）。
+
+    Returns:
+        db 模块对象。
+    """
     if str(BACKEND_DIR) not in sys.path:
         sys.path.insert(0, str(BACKEND_DIR))
     import db  # type: ignore
@@ -100,6 +106,15 @@ def _db():
 
 
 def _cfg(key: str, default: str = "") -> str:
+    """
+    读取 RSI 配置键，缺省值兜底。
+
+    Args:
+        key: 配置键名（rsi.* 前缀族）；default: 缺省值。
+
+    Returns:
+        配置值字符串。
+    """
     try:
         val = _db().get_config(f"{CFG_PREFIX}{key}")
         return val if val is not None else default
@@ -108,6 +123,12 @@ def _cfg(key: str, default: str = "") -> str:
 
 
 def _set_cfg(key: str, value: str) -> None:
+    """
+    写入 RSI 配置键（立即落库）。
+
+    Args:
+        key / value: 配置键与值。
+    """
     try:
         _db().set_config(f"{CFG_PREFIX}{key}", value)
     except Exception as e:
@@ -115,6 +136,12 @@ def _set_cfg(key: str, value: str) -> None:
 
 
 def get_config() -> Dict[str, Any]:
+    """
+    读取 RSI 整体配置（模型、开关、采样参数）。
+
+    Returns:
+        配置 dict（可直接注入提示词组装与 LLM 调用）。
+    """
     data: Dict[str, Any] = {}
     for k in CFG_KEYS:
         raw = _cfg(k, "")
@@ -127,6 +154,16 @@ def get_config() -> Dict[str, Any]:
 
 
 def set_config(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    整包保存 RSI 配置：逐键校验后统一写回。
+
+    Args:
+        data: 配置 dict。
+# 连通性测试发送最小合法请求，错误信息直指配置项（key/endpoint/model）
+
+    Returns:
+        保存后的完整配置。
+    """
     changed: List[str] = []
     for k in CFG_KEYS:
         if k in data and data[k] is not None:
@@ -139,6 +176,12 @@ def set_config(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def llm_config() -> Dict[str, Any]:
+    """
+    组装 RSI 分析模型的调用配置。
+
+    Returns:
+        可直接发起 LLM 调用的配置 dict。
+    """
     temp_str = _cfg("temperature", CFG_DEFAULTS["temperature"])
     timeout_str = _cfg("timeout", CFG_DEFAULTS["timeout"])
     return {
@@ -152,8 +195,24 @@ def llm_config() -> Dict[str, Any]:
     }
 
 
+def copy_ir_config() -> Dict[str, Any]:
+    """复用「策略翻译 → 模型配置」的连接参数（含本地网关 token）。"""
+    # 从翻译模块复制模型配置：RSI 缺省沿用 IR 翻译模型
+    from auditor.translator.core import copy_ir_llm_config
+    return copy_ir_llm_config(_db(), CFG_PREFIX)
+
+
 def test_connection() -> Dict[str, Any]:
+    """
+    测试 RSI 模型连通性。
+
+    Returns:
+        {ok, model, endpoint, latency_ms, message}。
+    """
     cfg = llm_config()
+    # 连通性自检只验链路：关闭 response_format=json_object，
+    # 否则 OpenAI 兼容网关会因 messages 不含 "json" 字样直接 400，掩盖真实连通状态。
+    cfg["json_mode"] = False
     if not cfg.get("api_key"):
         return {"ok": False, "error": "API Token 未配置，请在「RSI 自进化 → AI 参数」抽屉中配置"}
     try:
@@ -161,13 +220,29 @@ def test_connection() -> Dict[str, Any]:
     except Exception:
         from .core import call_llm  # type: ignore
     t0 = time.time()
-    content, meta = call_llm("你是连通性自检助手。", "请只回复：ok", cfg, max_retry=0)
-    return {"ok": True, "data": {"model": cfg.get("model"), "endpoint": meta.get("endpoint", ""),
-                                 "latency_ms": int((time.time() - t0) * 1000),
-                                 "reply": (content or "")[:80]}}
+    try:
+        content, meta = call_llm("你是连通性自检助手。", "请只回复：ok", cfg, max_retry=0)
+        return {"ok": True, "data": {"model": cfg.get("model"), "endpoint": meta.get("endpoint", ""),
+                                     "latency_ms": int((time.time() - t0) * 1000),
+                                     "reply": (content or "")[:80]}}
+    except Exception as e:
+        err = str(e)
+        if "x-portkey" in err or "portkey gateway" in err.lower() or "headerless opensdk" in err.lower():
+            err = ("本地 portkey 网关拒绝：model alias（如 useme）必须使用网关 bearer token，"
+                   "不能用第三方厂商 API Key。请点「复用 IR 模型配置」一键同步，"
+                   "或把 Model 改成 provider/model 形式")
+        elif "429" in err or "quota" in err.lower():
+            err = "上游模型限流/配额不足（429 insufficient_quota），请稍后重试或更换模型"
+        return {"ok": False, "error": err[:300]}
 
 
 def get_prompts() -> Dict[str, Any]:
+    """
+    读取 RSI 分阶段提示词（含内置默认）。
+
+    Returns:
+        {analyze, plan, ...} 提示词字典。
+    """
     data: Dict[str, Any] = {}
     for k in PROMPT_KEYS:
         raw = _cfg(k, "")
@@ -175,8 +250,15 @@ def get_prompts() -> Dict[str, Any]:
     data["is_default"] = {k: (not _cfg(k, "").strip()) for k in PROMPT_KEYS}
     return {"ok": True, "data": data}
 
+# IR 摘要保留 effect/subject 与对象类型分布，控制 token 开销同时保留判定线索
 
 def set_prompts(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    保存自定义提示词（原子写，可回滚）。
+
+    Args:
+        data: 提示词字典。
+    """
     changed = []
     for k in PROMPT_KEYS:
         if k in data and isinstance(data[k], str):
@@ -185,20 +267,38 @@ def set_prompts(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "data": {"changed": changed}}
 
 
+# 恢复内置默认提示词：页面误改后的一键回退
 def restore_prompts() -> Dict[str, Any]:
     """恢复默认提示词：清空自定义值，使其回落到内置 DEFAULT_PROMPTS。"""
+    # 提示词恢复为内置默认（页面一键还原）
     for k in PROMPT_KEYS:
         _set_cfg(k, "")
     return {"ok": True, "data": {"restored": PROMPT_KEYS}}
 
 
+# 轮次摘要同时携带 role_name：每条判定可追溯到产生它的策略库版本
 # ─────────────────────────── ② 上下文汇聚 ───────────────────────────
 def _trunc(text: Any, n: int = 400) -> str:
+    """
+    文本截断（保头保尾，中间折叠）。
+
+    Args:
+        text / n: 原文与保留长度。
+
+    Returns:
+        截断后的文本。
+    """
     s = "" if text is None else str(text)
     return s if len(s) <= n else s[:n] + f"…(截断 {len(s)}→{n})"
 
 
 def _load_json_obj(raw: Any) -> Any:
+    """
+    从 LLM 原始输出提取 JSON 对象（容错同翻译模块）。
+
+    Returns:
+        解析 dict；失败抛 ValueError。
+    """
     if isinstance(raw, (dict, list)):
         return raw
     if isinstance(raw, str) and raw.strip():
@@ -210,6 +310,15 @@ def _load_json_obj(raw: Any) -> Any:
 
 
 def _behaviors_brief(action_json: Any, max_items: int = 6) -> List[str]:
+    """
+    把 action_json 压缩为行为摘要列表（供分析上下文）。
+
+    Args:
+        action_json: 轮次行为记录；max_items: 条数上限。
+
+    Returns:
+        精简后的行为条目列表。
+    """
     obj = _load_json_obj(action_json)
     items = obj if isinstance(obj, list) else (obj.get("behaviors") if isinstance(obj, dict) else [])
     out: List[str] = []
@@ -228,10 +337,15 @@ def _behaviors_brief(action_json: Any, max_items: int = 6) -> List[str]:
     return out
 
 
+# IR 指纹：提取 IR 中授权对象/动作的结构化摘要，作为比对依据
 def _ir_digest(ir: Any) -> Any:
     """IR 精简摘要：场景清单 + 授权工具/参数键值，替代整份 JSON（控制体积）。"""
+    # user_prompt 注入角色说明与自定义分析重点，保持「AI 出建议、人工定采纳」边界
+    # IR 摘要：策略项 → 对象/动作的精简视图，控制注入上下文规模
     if not isinstance(ir, dict):
         return _trunc(ir, 300)
+    # 样本量上限 50 条/批：控制单次分析上下文规模，超量由调用方分批
+    # 四类样本严格区分：真实越权 / 合理未授权 / IR 不完整 / 证据不完整，避免误把异常标记当调整原因
     l2 = ir.get("level2") or {}
     scenes = l2.get("level1") or ir.get("level1") or []
     pols: List[Dict[str, Any]] = []
@@ -252,8 +366,10 @@ def _ir_digest(ir: Any) -> Any:
     return {"scenes": scenes, "policies": pols}
 
 
+# 单轮指纹：IR 指纹 + 行为摘要 + 判定结果的组合，作为进化依据
 def round_digest(rec: Dict[str, Any]) -> Dict[str, Any]:
     """把一条 round 记录压成给 AI 看的摘要（控制体积）。"""
+    # 轮次摘要：用户请求 + 行为摘要 + 判定结论的组装单元
     ir = _load_json_obj(rec.get("ir_json"))
     return {
         "round_id": rec.get("round_id", ""),
@@ -268,6 +384,16 @@ def round_digest(rec: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _policy_summary(policy: Optional[str] = None) -> Dict[str, Any]:
+    """
+    单条策略项的摘要（subject + 对象/动作计数）。
+
+    Args:
+        policy: 单条 IR 策略项。
+# sanitize 的裁剪上限固定为 100 条/项并截断长文本：分析产物可整页展示不超屏
+
+    Returns:
+        摘要字符串。
+    """
     reg = Path(policy_manager.resolve_registry_path(policy))
     scenes_obj: Dict[str, Any] = {}
     sp = reg / "scenes.json"
@@ -316,12 +442,15 @@ def _policy_summary(policy: Optional[str] = None) -> Dict[str, Any]:
             "advice_docs": [_trunc(a, 120) for a in advice[:5]]}
 
 
+# 组装进化上下文：选定轮次 + 父反馈 + 策略库摘要 + 用户指令
 def build_context(round_ids: List[str], policy: Optional[str] = None, role_desc: str = "",
                   user_prompt: str = "", parent_feedback: str = "") -> Dict[str, Any]:
     """聚合若干 round 的明细 + 当前策略库摘要，作为 AI 分析输入。"""
+    # 上下文组装：样本轮次 + 角色说明 + 当前策略库摘要 + 上一轮回测反馈
     if not round_ids:
         return {"ok": False, "error": "round_ids 为空"}
     items, missing = [], []
+    # 分析结论必须逐条引用轮次证据（round_id + 字段），禁止无依据泛化推断
     for rid in round_ids[:50]:
         rid = (rid or "").strip()
         if not rid:
@@ -348,10 +477,32 @@ TARGET_RE = re.compile(r"^(scenes\.json|tools/[A-Za-z0-9_-]+\.json)$")
 
 
 def _s(v: Any, n: int = 400) -> str:
+    """
+    字符串安全截断（None → 空串）。
+# JSON 提取与翻译模块同源容错：围栏、夹带文字、尾随逗号均可恢复
+
+    Args:
+        v / n: 原值与保留长度。
+
+    Returns:
+        # 计划构建不改 spec：真正的合并与落盘在 apply_plan，保证计划阶段可人工编辑
+        截断后的字符串。
+    """
     return _trunc(v, n)
 
 
 def _strlist(v: Any, n: int = 200) -> List[str]:
+    """
+    字符串列表安全截断（None → []）。
+# 字段级改造目标必须匹配 scenes.json 或 tools/*.json 白名单并经 realpath 校验，
+# 越出角色目录的目标（如 ../../etc/passwd）直接丢弃
+
+    Args:
+        v / n: 列表与保留条数。
+
+    Returns:
+        截断后的字符串列表。
+    """
     if isinstance(v, list):
         return [_s(x, n) for x in v][:200]
     if isinstance(v, str):
@@ -359,8 +510,10 @@ def _strlist(v: Any, n: int = 200) -> List[str]:
     return []
 
 
+# 清洗 LLM 输出：仅保留白名单字段，未知键一律丢弃
 def sanitize_result(obj: Any) -> Dict[str, Any]:
     """对 AI 输出做 schema 校验与裁剪，丢弃非法项。"""
+    # 结果规范化：截断超长字段、裁剪数组上限（100 条/项），保证产物 JSON 可审计且体积可控
     if not isinstance(obj, dict):
         raise ValueError("AI 输出不是 JSON 对象")
     out: Dict[str, Any] = {"risks": [], "relax": [], "transform": [], "summary": "", "assumptions": ""}
@@ -406,6 +559,15 @@ def sanitize_result(obj: Any) -> Dict[str, Any]:
 
 
 def _build_prompt(ctx: Dict[str, Any]) -> str:
+    """
+    按模板组装分析提示词（上下文 + 角色说明 + 上轮反馈）。
+
+    Args:
+        ctx: build_context 产出的分析上下文。
+
+    Returns:
+        (system_prompt, user_prompt) 元组。
+    """
     prompts = {k: (_cfg(k, "") or DEFAULT_PROMPTS[k]) for k in PROMPT_KEYS}
     body = {
         "role_desc": ctx.get("role_desc", ""),
@@ -418,8 +580,11 @@ def _build_prompt(ctx: Dict[str, Any]) -> str:
             "===== 待分析数据（JSON）=====\n" + json.dumps(body, ensure_ascii=False, indent=1)[:20000])
 
 
+# 只有带明确字段路径的改造建议自动落盘，其余建议标记为人工处理
+# 调用 LLM 对选定轮次做进化分析，产出改库建议（JSON）
 def analyze(ctx: Dict[str, Any]) -> Dict[str, Any]:
     """调用 LLM 产出结构化结论（JSON），失败自动纠正重试一次。"""
+    # LLM 分析：严格依据轨迹证据输出结论；429/超时按 45s TPM 冷却重试，解析失败自动重试
     if not llm_config().get("api_key"):
         return {"ok": False, "error": "API Token 未配置，请在「RSI 自进化 → AI 参数」抽屉中配置"}
     try:
@@ -427,6 +592,7 @@ def analyze(ctx: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         from .core import call_llm  # type: ignore
 
+    # 回滚链：快照 → 应用 → 整体校验 → 回测，任何一步失败自动回滚到快照
     system = "你是 ClawAVC 策略自进化分析引擎，只输出严格 JSON。"
     user = _build_prompt(ctx)
     cfg = llm_config()
@@ -448,6 +614,12 @@ def analyze(ctx: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _json_extract(text: str) -> str:
+    """
+    从 LLM 分析输出中提取 JSON（围栏剥除 + 尾逗号清理）。
+
+    Returns:
+        解析 dict；失败返回空 dict。
+    """
     raw = (text or "").strip()
     if raw.startswith("```"):
         raw = raw.strip("`")
@@ -459,8 +631,11 @@ def _json_extract(text: str) -> str:
 
 
 # ─────────────────────────── ④ 变更计划（diff） ───────────────────────────
+# 把 LLM 建议整理为可执行改库计划（新增/修改/删除规则）
 def build_plan(result: Dict[str, Any], adopted: Dict[str, List[int]]) -> Dict[str, Any]:
     """按勾选的索引生成结构化 diff（adopted: {"risks":[0,2], "relax":[1], "transform":[0]}）。"""
+    # 变更计划构建：三类结论（收紧/放宽/字段级改造）映射为结构化 change；
+    # relax 类固定 high 风险等级，必须人工逐条采纳；adopted 过滤未经勾选的建议
     changes: List[Dict[str, Any]] = []
     for idx in sorted(set(adopted.get("risks") or [])):
         it = (result.get("risks") or [])[idx: idx + 1]
@@ -492,11 +667,18 @@ def build_plan(result: Dict[str, Any], adopted: Dict[str, List[int]]) -> Dict[st
                         "current": t.get("current", ""), "proposed": t.get("proposed", ""),
                         "reason": t.get("reason", ""), "risk_level": t.get("risk_level", "medium"),
                         "round_id": ""})
+    # 回放口径与 F-1-5/S-1-1 一致：历史 IR 的静态禁止命中数与删除清单逐条对账
     return {"ok": True, "data": {"changes": changes, "count": len(changes)}}
 
 
 # ─────────────────────────── ⑤ 应用（新建角色库） ───────────────────────────
 def _ai_writer():
+    """
+    获取 AI 帮写模块（延迟 import 避免循环依赖）。
+
+    Returns:
+        ai_writer 模块对象。
+    """
     try:
         from auditor.translator import ai_writer
     except Exception:
@@ -505,6 +687,15 @@ def _ai_writer():
 
 
 def ensure_role(role: str, base: str = "default", title: str = "", force: bool = False) -> Dict[str, Any]:
+    """
+    确保迭代目标角色存在（缺省从基线复制创建）。
+
+    Args:
+        role / base / title / force: 角色名、基线、标题、覆盖开关。
+
+    Returns:
+        ai_writer.ensure_role 的结果。
+    """
     aw = _ai_writer()
     target = Path(policy_manager.resolve_registry_path(role))
     if target.exists() and not force:
@@ -516,16 +707,31 @@ def ensure_role(role: str, base: str = "default", title: str = "", force: bool =
 
 
 def _resolve_target(role: str, target: str) -> Path:
+    """
+    解析改造目标路径并校验白名单（防越界写）。
+
+    Args:
+        # 行为侧以资源访问为主键归一，与 IR 的 file/network 对象直接可比
+        role / target: 角色名与目标字段路径。
+
+    Returns:
+        规范化后的目标路径。
+
+    Raises:
+        ValueError: 目标不在 scenes.json / tools/*.json 白名单内或越出角色目录。
+    """
     if not TARGET_RE.match(target or ""):
         raise ValueError(f"非法 target：{target}")
     aw = _ai_writer()
     reg = aw.registry_dir(role)
+    # 提升则切换为迭代后角色库，下降则回滚并把反馈注入下一轮迭代
     rp = os.path.realpath(str(reg / target))
     if not (rp + os.sep).startswith(os.path.realpath(str(reg)) + os.sep):
         raise ValueError("目标路径越界")
     return Path(rp)
 
 
+# 按点路径写入嵌套 JSON 字段
 def _set_path(obj: Any, path: str, value: Any) -> Any:
     """按点分路径写入（支持 list 下标），返回修改后的对象。"""
     segs = [s for s in (path or "").split(".") if s != ""]
@@ -533,6 +739,7 @@ def _set_path(obj: Any, path: str, value: Any) -> Any:
         raise ValueError("path 为空")
     cur = obj
     for i, seg in enumerate(segs[:-1]):
+        # static 模式复现生产静态禁止项口径；layered 模式走四维判定器完整链路
         nxt = cur[int(seg)] if (isinstance(cur, list) and seg.lstrip("-").isdigit()) else cur.setdefault(seg, {})
         if isinstance(nxt, dict) or isinstance(nxt, list):
             cur = nxt
@@ -551,9 +758,11 @@ def _set_path(obj: Any, path: str, value: Any) -> Any:
     return obj
 
 
+# 执行改库计划：备份 → 逐项应用 → 校验 → 失败回滚
 def apply_plan(role: str, base: str, changes: List[Dict[str, Any]], title: str = "",
                force: bool = False) -> Dict[str, Any]:
     """把采纳的 transform 项落到新建角色库；tighten/relax 标记需人工处理。"""
+    # 计划应用：by_file 分组 → 逐文件改写（临时文件 + os.replace 原子替换）→ 整体校验
     if not role:
         return {"ok": False, "error": "缺少角色名"}
     ensured = ensure_role(role, base, title=title, force=force)
@@ -598,15 +807,37 @@ def apply_plan(role: str, base: str, changes: List[Dict[str, Any]], title: str =
 
 
 def rollback(role: str, ts: str = "") -> Dict[str, Any]:
+    """
+    回滚角色到指定快照（复用 AI 帮写的快照机制）。
+
+    Args:
+        role / ts: 角色名与快照标识。
+    """
     return _ai_writer().rollback(role, ts)
 
 
 def validate_role(role: str) -> Dict[str, Any]:
+    """
+    校验角色策略库（复用 skill 校验脚本）。
+
+    Returns:
+        {ok, errors, warnings}。
+    """
     return _ai_writer().validate(role)
 
 
+# 代次（generation）字段区分同 round 的重复任务：新代到达取消旧在途任务
 # ─────────────────────────── ⑥ 回测（可选开关） ───────────────────────────
 def _load_tools_map(registry_dir: Path) -> Dict[str, Any]:
+    """
+    加载注册表的「函数名 → 场景」映射表。
+
+    Args:
+        registry_dir: 注册表目录。
+
+    Returns:
+        {函数名: 场景名} 字典。
+    """
     tools: Dict[str, Any] = {}
     tdir = Path(registry_dir) / "tools"
     if not tdir.is_dir():
@@ -627,6 +858,7 @@ def static_deny_with(ir: Dict[str, Any], registry_dir: Path) -> Dict[str, Any]:
 
     用于回测：把 round 的原始 IR 过一遍“进化后策略”的 denylist，得到进化后 IR。
     """
+    # 静态禁止项比对：历史 IR 回放核对策略库 denylist 命中情况（S-1-1 回归口径）
     try:
         from auditor.translator import core
     except Exception:
@@ -634,6 +866,7 @@ def static_deny_with(ir: Dict[str, Any], registry_dir: Path) -> Dict[str, Any]:
     if not isinstance(ir, dict):
         return ir
     tool_registry = _load_tools_map(Path(registry_dir))
+    # 任务写盘失败不抛异常：返回 None 由上层按任务缺失处理，不阻塞迭代链
     kept: List[Dict[str, Any]] = []
     for policy in ir.get("policies", []) or []:
         if not isinstance(policy, dict):
@@ -670,12 +903,22 @@ def static_deny_with(ir: Dict[str, Any], registry_dir: Path) -> Dict[str, Any]:
 
 def _normalize_round(ir: Any, actions: Any) -> tuple:
     """把库内原始 ir_json / action_json 转成判定所需结构（复用 judge 规范化入口）。"""
+    # 轮次归一化：把生产 IR 与 action_json 转为判定器输入格式
     from auditor.monitor import judge  # type: ignore
 
     return judge._normalize_ir(ir), judge._normalize_actions(actions)
 
 
 def _layered(ir_norm: Any, behaviors: Any) -> Dict[str, Any]:
+    """
+    调用判定模块做分层判定（回测复用生产判定器）。
+
+    Args:
+        ir_norm / behaviors: 归一化 IR 与行为事件。
+
+    Returns:
+        分层判定结果对象。
+    """
     from auditor.monitor import judge  # type: ignore
 
     res = judge.Resource_Consistency_Check_Layered(ir_norm, behaviors)
@@ -686,6 +929,15 @@ def _layered(ir_norm: Any, behaviors: Any) -> Dict[str, Any]:
 
 
 def _judge_score(ir: Any, actions: Any) -> Dict[str, Any]:
+    """
+    计算整轮判定得分（与生产口径一致：0.5 以下为异常）。
+
+    Args:
+        ir / actions: IR 与行为记录。
+
+    Returns:
+        整体得分 float。
+    """
     ir_norm, behaviors = _normalize_round(ir, actions)
     return _layered(ir_norm, behaviors)
 
@@ -695,6 +947,7 @@ def backtest(round_ids: List[str], role: str, mode: str = "static") -> Dict[str,
 
     mode=static（默认，不耗 LLM）：把原 IR 过一遍新策略的静态拒绝得到“进化后 IR”再判定。
     """
+    # 回测：对同批样本在改动前后分别判定，统计提升/退化计数，决定切换或回滚
     reg_dir = Path(policy_manager.resolve_registry_path(role))
     if not reg_dir.is_dir():
         return {"ok": False, "error": f"角色策略库不存在：{role}"}
@@ -723,6 +976,7 @@ def backtest(round_ids: List[str], role: str, mode: str = "static") -> Dict[str,
         except Exception as e:
             items.append({"round_id": rid, "error": str(e)})
     ok_items = [i for i in items if not i.get("error")]
+    # 任务详情包含分阶段产物：分析结论、变更计划、应用结果与回测计数
     improved = sum(1 for i in ok_items if (i.get("delta") or 0) > 0)
     regressed = sum(1 for i in ok_items if (i.get("delta") or 0) < 0)
     return {"ok": True, "data": {"enabled": True, "role": role, "mode": mode, "items": items,
@@ -732,6 +986,12 @@ def backtest(round_ids: List[str], role: str, mode: str = "static") -> Dict[str,
 
 # ─────────────────────────── ⑦ 进化轮次归档 ───────────────────────────
 def new_run_id() -> str:
+    """
+    生成新的迭代运行 ID（时间戳 + 随机后缀）。
+
+    Returns:
+        run_id 字符串。
+    """
     ts = time.strftime("%Y%m%d")
     seq = 1
     RUNS_ROOT.mkdir(parents=True, exist_ok=True)
@@ -741,6 +1001,12 @@ def new_run_id() -> str:
 
 
 def save_run(run: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    原子写迭代运行记录。
+
+    Args:
+        run: 运行 dict（含 run_id）。
+    """
     RUNS_ROOT.mkdir(parents=True, exist_ok=True)
     rid = run.get("run_id") or new_run_id()
     run["run_id"] = rid
@@ -754,6 +1020,15 @@ def save_run(run: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def get_run(run_id: str) -> Dict[str, Any]:
+    """
+    读取迭代运行记录。
+
+    Args:
+        run_id: 运行 ID。
+
+    Returns:
+        运行 dict；不存在返回 None。
+    """
     fp = RUNS_ROOT / f"{run_id}.json"
     if not fp.is_file():
         return {"ok": False, "error": f"轮次不存在：{run_id}"}
@@ -761,6 +1036,15 @@ def get_run(run_id: str) -> Dict[str, Any]:
 
 
 def list_runs(limit: int = 50) -> Dict[str, Any]:
+    """
+    列出历史迭代运行（时间倒序，可限条数）。
+
+    Args:
+        limit: 返回上限。
+
+    Returns:
+        运行摘要列表。
+    """
     RUNS_ROOT.mkdir(parents=True, exist_ok=True)
     items: List[Dict[str, Any]] = []
     for fp in sorted(RUNS_ROOT.glob("rsi-*.json"), reverse=True)[:limit]:
@@ -780,6 +1064,7 @@ def list_runs(limit: int = 50) -> Dict[str, Any]:
 
 def next_run(parent_run_id: str) -> Dict[str, Any]:
     """基于上一轮发起新一轮：继承上下文与回测反馈，返回可编辑的新轮次骨架。"""
+    # 迭代链：parent_run_id 串接，下一轮自动携带上一轮回测反馈
     pr = get_run(parent_run_id)
     if not pr.get("ok"):
         return pr
@@ -809,6 +1094,7 @@ _MAX_ITEMS = 100
 
 def _json_safe(v: Any, depth: int = 0) -> Any:
     """限制单步日志体积：长字符串与长列表截断，避免任务文件过大。"""
+    # JSON 安全化：截断超长字符串与深层嵌套（提示词注入保护）
     if depth > 6:
         return str(v)[:_MAX_STR]
     if isinstance(v, str):
@@ -821,6 +1107,12 @@ def _json_safe(v: Any, depth: int = 0) -> Any:
 
 
 def new_task_id() -> str:
+    """
+    生成新的 RSI 任务 ID（时间戳 + 随机后缀）。
+
+    Returns:
+        task_id 字符串。
+    """
     ts = time.strftime("%Y%m%d")
     seq = 1
     TASKS_ROOT.mkdir(parents=True, exist_ok=True)
@@ -830,10 +1122,25 @@ def new_task_id() -> str:
 
 
 def _task_path(task_id: str) -> Path:
+    """
+    任务文件路径（RSI 状态目录下按任务 ID 存放）。
+
+    Args:
+        task_id: 任务 ID。
+
+    Returns:
+        任务 JSON 文件路径。
+    """
     return TASKS_ROOT / f"{task_id}.json"
 
 
 def _write_task(task: Dict[str, Any]) -> None:
+    """
+    原子写 RSI 任务文件。
+
+    Args:
+        task: 任务 dict（含 task_id）。
+    """
     TASKS_ROOT.mkdir(parents=True, exist_ok=True)
     fp = _task_path(task["task_id"])
     tmp = fp.with_suffix(".json.tmp")
@@ -842,6 +1149,15 @@ def _write_task(task: Dict[str, Any]) -> None:
 
 
 def _load_task(task_id: str) -> Optional[Dict[str, Any]]:
+    """
+    读取 RSI 任务文件。
+
+    Args:
+        task_id: 任务 ID。
+
+    Returns:
+        任务 dict；不存在返回 None。
+    """
     fp = _task_path(task_id or "")
     if not task_id or not fp.is_file():
         return None
@@ -855,6 +1171,7 @@ def start_task(role: str = "", base: str = "", title: str = "",
                round_ids: Optional[List[str]] = None, task_id: str = "",
                parent_feedback: str = "") -> Dict[str, Any]:
     """创建（或复用已存在的）自进化任务。"""
+    # 任务创建：记录角色/基线/样本轮次/父反馈，后续阶段逐步追加结果
     exist = _load_task(task_id)
     if exist:
         return {"ok": True, "data": exist, "reused": True}
@@ -869,6 +1186,7 @@ def start_task(role: str = "", base: str = "", title: str = "",
 def log_step(task_id: str, step: int, name: str = "", data: Any = None,
              role: str = "", base: str = "", status: str = "") -> Dict[str, Any]:
     """记录任务中的某一步；同一步重复记录时覆盖，任务不存在则先创建。"""
+    # 任务步骤日志：同步骤覆盖更新，保留最近状态与数据快照
     try:
         step = int(step)
     except Exception:
@@ -907,6 +1225,15 @@ def log_step(task_id: str, step: int, name: str = "", data: Any = None,
 
 
 def list_tasks(limit: int = 50) -> Dict[str, Any]:
+    """
+    列出 RSI 任务（时间倒序，可限条数）。
+
+    Args:
+        limit: 返回上限。
+
+    Returns:
+        任务摘要列表。
+    """
     TASKS_ROOT.mkdir(parents=True, exist_ok=True)
     items: List[Dict[str, Any]] = []
     for fp in sorted(TASKS_ROOT.glob("rsi-task-*.json"), reverse=True)[:limit]:
@@ -928,6 +1255,15 @@ def list_tasks(limit: int = 50) -> Dict[str, Any]:
 
 
 def get_task(task_id: str) -> Dict[str, Any]:
+    """
+    读取 RSI 任务详情（含各阶段结果）。
+
+    Args:
+        task_id: 任务 ID。
+
+    Returns:
+        任务 dict；不存在返回 None。
+    """
     task = _load_task(task_id)
     if task is None:
         return {"ok": False, "error": f"任务不存在：{task_id}"}

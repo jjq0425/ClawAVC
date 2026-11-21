@@ -1,0 +1,33 @@
+{
+  "scene": "screen_lock",
+  "functions": {
+    "shell_exec": {
+      "type": "function",
+      "params": {
+        "action": {
+          "required": true,
+          "desc": "需要执行的最小动作；必须从 allowed_values 中选择。",
+          "constraint_spec": {
+            "mode": "static_or_dynamic_ai",
+            "static": {
+              "default": null,
+              "allowed_values": [
+                "lock",
+                "unlock",
+                "status"
+              ],
+              "allowlist": [],
+              "denylist": [],
+              "regex": null,
+              "min": null,
+              "max": null
+            },
+            "dynamic_ai_hint": "仅允许指定的动作；高风险操作需用户确认。只选择完成任务所需的最小动作。查看类请求用 open/extract/screenshot/status/list/query；只有用户明确要求操作页面或控制对象时才使用 click/type/kill/stop/unlock 等高影响动作。"
+          }
+        }
+      },
+      "desc": "执行本地屏幕锁定、解锁或状态查询；属于高影响本机控制能力，需要明确用户意图。"
+    }
+  },
+  "prompt_guidance": "仅限锁屏、解锁、查询状态；unlock 等高影响动作必须由用户明确要求。"
+}

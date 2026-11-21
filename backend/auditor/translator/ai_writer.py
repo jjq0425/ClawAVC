@@ -42,6 +42,12 @@ RESERVED_ROLES = {"default", "ops"}
 
 
 class AiWriterError(ValueError):
+    """
+    AI 帮写统一业务异常。
+
+    code：面向前端的错误码（role_exists / role_invalid 等）；
+    message：可直接展示的错误说明。前端据 code 分支提示。
+    """
     """AI 帮写参数/流程类错误：接口层据此返回 400 + 可读提示，而不是 500。
 
     继承 ValueError，保持既有 except ValueError 逻辑兼容。
@@ -65,6 +71,12 @@ except Exception:  # pragma: no cover
 
 # ────────────────────────────── 配置读写 ──────────────────────────────
 def _db():
+    """
+    取平台数据库连接（延迟 import，便于单元测试替换）。
+
+    Returns:
+        db 模块对象。
+    """
     if str(BACKEND_DIR) not in sys.path:
         sys.path.insert(0, str(BACKEND_DIR))
     import db  # type: ignore
@@ -73,6 +85,16 @@ def _db():
 
 
 def _cfg(key: str, default: str = "") -> str:
+    """
+    读取 AI 帮写配置键，缺省值兜底。
+
+    Args:
+        key: 配置键名（ai_writer.* 前缀族）。
+        default: 缺省值。
+
+    Returns:
+        配置值字符串。
+    """
     try:
         val = _db().get_config(f"{CFG_PREFIX}{key}")
         return val if val is not None else default
@@ -81,6 +103,12 @@ def _cfg(key: str, default: str = "") -> str:
 
 
 def _set_cfg(key: str, value: str) -> None:
+    """
+    写入 AI 帮写配置键（立即落库）。
+
+    Args:
+        key / value: 配置键与值。
+    """
     try:
         _db().set_config(f"{CFG_PREFIX}{key}", value)
     except Exception as e:
@@ -89,6 +117,7 @@ def _set_cfg(key: str, value: str) -> None:
 
 def get_config() -> Dict[str, Any]:
     """读取 AI 帮写配置。API Token 不回显，只返回是否已配置与掩码。"""
+    # AI 帮写模型与开关配置读取（与翻译模型配置相互独立）
     data: Dict[str, Any] = {}
     for k in CFG_KEYS:
         raw = _cfg(k, "")
@@ -104,6 +133,7 @@ def get_config() -> Dict[str, Any]:
 
 def set_config(data: Dict[str, Any]) -> Dict[str, Any]:
     """更新配置；api_key 空值不覆盖（避免误清空）。"""
+    # 配置整包保存：逐键校验后统一写回，避免半更新状态
     changed: List[str] = []
     for k in CFG_KEYS:
         if k in data and data[k] is not None:
@@ -115,8 +145,16 @@ def set_config(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "data": {"changed": changed}}
 
 
+def copy_ir_config() -> Dict[str, Any]:
+    """复用「策略翻译 → 模型配置」的连接参数（含本地网关 token）。"""
+    # 从翻译模块复制模型配置：帮写模型缺省沿用 IR 翻译模型
+    from auditor.translator.core import copy_ir_llm_config
+    return copy_ir_llm_config(_db(), CFG_PREFIX)
+
+
 def llm_config() -> Dict[str, Any]:
     """供 core.call_llm 使用的配置字典（类型与 core.get_llm_config 保持一致）。"""
+    # 组帮写调用配置（base_url/key/model/temperature/json_mode）
     temp_str = _cfg("temperature", CFG_DEFAULTS["temperature"])
     timeout_str = _cfg("timeout", CFG_DEFAULTS["timeout"])
     return {
@@ -131,6 +169,15 @@ def llm_config() -> Dict[str, Any]:
 
 # ──────────────────────────── SKILL.md 读写 ────────────────────────────
 def read_skill_doc() -> Dict[str, Any]:
+    """
+    读取策略格式校验 Skill 文档（SKILL.md）全文。
+
+    作为初始生成的 system prompt 基座注入大模型，
+    保证生成产物符合场景-权限策略库格式规范。
+
+    Returns:
+        Skill 文档文本；读取失败抛 FileNotFoundError。
+    """
     if not SKILL_MD.is_file():
         return {"ok": False, "error": f"SKILL.md 不存在：{SKILL_MD}"}
     txt = SKILL_MD.read_text(encoding="utf-8")
@@ -147,6 +194,14 @@ def read_skill_doc() -> Dict[str, Any]:
 
 
 def _list_skill_backups() -> List[Dict[str, Any]]:
+    """
+    列出 Skill 文档的历史备份文件名（时间倒序）。
+
+    备份由 write_skill_doc 每次修改前自动创建。
+
+    Returns:
+        备份文件名列表。
+    """
     if not SKILL_BACKUPS.is_dir():
         return []
     items = []
@@ -161,6 +216,7 @@ def _list_skill_backups() -> List[Dict[str, Any]]:
 
 def write_skill_doc(content: str) -> Dict[str, Any]:
     """写入 SKILL.md，写前自动备份（.bak-<时间戳>），原子替换。"""
+    # Skill 文档写入前自动备份：同一秒多次写入以序号区分，防止覆盖丢失
     if not isinstance(content, str) or not content.strip():
         return {"ok": False, "error": "内容为空，拒绝写入"}
     if not SKILL_MD.is_file():
@@ -179,6 +235,7 @@ def write_skill_doc(content: str) -> Dict[str, Any]:
 
 def restore_skill_doc(backup: str = "") -> Dict[str, Any]:
     """恢复 SKILL.md：优先 git HEAD 版本，失败则用指定/最新备份。"""
+    # Skill 文档回滚：优先用户指定备份，缺省取最近一次；先备份再回滚（双向可逆）
     try:
         rel = SKILL_MD.relative_to(REPO_ROOT)
         out = subprocess.run(["git", "-C", str(REPO_ROOT), "show", f"HEAD:{rel.as_posix()}"],
@@ -206,6 +263,15 @@ def restore_skill_doc(backup: str = "") -> Dict[str, Any]:
 
 # ─────────────────────────── skill 脚本复用 ───────────────────────────
 def _load_module(mod_name: str, path: Path):
+    """
+    按路径动态加载 Python 模块（用于复用 skill 脚本）。
+
+    Args:
+        mod_name: 模块注册名；path: .py 文件绝对路径。
+
+    Returns:
+        加载后的模块对象。
+    """
     if not path.is_file():
         raise RuntimeError(f"skill 脚本缺失：{path}")
     spec = importlib.util.spec_from_file_location(mod_name, str(path))
@@ -217,15 +283,36 @@ def _load_module(mod_name: str, path: Path):
 
 
 def _skill_create():
+    """
+    加载策略创建脚本模块（skill scripts/create_role_policy.py）。
+
+    Returns:
+        模块对象。
+    """
     return _load_module("clawavc_create_role_policy", SKILL_SCRIPTS / "create_role_policy.py")
 
 
 def _skill_validate():
+    """
+    加载策略校验脚本模块（skill scripts/validate_policy.py）。
+
+    Returns:
+        模块对象。
+    """
     return _load_module("clawavc_validate_policy", SKILL_SCRIPTS / "validate_policy.py")
 
 
 # ───────────────────────────── 路径与快照 ─────────────────────────────
 def _check_role(role: str) -> None:
+    """
+    校验角色名合法性并确保存在。
+
+    Args:
+        role: 角色名。
+
+    Raises:
+        AiWriterError: 角色名非法或策略库不存在。
+    """
     if not ROLE_RE.match(role or ""):
         raise AiWriterError("角色名只能包含字母、数字、下划线和中划线（1-64 字符）")
     if role in RESERVED_ROLES:
@@ -233,6 +320,15 @@ def _check_role(role: str) -> None:
 
 
 def registry_dir(role: str) -> Path:
+    """
+    角色对应的注册表绝对路径。
+
+    Args:
+        role: 角色名。
+
+    Returns:
+        policies/<role>/policy_registry 路径。
+    """
     _check_role(role)
     p = Path(policy_manager.resolve_registry_path(role))
     _assert_in_policies(p)
@@ -240,6 +336,15 @@ def registry_dir(role: str) -> Path:
 
 
 def _assert_in_policies(p: Path) -> None:
+    """
+    断言路径位于角色容器目录内（防路径越界写）。
+
+    Args:
+        p: 待检查路径。
+
+    Raises:
+        AiWriterError: 路径越出角色目录。
+    """
     root = os.path.realpath(str(POLICIES_ROOT))
     rp = os.path.realpath(str(p))
     if not (rp + os.sep).startswith(root + os.sep):
@@ -247,6 +352,15 @@ def _assert_in_policies(p: Path) -> None:
 
 
 def container_dir(role: str) -> Path:
+    """
+    角色容器目录（注册表 + 快照 + 状态文件的父目录）。
+
+    Args:
+        role: 角色名。
+
+    Returns:
+        容器目录 Path。
+    """
     reg = registry_dir(role)
     parent = reg.parent
     _assert_in_policies(parent)
@@ -254,6 +368,18 @@ def container_dir(role: str) -> Path:
 
 
 def snapshot(role: str, label: str = "") -> Dict[str, Any]:
+    """
+    对角色容器目录做全量快照。
+
+    流程：目录树复制到 backups/<时间戳+标签>/，
+    同秒多次快照以序号区分，先建快照再执行任何写操作。
+
+    Args:
+        role: 角色名；label: 快照备注。
+
+    Returns:
+        快照标识（目录名）。
+    """
     reg = registry_dir(role)
     if not reg.is_dir():
         return {"ok": False, "error": f"策略库不存在：{reg}"}
@@ -275,6 +401,15 @@ def snapshot(role: str, label: str = "") -> Dict[str, Any]:
 
 
 def list_snapshots(role: str) -> Dict[str, Any]:
+    """
+    列出角色全部快照（时间倒序）。
+
+    Args:
+        role: 角色名。
+
+    Returns:
+        [{id, label, files}...] 快照元信息列表。
+    """
     base = SNAPSHOT_ROOT / role if ROLE_RE.match(role or "") else None
     items: List[Dict[str, Any]] = []
     if base and base.is_dir():
@@ -287,6 +422,18 @@ def list_snapshots(role: str) -> Dict[str, Any]:
 
 
 def rollback(role: str, ts: str = "") -> Dict[str, Any]:
+    """
+    回滚到指定快照。
+
+    流程：先对当前状态做新快照（保证可反悔），
+    再用快照内容覆盖注册表目录。
+
+    Args:
+        role: 角色名；ts: 快照标识。
+
+    Raises:
+        AiWriterError: 快照不存在。
+    """
     reg = registry_dir(role)
     base = SNAPSHOT_ROOT / role
     if not base.is_dir():
@@ -306,11 +453,29 @@ def rollback(role: str, ts: str = "") -> Dict[str, Any]:
 
 # ────────────────────────────── 状态 spec ──────────────────────────────
 def _state_dir(role: str) -> Path:
+    """
+    角色任务状态目录（每个生成任务一个子目录）。
+
+    Args:
+        role: 角色名。
+
+    Returns:
+        状态目录 Path（不存在则创建）。
+    """
     _check_role(role)
     return STATE_ROOT / role
 
 
 def load_spec(role: str) -> Dict[str, Any]:
+    """
+    读取角色的当前权限意图规格（spec）。
+
+    Args:
+        role: 角色名。
+
+    Returns:
+        规格 dict；不存在返回 None。
+    """
     p = _state_dir(role) / "spec.json"
     if p.is_file():
         try:
@@ -322,12 +487,32 @@ def load_spec(role: str) -> Dict[str, Any]:
 
 
 def save_spec(role: str, spec: Dict[str, Any]) -> None:
+    """
+    保存角色的权限意图规格（原子写：临时文件 + rename）。
+
+    Args:
+        role: 角色名；spec: 规格 dict。
+    """
     d = _state_dir(role)
     d.mkdir(parents=True, exist_ok=True)
     (d / "spec.json").write_text(json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def merge_patch(spec: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    把场景补丁合并进规格。
+
+    合并语义：
+        · scene 顶层字段（title/instruction）直接覆盖；
+        · functions: 按 <scene>__<fn> 双层键深合并；
+        · actions 参数按两级数组对齐合并（空=无约束）。
+
+    Args:
+        spec: 现规格；patch: 逐场景补丁 dict。
+
+    Returns:
+        合并后的新规格（不改原对象）。
+    """
     for key in ("files", "network", "bash", "scenes"):
         src = patch.get(key)
         if isinstance(src, dict) and src:
@@ -358,6 +543,15 @@ def merge_patch(spec: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
 
 # ─────────────────────────── 阶段 A：建目录结构 ───────────────────────────
 def list_base_scenes(base: str = "default") -> Dict[str, Any]:
+    """
+    列出基线角色包含的全部场景名。
+
+    Args:
+        base: 基线角色（default/ops）。
+
+    Returns:
+        场景名列表；基线不存在时抛 AiWriterError。
+    """
     p = Path(policy_manager.resolve_registry_path(base))
     _assert_in_policies(p)
     f = p / "scenes.json"
@@ -375,6 +569,18 @@ def list_base_scenes(base: str = "default") -> Dict[str, Any]:
 
 def scaffold(role: str, base: str = "default", title: str = "", instruction: str = "",
              force: bool = False) -> Dict[str, Any]:
+    """
+    创建角色生成骨架：复制基线 + 写入权限意图规格。
+
+    Args:
+        role: 新角色名；base: 复制来源基线；
+        title/instruction: 角色标题与权限说明；
+        force: 已存在时是否覆盖（先备份）。
+
+    Raises:
+        AiWriterError: 角色已存在且未 force。
+    """
+    # 角色标准由部署方确认：AI 只产出结构化意图，落盘交给既有生成管线
     _check_role(role)
     if base not in ("default", "ops") and not ROLE_RE.match(base or ""):
         return {"ok": False, "error": "基线名不合法"}
@@ -402,6 +608,7 @@ def scaffold(role: str, base: str = "default", title: str = "", instruction: str
 # ───────────────────── 落盘：复用 skill 适配函数 ─────────────────────
 def apply_spec(role: str, spec: Dict[str, Any], reset: bool = True) -> Dict[str, Any]:
     """把完整 spec 应用到角色策略库；reset=True 时先按基线重建（保证结果可复现）。"""
+    # 规格落盘：先快照再写入，任何一步失败可整体回滚
     reg = registry_dir(role)
     base = spec.get("base_policy") or "default"
     base_reg = Path(policy_manager.resolve_registry_path(base))
@@ -439,16 +646,37 @@ def apply_spec(role: str, spec: Dict[str, Any], reset: bool = True) -> Dict[str,
 
 
 def validate(role: str) -> Dict[str, Any]:
+    """
+    调用 skill 校验脚本对角色注册表做全量校验。
+
+    Returns:
+        {ok, errors, warnings}；问题定位到文件与行号。
+    """
     reg = registry_dir(role)
     if not reg.is_dir():
         return {"ok": False, "error": f"角色策略库不存在：{reg}"}
     report = _skill_validate().validate_registry(reg)
+    # 派生角色的校验只报告「本次引入」的问题：基线（default/ops）自身已有的
+    # W2（static 缺 default）与 E5(w)（scenes 声明的历史函数未定义）属于历史遗留，
+    # 每次按基线重建都会原样带回来，不应算作新角色的警告。基线自身校验仍保留诊断。
+    try:
+        base = str(load_spec(role).get("base_policy") or "").strip()
+        if base and base != role:
+            base_reg = Path(policy_manager.resolve_registry_path(base))
+            if base_reg.is_dir():
+                base_report = _skill_validate().validate_registry(base_reg)
+                base_warnings = set(base_report.get("warnings") or [])
+                report["warnings"] = [w for w in (report.get("warnings") or [])
+                                      if w not in base_warnings]
+    except Exception as e:
+        print(f"[ai-writer] 基线警告过滤跳过：{e}", flush=True)
     return {"ok": True, "data": {"role": role, **report}}
 
 
 # ────────────────────────────── LLM 交互 ──────────────────────────────
 def _skill_prompt_base() -> str:
     """SKILL.md 正文作为系统提示词基座（可在 AI 参数抽屉中编辑）。"""
+    # Skill 基座提示词：绑定格式规范，要求模型只输出结构化 JSON
     try:
         return SKILL_MD.read_text(encoding="utf-8") if SKILL_MD.is_file() else ""
     except Exception:
@@ -456,6 +684,15 @@ def _skill_prompt_base() -> str:
 
 
 def _extract_json(text: str) -> Any:
+    """
+    从 LLM 输出提取 JSON（代码围栏剥除 + 尾逗号清理）。
+
+    Returns:
+        解析出的 dict。
+
+    Raises:
+        AiWriterError: 无 JSON 对象。
+    """
     raw = (text or "").strip()
     if raw.startswith("```"):
         raw = raw.strip("`")
@@ -470,6 +707,7 @@ def _extract_json(text: str) -> Any:
 
 def _llm_json(system: str, user: str, cfg: Dict[str, Any]) -> Tuple[Any, Dict[str, Any]]:
     """调用 LLM 并解析 JSON；解析失败时自动纠正重试一次。"""
+    # LLM JSON 调用统一入口：json_mode + 解析失败重试 + 超时控制
     if not cfg.get("api_key"):
         raise RuntimeError("API Token 未配置，请在「AI 帮写 → AI 参数」抽屉中配置")
     try:
@@ -489,7 +727,17 @@ def _llm_json(system: str, user: str, cfg: Dict[str, Any]) -> Tuple[Any, Dict[st
 
 
 def test_connection() -> Dict[str, Any]:
+    """
+    测试 AI 帮写模型连通性。
+
+    Returns:
+        {ok, model, endpoint, latency_ms, message}；
+        失败时 message 给出可操作原因。
+    """
     cfg = llm_config()
+    # 连通性自检只验链路：关闭 response_format=json_object，
+    # 否则 OpenAI 兼容网关会因 messages 不含 "json" 字样直接 400，掩盖真实连通状态。
+    cfg["json_mode"] = False
     if not cfg.get("api_key"):
         return {"ok": False, "error": "API Token 未配置，请在「AI 帮写 → AI 参数」抽屉中配置"}
     try:
@@ -497,10 +745,20 @@ def test_connection() -> Dict[str, Any]:
     except Exception:
         from .core import call_llm  # type: ignore
     t0 = time.time()
-    content, meta = call_llm("你是连通性自检助手。", "请只回复：ok", cfg, max_retry=0)
-    return {"ok": True, "data": {"model": cfg.get("model"), "endpoint": meta.get("endpoint", ""),
-                                 "latency_ms": int((time.time() - t0) * 1000),
-                                 "reply": (content or "")[:80]}}
+    try:
+        content, meta = call_llm("你是连通性自检助手。", "请只回复：ok", cfg, max_retry=0)
+        return {"ok": True, "data": {"model": cfg.get("model"), "endpoint": meta.get("endpoint", ""),
+                                     "latency_ms": int((time.time() - t0) * 1000),
+                                     "reply": (content or "")[:80]}}
+    except Exception as e:
+        err = str(e)
+        if "x-portkey" in err or "portkey gateway" in err.lower() or "headerless opensdk" in err.lower():
+            err = ("本地 portkey 网关拒绝：model alias（如 useme）必须使用网关 bearer token，"
+                   "不能用第三方厂商 API Key。请点「复用 IR 模型配置」一键同步，"
+                   "或把 Model 改成 provider/model 形式")
+        elif "429" in err or "quota" in err.lower():
+            err = "上游模型限流/配额不足（429 insufficient_quota），请稍后重试或更换模型"
+        return {"ok": False, "error": err[:300]}
 
 
 # ──────────────────────── 阶段 B：AI 生成场景清单 ────────────────────────
@@ -551,6 +809,16 @@ SCENE_USER = """【基线】{base}
 
 
 def generate_scenes(role: str, base: str, instruction: str, hint: str = "", title: str = "") -> Dict[str, Any]:
+    """
+    阶段 A：理解权限说明并规划目标角色需要的场景集合。
+
+    输入：权限意图说明 + 基线场景清单；
+    输出：保留场景列表 + 每场景补充指引（含缩小的允许集）；
+    结果作为 spec 落盘，供阶段 B 逐场景生成引用。
+
+    Returns:
+        阶段 A 结果 dict（scenes / notes / spec 等）。
+    """
     base_res = list_base_scenes(base)
     if not base_res.get("ok"):
         return base_res
@@ -630,6 +898,15 @@ CONTENT_USER = """【角色名】{role}
 
 def generate_scene(role: str, scene: str, instruction: str = "", hint: str = "",
                    title: str = "", base: str = "default") -> Dict[str, Any]:
+    """
+    阶段 B：按 spec 逐场景生成角色策略文件内容。
+
+    对每个保留场景调用 LLM 生成工具定义补丁，
+    产物经 _sanitize_spec_block 规范化后写入 patches。
+
+    Returns:
+        该场景的生成结果与校验状态。
+    """
     base_res = list_base_scenes(base)
     if not base_res.get("ok"):
         return base_res
@@ -661,6 +938,7 @@ def generate_scene(role: str, scene: str, instruction: str = "", hint: str = "",
 
 def _sanitize_spec_block(key: str, block: Dict[str, Any]) -> Dict[str, Any]:
     """裁剪非法值，保证落盘 spec 结构整洁（deny-wins 由 skill 保证）。"""
+    # 规格规范化：actions 两级数组对齐、空数组语义校正（E6 冲突项消解）
     out: Dict[str, Any] = {}
     list_keys = {"files": ("read_paths", "write_paths", "deny_paths"),
                  "network": ("allowed_domains", "deny_hosts"),
@@ -668,7 +946,11 @@ def _sanitize_spec_block(key: str, block: Dict[str, Any]) -> Dict[str, Any]:
     for k, v in block.items():
         if k in list_keys.get(key, ()):
             if isinstance(v, list):
-                out[k] = [str(x).strip() for x in v if str(x).strip()][:200]
+                cleaned = [str(x).strip() for x in v if str(x).strip()][:200]
+                # 空数组表示「本场景未指定」，不能写成键：否则 bash.allowed_commands=[]
+                # 会被当成整体替换白名单（清空 + 拍平基线 static），并引发 E6 冲突。
+                if cleaned:
+                    out[k] = cleaned
         elif k == "enabled":
             out[k] = bool(v)
         elif k == "mode":
@@ -680,6 +962,7 @@ def _sanitize_spec_block(key: str, block: Dict[str, Any]) -> Dict[str, Any]:
 
 def apply_patch(role: str, patch: Dict[str, Any], reset: bool = True) -> Dict[str, Any]:
     """合并单场景补丁 → 按基线重建 → 落盘 → 校验，返回变更与校验结果。"""
+    # 补丁应用：合并 spec 后统一走 apply_spec 落盘链路
     spec = merge_patch(load_spec(role), patch)
     applied = apply_spec(role, spec, reset=reset)
     if not applied.get("ok"):
@@ -693,6 +976,12 @@ def apply_patch(role: str, patch: Dict[str, Any], reset: bool = True) -> Dict[st
 
 # ───────────────── 按场景补丁存储（保证重生成幂等） ─────────────────
 def load_patches(role: str) -> Dict[str, Any]:
+    """
+    读取角色全部场景补丁。
+
+    Returns:
+        {scene: patch} 字典；无补丁返回空 dict。
+    """
     p = _state_dir(role) / "patches.json"
     if p.is_file():
         try:
@@ -704,6 +993,7 @@ def load_patches(role: str) -> Dict[str, Any]:
 
 def save_patch(role: str, scene: str, patch: Dict[str, Any]) -> Dict[str, Any]:
     """按场景保存补丁（同名场景覆盖，重生成不会累积）。"""
+    # 保存单场景补丁（原子写 + 任务日志联动）
     d = _state_dir(role)
     d.mkdir(parents=True, exist_ok=True)
     store = load_patches(role)
@@ -713,6 +1003,15 @@ def save_patch(role: str, scene: str, patch: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def delete_patch(role: str, scene: str) -> Dict[str, Any]:
+    """
+    删除指定场景补丁。
+
+    Args:
+        role / scene: 角色名与场景名。
+
+    Returns:
+        是否删除了补丁。
+    """
     store = load_patches(role)
     store.pop(scene, None)
     p = _state_dir(role) / "patches.json"
@@ -722,6 +1021,7 @@ def delete_patch(role: str, scene: str) -> Dict[str, Any]:
 
 def build_spec(role: str) -> Dict[str, Any]:
     """基线 spec + 全部场景补丁 → 完整 spec（顺序稳定，结果可复现）。"""
+    # 从 spec+patches 组装最终角色规格
     base_spec = load_spec(role)
     spec = {"role_name": base_spec.get("role_name", role),
             "base_policy": base_spec.get("base_policy", "default"),
@@ -737,6 +1037,7 @@ def build_spec(role: str) -> Dict[str, Any]:
 
 def apply_patches(role: str, reset: bool = True) -> Dict[str, Any]:
     """应用当前全部场景补丁（阶段 C 的「全部应用 / 重生成后应用」）。"""
+    # 把全部补丁一次性合并进 spec 并落盘（阶段 B 完成后的批量提交）
     spec = build_spec(role)
     applied = apply_spec(role, spec, reset=reset)
     if not applied.get("ok"):
@@ -749,6 +1050,12 @@ def apply_patches(role: str, reset: bool = True) -> Dict[str, Any]:
 
 
 def get_state(role: str) -> Dict[str, Any]:
+    """
+    读取角色生成任务的当前状态（阶段/进度/最近错误）。
+
+    Returns:
+        状态 dict；无任务返回空状态骨架。
+    """
     return {"ok": True, "data": {"role": role, "spec": build_spec(role),
                                  "base_spec": load_spec(role), "patches": load_patches(role)}}
 
@@ -765,6 +1072,17 @@ _AW_MAX_ITEMS = 100
 
 
 def _aw_json_safe(v: Any, depth: int = 0) -> Any:
+    """
+    dict 的 JSON 安全化：截断超长字符串与深层嵌套。
+
+    用于把规格/补丁安全注入 LLM 提示词，避免超上下文。
+
+    Args:
+        v: 任意对象；depth: 当前嵌套深度。
+
+    Returns:
+        JSON 可序列化的简化对象。
+    """
     if depth > 6:
         return str(v)[:_AW_MAX_STR]
     if isinstance(v, str):
@@ -777,6 +1095,12 @@ def _aw_json_safe(v: Any, depth: int = 0) -> Any:
 
 
 def new_aw_task_id() -> str:
+    """
+    生成新的 AI 帮写任务 ID（时间戳 + 随机后缀）。
+
+    Returns:
+        任务 ID 字符串。
+    """
     ts = time.strftime("%Y%m%d")
     seq = 1
     AIW_TASKS_ROOT.mkdir(parents=True, exist_ok=True)
@@ -786,10 +1110,25 @@ def new_aw_task_id() -> str:
 
 
 def _aw_task_path(task_id: str) -> Path:
+    """
+    任务文件路径（状态目录下按任务 ID 存放）。
+
+    Args:
+        task_id: 任务 ID。
+
+    Returns:
+        任务 JSON 文件路径。
+    """
     return AIW_TASKS_ROOT / f"{task_id}.json"
 
 
 def _write_aw_task(task: Dict[str, Any]) -> None:
+    """
+    原子写任务文件。
+
+    Args:
+        task: 任务 dict（含 task_id）。
+    """
     AIW_TASKS_ROOT.mkdir(parents=True, exist_ok=True)
     fp = _aw_task_path(task["task_id"])
     tmp = fp.with_suffix(".json.tmp")
@@ -798,6 +1137,15 @@ def _write_aw_task(task: Dict[str, Any]) -> None:
 
 
 def _load_aw_task(task_id: str) -> Optional[Dict[str, Any]]:
+    """
+    读取任务文件。
+
+    Args:
+        task_id: 任务 ID。
+
+    Returns:
+        任务 dict；文件缺失返回 None。
+    """
     fp = _aw_task_path(task_id or "")
     if not task_id or not fp.is_file():
         return None
@@ -809,6 +1157,18 @@ def _load_aw_task(task_id: str) -> Optional[Dict[str, Any]]:
 
 def start_aw_task(role: str = "", base: str = "", title: str = "", instruction: str = "",
                   task_id: str = "") -> Dict[str, Any]:
+    """
+    创建并启动 AI 帮写任务（阶段 A 异步执行的载体）。
+
+    任务记录角色/基线/说明等输入，后续阶段逐步追加结果。
+
+    Args:
+        role / base / title / instruction: 任务输入；
+        task_id: 可选复用已有任务 ID。
+
+    Returns:
+        任务 dict（含 task_id）。
+    """
     exist = _load_aw_task(task_id)
     if exist:
         return {"ok": True, "data": exist, "reused": True}
@@ -823,6 +1183,7 @@ def start_aw_task(role: str = "", base: str = "", title: str = "", instruction: 
 def log_aw_step(task_id: str, step: int, name: str = "", data: Any = None,
                 role: str = "", base: str = "", status: str = "") -> Dict[str, Any]:
     """记录 AI 帮写任务某一步；任务不存在则按 role/base 自动创建。"""
+    # 任务步骤日志：同步骤覆盖更新，保留最近一次状态与数据快照
     try:
         step = int(step)
     except Exception:
@@ -854,9 +1215,19 @@ def log_aw_step(task_id: str, step: int, name: str = "", data: Any = None,
 
 
 def list_aw_tasks(role: str = "", limit: int = 50) -> Dict[str, Any]:
+    """
+    按角色列出 AI 帮写任务（时间倒序，可限条数）。
+
+    Args:
+        role: 角色名（空=全部）；limit: 返回上限。
+
+    Returns:
+        任务摘要列表。
+    """
     AIW_TASKS_ROOT.mkdir(parents=True, exist_ok=True)
     items: List[Dict[str, Any]] = []
-    for fp in sorted(AIW_TASKS_ROOT.glob("aiw-task-*.json"), reverse=True)[:limit]:
+    # 先按 role 过滤再截断，否则历史任务较多时较旧的目标任务会被 limit 挤掉
+    for fp in sorted(AIW_TASKS_ROOT.glob("aiw-task-*.json"), reverse=True):
         try:
             obj = json.loads(fp.read_text(encoding="utf-8"))
         except Exception:
@@ -867,10 +1238,21 @@ def list_aw_tasks(role: str = "", limit: int = 50) -> Dict[str, Any]:
                       "updated_at": obj.get("updated_at"), "role": obj.get("role"),
                       "base": obj.get("base"), "title": obj.get("title"),
                       "status": obj.get("status"), "step_count": len(obj.get("steps") or [])})
+        if len(items) >= limit:
+            break
     return {"ok": True, "data": {"items": items}}
 
 
 def get_aw_task(task_id: str) -> Dict[str, Any]:
+    """
+    读取任务详情（含各阶段结果）。
+
+    Args:
+        task_id: 任务 ID。
+
+    Returns:
+        任务 dict；不存在返回 None。
+    """
     task = _load_aw_task(task_id)
     if task is None:
         return {"ok": False, "error": f"任务不存在：{task_id}"}

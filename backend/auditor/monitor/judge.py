@@ -31,6 +31,7 @@ ResourceType = Literal["file", "tool", "network"]
 
 
 @dataclass(frozen=True)
+# IRObject：IR 资源对象（工具/文件/网络），identifier_match 支持精确/通配/正则三分派
 class IRObject:
     """One resource object parsed from group-1 IR JSON."""
 
@@ -42,6 +43,7 @@ class IRObject:
     identifier_match: Literal["auto", "exact", "glob", "regex"] = "auto"
 
 
+# IRPolicy：单条授权策略（subject + objects + effect），effect 仅有 allow/deny 两种
 @dataclass(frozen=True)
 class IRPolicy:
     """One allow/deny policy parsed from group-1 IR JSON."""
@@ -51,6 +53,7 @@ class IRPolicy:
     effect: Literal["allow", "deny"] = "allow"
 
 
+# BehaviorEvent：用户态实际行为事件（类型/标识/动作/参数），四维比对的输入单元
 @dataclass(frozen=True)
 class BehaviorEvent:
     """Observed user-space behavior event."""
@@ -63,6 +66,12 @@ class BehaviorEvent:
 
 @dataclass(frozen=True)
 class CheckResult:
+    """
+    单维一致性检查结果（旧版扁平判定输出）。
+
+    consistent: yes/no；violations: 违规明细；
+    matched_rules: 命中对象附带的 SELinux 规则（证据链）。
+    """
     consistent: Literal["yes", "no"]
     violations: List[str]
     matched_rules: List[str]
@@ -70,6 +79,12 @@ class CheckResult:
 
 @dataclass(frozen=True)
 class ScoredCheckResult:
+    """
+    带评分的一致性检查结果。
+
+    score = matched_count / total_count（四维得分的计算单元）；
+    behaviors: 参与判定的行为事件回溯。
+    """
     consistent: Literal["yes", "no"]
     score: float
     matched_count: int
@@ -81,6 +96,12 @@ class ScoredCheckResult:
 
 @dataclass(frozen=True)
 class AspectResult:
+    """
+    单个判定维度（四维之一）的结果。
+
+    S-2-1 约定：无检查项的维度 total_count=0 且不参与整体得分；
+    violations 为该维度全部违规明细。
+    """
     consistent: Literal["yes", "no"]
     score: float
     matched_count: int
@@ -90,6 +111,17 @@ class AspectResult:
 
 @dataclass(frozen=True)
 class LayeredCheckResult:
+    """
+    四维分层判定结果（生产判定口径）。
+
+    四个维度：
+        tool_call_consistency: 实际工具是否在 IR 白名单内；
+        tool_trajectory_consistency: 工具调用顺序与 IR 声明顺序一致性；
+        parameter_consistency: 工具参数与 IR 参数约束一致性；
+        resource_access_consistency: 文件/网络资源访问是否在授权范围。
+    overall_score = 有检查项维度的得分均值（保留 4 位小数），
+    低于 0.5 判为异常（阈值语义：严格小于）。
+    """
     consistent: Literal["yes", "no"]
     overall_score: float
     tool_call_consistency: AspectResult
@@ -101,12 +133,22 @@ class LayeredCheckResult:
     behaviors: List[BehaviorEvent]
 
 
+# 内部辅助区：值归一、动作归一、标识匹配与索引构建
 # ---------------------------------------------------------------------------
 # Internal helpers for resource consistency check
 # ---------------------------------------------------------------------------
 
 
 def _as_list(value: Any) -> List[Any]:
+    """
+    值归一为列表：None→[]，单值→单元素列表，列表原样。
+
+    Args:
+        value: 任意输入。
+
+    Returns:
+        列表。
+    """
     if value is None:
         return []
     if isinstance(value, list):
@@ -115,6 +157,20 @@ def _as_list(value: Any) -> List[Any]:
 
 
 def _normalize_action(action: Any) -> Action:
+    """
+    动作名归一化（大小写与别名统一）。
+
+    覆盖三类来源：
+        · 系统调用名（openat/unlinkat/execve → read/delete/execute）；
+        · 语义近义词（access/summarize → read，patch → write）；
+        · 网络方向词（fetch/http_get/download → connect）。
+
+    Args:
+        action: 原始动作名。
+
+    Returns:
+        归一后的动作名（未知动作原样返回）。
+    """
     raw = str(action or "").strip().lower()
     aliases = {
         "open": "read",
@@ -146,7 +202,21 @@ def _normalize_action(action: Any) -> Action:
     return aliases.get(raw, raw)
 
 
+# fallback 缺省 tool：判定器只对文件/网络资源做覆盖检查，工具走白名单
+# 路径/URL 形态由启发式推断：显式声明优先，避免把未知形态误判为工具
 def _infer_resource_type(identifier: Any, fallback: Any = None) -> ResourceType:
+    """
+    按标识推导资源类型。
+
+    判定次序：显式 type 字段合法 → 直接采用；否则按标识形态推断：
+    URL/域名 → network，绝对路径/文件名 → file，其余 → fallback。
+
+    Args:
+        identifier: 资源标识；fallback: 兜底类型。
+
+    Returns:
+        file / tool / network 之一。
+    """
     raw_type = str(fallback or "").strip().lower()
     if raw_type in {"file", "tool", "network"}:
         return raw_type  # type: ignore[return-value]
@@ -160,6 +230,7 @@ def _infer_resource_type(identifier: Any, fallback: Any = None) -> ResourceType:
     return "tool"
 
 
+# 通配模式转正则：与翻译模块 _glob_to_regex 口径一致（** 与 * 均为 .*）
 def _glob_pattern_to_regex(pattern: str) -> str:
     """Translate * and ** to a path/url-aware regular expression.
 
@@ -183,6 +254,15 @@ def _glob_pattern_to_regex(pattern: str) -> str:
 
 
 def _is_regex_pattern(pattern: str, match_mode: str = "auto") -> bool:
+    """
+    判断标识是否为 re: 前缀的正则模式。
+
+    Args:
+        pattern: 待判断字符串；match_mode: 匹配模式（regex 时恒真）。
+
+    Returns:
+        True 表示按正则处理。
+    """
     if match_mode == "regex":
         return True
     lowered = pattern.lower()
@@ -190,6 +270,15 @@ def _is_regex_pattern(pattern: str, match_mode: str = "auto") -> bool:
 
 
 def _strip_regex_prefix(pattern: str) -> str:
+    """
+    剥除 re: 前缀，取正则正文。
+
+    Args:
+        pattern: 含前缀的模式串。
+
+    Returns:
+        正则表达式字符串。
+    """
     lowered = pattern.lower()
     if lowered.startswith("regex:"):
         return pattern[len("regex:") :]
@@ -197,8 +286,25 @@ def _strip_regex_prefix(pattern: str) -> str:
         return pattern[len("re:") :]
     return pattern
 
+# auto 模式下 re: 前缀优先于通配：正则表达能力更强，先试最精确的
 
+# exact 模式绕过全部模式匹配：供对标识一致性有强要求的场景显式声明
 def _match_identifier(actual: str, expected: str, match_mode: str = "auto") -> bool:
+    """
+    标识匹配三分派：精确 / 通配 / 正则（S-2-1 ⑧）。
+
+    规则：
+        · match_mode=exact 精确相等；
+        · re: 前缀走全匹配正则；
+        · 含 * ? 走通配；
+        · auto 按 IR 声明自动选择。
+
+    Args:
+        actual: 实际标识；expected: IR 声明标识；match_mode: 匹配模式。
+
+    Returns:
+        True 表示匹配。
+    """
     actual = str(actual or "")
     expected = str(expected or "")
     if actual == expected:
@@ -220,6 +326,10 @@ def _match_identifier(actual: str, expected: str, match_mode: str = "auto") -> b
     return False
 
 
+# exact 表 setdefault 保留首个出现位置：同标识多对象时按声明顺序取第一个（保序语义）
+# P-2-1 性能优化：普通标识哈希 O(1)，通配/正则保序比对；
+# 用 3000 组随机 IR/行为对比过修复前后判定结果差异为 0
+# 索引的核心承诺：与逐个线性扫描结果完全一致（_FirstMatchIndex.first 保证保序语义）
 class _FirstMatchIndex:
     """按原始顺序返回第一个与标识匹配的 IR 对象（P-2-1 性能优化）。
 
@@ -230,6 +340,12 @@ class _FirstMatchIndex:
     __slots__ = ("objs", "exact", "patterns")
 
     def __init__(self, objs: Sequence["IRObject"]):
+        """
+        构建索引：普通标识进哈希表，通配/正则保留原序。
+
+        first-match 语义与线性扫描一致：哈希命中后仍需确认无更靠前的
+        模式对象先行匹配（见 first 的循环上界剪枝）。
+        """
         self.objs = list(objs)
         self.exact: Dict[str, int] = {}
         self.patterns: List[int] = []
@@ -242,6 +358,15 @@ class _FirstMatchIndex:
                 self.exact.setdefault(ident, i)
 
     def first(self, actual: str) -> Optional["IRObject"]:
+        """
+        O(1)/按序混合查找第一个匹配对象。
+
+        Args:
+            actual: 实际标识。
+
+        Returns:
+            首个匹配的 IRObject；无匹配返回 None。
+        """
         actual = str(actual or "")
         best = self.exact.get(actual)
         for i in self.patterns:
@@ -253,7 +378,17 @@ class _FirstMatchIndex:
         return self.objs[best] if best is not None else None
 
 
+# 参数通配与标识通配同构：跨模块可比对（路径约束、命令约束共用一套语法）
 def _glob_param_to_regex(pattern: str) -> str:
+    """
+    参数值通配模式转正则（** 与 * 均映射 .*，其余转义）。
+
+    Args:
+        pattern: 含通配符的参数约束。
+
+    Returns:
+        带锚点的正则字符串。
+    """
     parts: List[str] = []
     index = 0
     while index < len(pattern):
@@ -270,6 +405,15 @@ def _glob_param_to_regex(pattern: str) -> str:
 
 
 def _match_param_value(actual: str, expected: str) -> bool:
+    """
+    参数值匹配：精确 → 正则 → 通配三段降级。
+
+    Args:
+        actual / expected: 实际值与 IR 约束值。
+
+    Returns:
+        True 表示参数合规。
+    """
     if actual == expected:
         return True
 
@@ -286,7 +430,20 @@ def _match_param_value(actual: str, expected: str) -> bool:
     return False
 
 
+# fail-close 是安全底线：宁可误拒（人工复核）不可误放（越权放行）
 def _action_allowed(resource_type: ResourceType, event_action: Action, allowed_actions: set[Action]) -> bool:
+    """
+    动作授权判定（含 fail-close 语义）。
+
+    规则：
+        · allowed_actions 为空：资源对象拒绝一切操作（R1 修复），
+          工具对象按 invoke 白名单语义放行；
+        · network 的 connect 事件可被 send/receive 授权覆盖
+          （网关侧只知发生了连接，方向未知）。
+
+    Returns:
+        True 表示动作被授权。
+    """
     if not allowed_actions:
         # fail-close（R1 修复）：文件 / 网络等资源对象未声明任何允许动作时拒绝一切操作；
         # 工具对象的动作语义固定为 invoke，列入 IR 白名单即视为授权调用。
@@ -300,7 +457,19 @@ def _action_allowed(resource_type: ResourceType, event_action: Action, allowed_a
     return False
 
 
+# 参数匹配只看 IR 声明项：未声明的参数不违规（避免过度约束工具）
 def _params_match(expected: Optional[Dict[str, str]], actual: Optional[Dict[str, str]]) -> bool:
+    """
+    工具参数整体匹配：IR 声明的每个参数都必须存在且值合规。
+
+    IR 未声明参数约束时恒真（参数自由）。
+
+    Args:
+        expected / actual: IR 参数约束与实际参数。
+
+    Returns:
+        True 表示参数一致。
+    """
     if not expected:
         return True
     actual = actual or {}
@@ -315,6 +484,17 @@ def _params_match(expected: Optional[Dict[str, str]], actual: Optional[Dict[str,
 
 
 def _parse_params(raw_params: Any) -> Optional[Dict[str, str]]:
+    """
+    参数三态解析：None / dict / [{name, identifier}] 数组。
+
+    历史 IR 的参数形态不一，统一转为 {参数名: 约束值} 字典。
+
+    Args:
+        raw_params: 任意形态的参数声明。
+
+    Returns:
+        归一后的参数字典；无可解析内容返回 None。
+    """
     if not raw_params:
         return None
     if isinstance(raw_params, dict):
@@ -329,6 +509,22 @@ def _parse_params(raw_params: Any) -> Optional[Dict[str, str]]:
 
 
 def _parse_object(raw: Dict[str, Any]) -> IRObject:
+    """
+    单个 IR 对象解析（多键名兼容）。
+
+    identifier 依次尝试 identifier/path/url/domain/host/name/resource；
+    type 依次尝试 type/resource_type/kind，未给出时按标识推断；
+    actions 经 _normalize_action 归一；params 走 _parse_params。
+
+    Args:
+        raw: 原始对象 dict。
+
+    Returns:
+        IRObject。
+
+    Raises:
+        ValueError: 缺少 identifier。
+    """
     resource_type = raw.get("type") or raw.get("resource_type") or raw.get("kind")
     identifier = (
         raw.get("identifier")
@@ -358,6 +554,7 @@ def _parse_object(raw: Dict[str, Any]) -> IRObject:
     )
 
 
+# IR 策略解析区：三种历史形态 → 统一 IRPolicy 列表
 # ---------------------------------------------------------------------------
 # IR policy parsing
 # ---------------------------------------------------------------------------
@@ -416,6 +613,18 @@ def parse_ir_policies(raw_ir: Any) -> List[IRPolicy]:
 
 
 def load_ir_policies(json_path: str | Path) -> List[IRPolicy]:
+    """
+    从 JSON 文件加载 IR 并解析为策略列表。
+
+    Args:
+        json_path: IR 文件路径。
+
+    Returns:
+        IRPolicy 列表。
+
+    Raises:
+        FileNotFoundError: 文件缺失或为空。
+    """
     path = Path(json_path)
     if not path.exists() or path.stat().st_size == 0:
         raise FileNotFoundError(f"{path} is empty or missing")
@@ -432,6 +641,22 @@ def _evaluate_event(
     allow_policies: Sequence[IRPolicy],
     type_index: Optional[Dict[str, "_FirstMatchIndex"]] = None,
 ) -> tuple[bool, List[str], List[str]]:
+    """
+    单个行为事件的授权评估（判定核心）。
+
+    判定次序：
+        1. 标识匹配（哈希索引或按序扫描）；
+        2. 工具参数约束核对（不匹配立即违规返回）；
+        3. 动作授权核对（含 fail-close）；
+        4. 全部通过则收集 SELinux 规则证据。
+
+    Args:
+        event: 行为事件；allow_policies: 授权策略；
+        type_index: 可选哈希索引（P-2-1 性能优化用）。
+
+    Returns:
+        (是否匹配, 违规明细, 命中规则) 三元组。
+    """
     event_action = _normalize_action(event.action)
     matched_rules: List[str] = []
 
@@ -482,6 +707,15 @@ def _aspect_result(
     total_count: int,
     violations: List[str],
 ) -> AspectResult:
+    """
+    组装单维度结果：得分 = 命中数 / 检查数（空维度得 1.0）。
+
+    Args:
+        matched_count / total_count / violations: 命中数、检查数、违规明细。
+
+    Returns:
+        AspectResult。
+    """
     score = 1.0 if total_count == 0 else round(matched_count / total_count, 4)
     return AspectResult(
         consistent="no" if violations else "yes",
@@ -492,11 +726,13 @@ def _aspect_result(
     )
 
 
+# 一致性检查区：扁平判定 / 评分判定 / 四维分层判定三个入口
 # ---------------------------------------------------------------------------
 # Consistency check functions
 # ---------------------------------------------------------------------------
 
 
+# 扁平判定（旧入口）：每个行为必须被任一 allow 策略覆盖，否则收集违规
 def Resource_Consistency_Check(
     ir_policies: Sequence[IRPolicy],
     behaviors: Sequence[BehaviorEvent],
@@ -528,12 +764,22 @@ def Resource_Consistency_Check(
     )
 
 
+# 网关消息 → 行为事件转换区：judge() 的行为侧适配层
 # ---------------------------------------------------------------------------
 # Gateway message to behavior conversion
 # ---------------------------------------------------------------------------
 
 
 def _normalize_params_dict(raw: Any) -> Optional[Dict[str, str]]:
+    """
+    网关参数归一：dict 转字符串字典，其余降级为 _raw 单键。
+
+    Args:
+        raw: 任意形态参数。
+
+    Returns:
+        {参数名: 值} 字典或 None。
+    """
     if raw is None:
         return None
     if isinstance(raw, dict):
@@ -542,6 +788,16 @@ def _normalize_params_dict(raw: Any) -> Optional[Dict[str, str]]:
 
 
 def _gateway_content_to_text(content: Any) -> str:
+    """
+    # 输入形态四种：文件路径/IRPolicy 序列/原始 dict/list——上层（watcher、平台、测试）各取所需
+    消息内容文本化：字符串原样，多段列表逐段取 text 拼接。
+
+    Args:
+        content: 消息 content 字段。
+
+    Returns:
+        纯文本。
+    """
     if content is None:
         return ""
     if isinstance(content, str):
@@ -556,6 +812,15 @@ def _gateway_content_to_text(content: Any) -> str:
 
 
 def _extract_messages(gateway_trace: Any) -> List[Dict[str, Any]]:
+    """
+    从网关轨迹提取消息序列（tool_calls / tool_result 兼容）。
+
+    Args:
+        gateway_trace: 网关消息列表。
+
+    Returns:
+        消息 dict 列表。
+    """
     if isinstance(gateway_trace, list):
         return [msg for msg in gateway_trace if isinstance(msg, dict)]
     if isinstance(gateway_trace, dict):
@@ -568,6 +833,15 @@ def _extract_messages(gateway_trace: Any) -> List[Dict[str, Any]]:
 
 
 def _resolve_exec_path(raw_path: str, workdir: Optional[str]) -> str:
+    """
+    exec 相对路径解析：按工作目录拼绝对路径，~ 展开保持原样。
+
+    Args:
+        raw_path: 命令中的路径参数；workdir: 工作目录。
+
+    Returns:
+        解析后的路径。
+    """
     if not raw_path:
         return str(Path(workdir or "."))
     path = Path(raw_path)
@@ -579,12 +853,31 @@ def _resolve_exec_path(raw_path: str, workdir: Optional[str]) -> str:
 
 
 def _looks_like_path(token: str) -> bool:
+    """
+    token 是否形似文件路径（绝对路径/常见扩展名启发）。
+
+    Args:
+        token: 命令分词。
+
+    Returns:
+        True 视为路径。
+    """
     if not token or token.startswith("-"):
         return False
+    # 顺序维度的匹配语义：期望序为「可选集」，实际序须是其保序子序列（Agent 可少调用不可乱序）
     return "/" in token or token in {".", ".."} or token.endswith((".md", ".txt", ".json", ".py", ".csv"))
 
 
 def _looks_like_network_identifier(token: str) -> bool:
+    """
+    token 是否形似网络标识（URL / host:port / 域名）。
+
+    Args:
+        token: 命令分词。
+
+    Returns:
+        True 视为网络标识。
+    """
     if not token or token.startswith("-"):
         return False
     parsed = urlparse(token)
@@ -596,20 +889,43 @@ def _looks_like_network_identifier(token: str) -> bool:
 
 
 def _normalize_network_identifier(token: str) -> str:
+    """
+    网络标识规范化：剥协议前缀、保留 host(/path) 主干。
+
+    Args:
+        token: 原始网络标识。
+
+    Returns:
+        规范化标识。
+    """
     return token.strip()
 
 
 def _infer_exec_behaviors(args: Dict[str, Any]) -> List[BehaviorEvent]:
+    """
+    从 exec 工具参数推导行为：命令文本 → 路径/网络资源访问。
+
+    与 shell_command_semantics 的六类行为口径对齐；
+    无 shell 语义解析器时作为轻量兜底。
+
+    Args:
+        args: 工具参数 dict。
+
+    Returns:
+        BehaviorEvent 列表。
+    """
     command = str(args.get("command", "")).strip()
     if not command:
         return []
 
+    #  violations 为空时整体一致：单维违规即整体异常，不因其他维度高分而豁免
     workdir = str(args.get("workdir")) if args.get("workdir") else None
     analysis = analyze_shell_command(command, workdir=workdir)
     events: List[BehaviorEvent] = []
     for behavior in analysis.behaviors:
         if behavior.resource_kind == "network":
             resource_type: ResourceType = "network"
+        # 文本渲染按固定段落次序：判定结果 → 各维度明细 → 行为记录回显
         elif behavior.resource_kind == "process":
             resource_type = "tool"
         else:
@@ -625,6 +941,7 @@ def _infer_exec_behaviors(args: Dict[str, Any]) -> List[BehaviorEvent]:
     return events
 
 
+# 网关轨迹 → 行为列表：tool_calls 与 tool_result 兼容解析（含 exec 资源推导）
 def gateway_messages_to_behaviors(gateway_trace: Any) -> List[BehaviorEvent]:
     """
     Convert gateway-side messages into BehaviorEvent records.
@@ -725,6 +1042,7 @@ def gateway_messages_to_behaviors(gateway_trace: Any) -> List[BehaviorEvent]:
 # ---------------------------------------------------------------------------
 
 
+# 评分判定（兼容入口）：结果与分层判定的单维结论一致（F-2-5 ⑩ 回归口径）
 def Resource_Consistency_Check_Scored(
     ir_input: Sequence[IRPolicy] | str | Path | Dict[str, Any] | List[Any],
     behavior_input: Sequence[BehaviorEvent] | Dict[str, Any] | List[Any],
@@ -776,6 +1094,7 @@ def Resource_Consistency_Check_Scored(
     )
 
 
+# 四维分层判定（生产口径）：S-2-1 的四维结构 + P-2-1 的耗时被测对象
 def Resource_Consistency_Check_Layered(
     ir_input: Sequence[IRPolicy] | str | Path | Dict[str, Any] | List[Any],
     behavior_input: Sequence[BehaviorEvent] | Dict[str, Any] | List[Any],
@@ -789,6 +1108,7 @@ def Resource_Consistency_Check_Layered(
     5. overall consistency score
     """
 
+    # 输入形态自适应：IR 接受 文件路径/IRPolicy列表/原始dict；行为接受 dict轨迹/BehaviorEvent列表
     if isinstance(ir_input, (str, Path)):
         ir_policies = load_ir_policies(ir_input)
     elif ir_input and isinstance(ir_input, Sequence) and isinstance(ir_input[0], IRPolicy):  # type: ignore[index]
@@ -803,6 +1123,7 @@ def Resource_Consistency_Check_Layered(
     else:
         behaviors = gateway_messages_to_behaviors(behavior_input)
 
+    # 索引构建：全部对象按类型分桶建 _FirstMatchIndex，判定耗时与规模解耦
     allow_policies = [policy for policy in ir_policies if policy.effect == "allow"]
     all_objects = [obj for policy in allow_policies for obj in policy.objects]
     allowed_tool_objects = [obj for obj in all_objects if obj.type == "tool"]
@@ -812,6 +1133,7 @@ def Resource_Consistency_Check_Layered(
         for rtype in {obj.type for obj in all_objects}
     }
 
+    # 事件分组：工具事件走白名单+参数两维，资源事件走覆盖判定维
     tool_events = [event for event in behaviors if event.resource_type == "tool"]
     resource_events = [event for event in behaviors if event.resource_type != "tool"]
 
@@ -820,6 +1142,7 @@ def Resource_Consistency_Check_Layered(
 
     tool_call_matched = 0
     tool_call_violations: List[str] = []
+    # 维度一 工具调用一致性：不在白名单或动作越权即违规
     for event in tool_events:
         matched = False
         for obj in filter(None, [tool_index.first(event.identifier)]):
@@ -838,6 +1161,7 @@ def Resource_Consistency_Check_Layered(
         elif not matched:
             tool_call_violations.append(f"tool out of IR allow scope: {event.identifier}")
 
+    # 维度三 参数一致性：仅对白名单内工具核参（白名单外工具由维度一报告）
     parameter_matched = 0
     parameter_total = 0
     parameter_violations: List[str] = []
@@ -853,6 +1177,7 @@ def Resource_Consistency_Check_Layered(
                 f"tool param mismatch: {event.identifier}, expected={matched_obj.params}, actual={event.params}"
             )
 
+    # 维度四 资源访问一致性：文件/网络访问必须落在授权对象与动作内
     resource_matched = 0
     resource_violations: List[str] = []
     for event in resource_events:
@@ -863,6 +1188,7 @@ def Resource_Consistency_Check_Layered(
         else:
             resource_violations.extend(event_violations)
 
+    # 维度二 工具调用顺序一致性：期望序中的保序子序列匹配（允许跳过未调用的工具）
     expected_tool_order = [obj.identifier for obj in allowed_tool_objects]
     observed_tool_order = [event.identifier for event in tool_events]
     order_idx = 0
@@ -889,6 +1215,7 @@ def Resource_Consistency_Check_Layered(
     overall_violations.extend(parameter_result.violations)
     overall_violations.extend(resource_result.violations)
 
+    # 整体得分=有效维度均值：total_count=0 的维度不参与（S-2-1 ② 空维度约定）
     active_scores = [
         result.score
         for result in [tool_call_result, trajectory_result, parameter_result, resource_result]
@@ -902,6 +1229,7 @@ def Resource_Consistency_Check_Layered(
         tool_call_consistency=tool_call_result,
         tool_trajectory_consistency=trajectory_result,
         parameter_consistency=parameter_result,
+        # 注入检测在 judge 内部完成：一次调用产出完整报告（四维判定 + 注入区块 + 参数区块）
         resource_access_consistency=resource_result,
         violations=overall_violations,
         matched_rules=sorted(set(matched_rules)),
@@ -910,15 +1238,27 @@ def Resource_Consistency_Check_Layered(
 
 
 def layered_result_to_dict(result: LayeredCheckResult) -> Dict[str, Any]:
+    """
+    分层结果转 dict（JSON 序列化用）。
+
+    Args:
+        result: LayeredCheckResult。
+
+    Returns:
+        嵌套 dict。
+    """
     return asdict(result)
 
 
+# 判定文本首行固定为「【判定结果】行为一致/异常，整体得分: x」（F-2-5 前端解析约定）；
+# 无检查项的维度不输出对应段落
 def layered_result_to_text(result: LayeredCheckResult) -> str:
     """
     Convert LayeredCheckResult into a human-readable text summary.
     """
     lines: List[str] = []
 
+    # 首行固定格式是前端解析协议：score 与 is_abnormal 均由本行推导
     # Overall verdict
     if result.consistent == "yes":
         lines.append(f"【判定结果】行为一致，整体得分: {result.overall_score}")
@@ -996,6 +1336,7 @@ def layered_result_to_text(result: LayeredCheckResult) -> str:
 
     return "\n".join(lines)
 
+# 兼容入口区：watcher/平台直接调用的 judge() 及文本渲染
 
 # ---------------------------------------------------------------------------
 # Judge function (orchestrator entrypoint)
@@ -1004,6 +1345,15 @@ def layered_result_to_text(result: LayeredCheckResult) -> str:
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
     """Support both dict-style and attribute-style access."""
+    """
+    取嵌套对象的键值（缺省兜底），供 _normalize_ir 内部使用。
+
+    Args:
+        obj / key / default: 对象、键名、缺省值。
+
+    Returns:
+        键值或 default。
+    """
     if obj is None:
         return default
     if isinstance(obj, dict):
@@ -1011,6 +1361,7 @@ def _get(obj: Any, key: str, default: Any = None) -> Any:
     return getattr(obj, key, default)
 
 
+# IR 归一化入口：judge() 的 IR 侧适配层
 def _normalize_ir(ir: Any) -> Dict[str, Any]:
     """
     Convert the translated IR into the policy shape expected by the consistency module.
@@ -1019,6 +1370,19 @@ def _normalize_ir(ir: Any) -> Dict[str, Any]:
     - Old format: level2.policies in scene/resource_type/functions format
     """
 
+    """
+    IR 结构归一：把各类历史形态统一为 policies 列表。
+
+    覆盖：level2.policies 直接体、单 policy 体、
+    扁平 resource/action 体；fail-safe：空 IR 归一为空列表
+    （空授权=全拒绝，与 R-2-1 fail-close 语义衔接）。
+
+    Args:
+        ir: 任意形态 IR。
+
+    Returns:
+        归一后的 IR dict。
+    """
     level1 = _get(ir, "level1", []) or []
     level2 = _get(ir, "level2", {}) or {}
     raw_policies = _get(level2, "policies", []) or []
@@ -1106,6 +1470,7 @@ def _normalize_ir(ir: Any) -> Dict[str, Any]:
     return {"policies": normalized_policies}
 
 
+# 行为归一化入口：watcher 的 action_json 在此转为四维比对的输入
 def _normalize_actions(action: Any) -> List[BehaviorEvent]:
     """
     Convert orchestrator action records into BehaviorEvent.
@@ -1119,6 +1484,18 @@ def _normalize_actions(action: Any) -> List[BehaviorEvent]:
     }
     """
 
+    """
+    行为记录归一：action 列表（含 gateway/会话两来源格式）→ BehaviorEvent。
+
+    逐条解析 tool/arguments/resources；
+    exec 类工具附带命令内资源推导（读 cat 的路径、写 tee 的目标等）。
+
+    Args:
+        action: watcher 上报的 action_json 解析结果。
+
+    Returns:
+        BehaviorEvent 列表。
+    """
     action_list = action if isinstance(action, list) else [action]
     behaviors: List[BehaviorEvent] = []
 
@@ -1171,6 +1548,8 @@ def _normalize_actions(action: Any) -> List[BehaviorEvent]:
     return behaviors
 
 
+# 判定主入口：归一 IR → 归一行为 → 四维分层判定 → 文本渲染 → 附加注入/参数检测区块；
+# watcher 与平台「运行监控」均调用本函数，输出直接落库 judge_result 字段
 def judge(action: Any, IR: Any, injection_keywords: Optional[List[str]] = None,
           param_content_rules: Optional[Dict[str, Any]] = None) -> str:
     """Return textual abnormal-state judgement for one completed round.
@@ -1196,11 +1575,13 @@ def judge(action: Any, IR: Any, injection_keywords: Optional[List[str]] = None,
     return text
 
 
+# 提示注入检测区：对工具返回结果做关键词扫描（OWASP LLM01 口径）
 # ---------------------------------------------------------------------------
 # Prompt-injection detection on tool results
 # ---------------------------------------------------------------------------
 
 
+# 纯匹配不调用大模型：程序化扫描开销可忽略；关键词库支持热更新
 def check_tool_result_injection(action: Any, keywords: Optional[List[str]]) -> List[Dict[str, str]]:
     """检查各工具返回结果（action 的 result 字段）中是否命中提示注入关键词。
 
@@ -1212,6 +1593,7 @@ def check_tool_result_injection(action: Any, keywords: Optional[List[str]]) -> L
     if not kw_list:
         return []
 
+    # 关键词按长度降序去重：防止短词先命中掩盖长词（如 SYSTEM 掩盖 SYSTEM INSTRUCT）
     # 关键词按长度降序去重，避免 "SYSTEM" 先命中而掩盖 "SYSTEM INSTRUCT"
     seen_kw: set = set()
     ordered_kw: List[str] = []
@@ -1227,6 +1609,7 @@ def check_tool_result_injection(action: Any, keywords: Optional[List[str]]) -> L
     for item in action_list:
         if not isinstance(item, dict):
             continue
+        # result 序列化：dict/list 走 JSON 文本化，保证扫描覆盖结构化负载
         tool = str(item.get("tool", "")).strip() or "(unknown)"
         result = item.get("result")
         if result is None:
@@ -1242,6 +1625,7 @@ def check_tool_result_injection(action: Any, keywords: Optional[List[str]]) -> L
     return hits
 
 
+# 注入文本渲染：未配置关键词时返回空串（区块不输出）
 def check_tool_result_injection_to_text(action: Any, keywords: Optional[List[str]]) -> str:
     """将提示注入检测结果渲染为中文文本；未配置关键词时返回空字符串。"""
     kw_list = [str(k).strip() for k in (keywords or []) if str(k).strip()]
@@ -1317,6 +1701,7 @@ from .param_rules import (  # noqa: E402
 )
 
 
+# 参数内容检测规则装配：把全局配置的规则注入判定链（severity/enable 由配置层控制）
 def _param_rules(rules: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """兼容旧接口：返回默认值与用户配置合并后的生效规则集。"""
     from .param_rules.registry import _merge_rules

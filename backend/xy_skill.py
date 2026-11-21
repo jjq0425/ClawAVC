@@ -47,15 +47,62 @@ DEFAULT_MAX_TOKENS = 4096
 # 必须等本轮流结束后再执行（见 run_skill_analysis）。其余工具只需 round_id，
 # 可以在拿到函数名的瞬间就执行，保持原有的实时呈现体验。
 ARG_TOOLS = {"search_selinux_knowledge", "read_local_selinux_policy",
-             "query_selinux_policy", "emit_policy_proposal"}
+             "query_selinux_policy", "emit_policy_proposal",
+             "load_policy_scene", "query_policy_library"}
 
-# 策略建议三件套：证据只来自 overpriv_evidence，事实只来自 selinux_policy_query，
+# 策略建议三件套：证据只来自 overpriv_evidence，事实只来自策略查询，
 # 规则文本由 LLM 写、但必须过 policy_gate 的确定性校验才会输出。
-POLICY_TOOLS = {"get_overprivilege_evidence", "query_selinux_policy", "emit_policy_proposal"}
+POLICY_TOOLS = {"get_overprivilege_evidence", "query_selinux_policy", "emit_policy_proposal",
+                "list_policy_scenes", "load_policy_scene", "query_policy_library"}
+
+# 指定策略库模式下不提供的工具：它们依赖目标机已加载策略与 setools，本机可能没有
+LIVE_ONLY_POLICY_TOOLS = {"read_local_selinux_policy", "query_selinux_policy"}
+LIBRARY_ONLY_POLICY_TOOLS = {"list_policy_scenes", "load_policy_scene", "query_policy_library"}
 
 # 这些工具的返回已经是限界后的结构化事实，再经 LLM 压缩或按字符截断会破坏
 # access_id / 类型名 / 权限名的精确性，从而让 policy_gate 校验失真。
 NO_COMPRESS_TOOLS = POLICY_TOOLS
+
+# 平台只输出供人工复核的 allow 规则，不允许建议切换 SELinux 状态或装卸模块。
+# 模型偶尔会在“处置建议”里补上这些命令，这里做一次确定性兜底。
+_FORBIDDEN_ADVICE = [
+    (re.compile(r"\bsemodule\b[^\n]*\s-[a-zA-Z]*[irb]\b", re.I), "semodule 装卸/回滚策略模块"),
+    (re.compile(r"\bsetenforce\s+(?:0|permissive)\b", re.I), "setenforce 切换为 permissive"),
+    (re.compile(r"\b(?:selinux|enforcing)\s*=\s*0\b", re.I), "内核参数关闭 SELinux"),
+    (re.compile(r"--permissive\b", re.I), "以 permissive 模式启动"),
+]
+_ADVICE_NEGATION = re.compile(r"(不得|禁止|不要|不可|不能|无需|不应|严禁|不允许|切勿)")
+# “编译安装/加载策略模块”本身就是装卸动作，即使没写出 semodule 也要拦；
+# 只有“不得安装策略模块”这类明确否定才放行。
+_INSTALL_MODULE = re.compile(
+    r"(?:编译安装|安装|加载|卸载|装卸|部署|导入)\s*(?:SELinux\s*)?策略模块")
+_INSTALL_NEGATION = re.compile(
+    r"(?:不得|禁止|不要|不可|不能|无需|不应|严禁|不允许|切勿)[^。；\n]{0,12}"
+    r"(?:编译安装|安装|加载|卸载|装卸|部署|导入)")
+_FORBIDDEN_ADVICE_NOTE = (
+    "（已按安全约束移除：平台不提供 SELinux 模式切换、关闭或策略模块装卸建议；"
+    "策略改动只以 allow 规则形式供人工复核。）"
+)
+
+
+def _strip_forbidden_advice(text: str) -> tuple:
+    """移除正文中非否定的 SELinux 状态切换/模块装卸建议，返回 (文本, 命中说明)。"""
+    if not text:
+        return text, []
+    kept, hits = [], []
+    for line in text.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        matched = [label for rx, label in _FORBIDDEN_ADVICE if rx.search(body)]
+        should_strip = bool(matched and not _ADVICE_NEGATION.search(body))
+        if _INSTALL_MODULE.search(body) and not _INSTALL_NEGATION.search(body):
+            matched = matched or ["安装/加载策略模块"]
+            should_strip = True
+        if should_strip:
+            hits.append(matched[0])
+            kept.append(_FORBIDDEN_ADVICE_NOTE + line[len(body):])
+        else:
+            kept.append(line)
+    return "".join(kept), hits
 
 # ─── 工具的 OpenAI-compatible function calling 定义 ─────────
 TOOLS = [
@@ -453,6 +500,77 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "list_policy_scenes",
+            "description": (
+                "列出指定策略库中的可用场景（场景名、任务摘要、主体、测试数量、规则数量）。"
+                "仅在指定策略库模式下可用。"
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "load_policy_scene",
+            "description": (
+                "加载指定策略库中的一个场景，返回任务要求、当前完整 .te 源码、"
+                "文件上下文、任务测试的当前通过情况与不一致项。"
+                "策略建议必须建立在场景源码与任务测试之上，不得自造类型或任务要求。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "scene": {
+                        "type": "string",
+                        "description": "场景名，取 list_policy_scenes 的 name；留空则加载默认场景",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_policy_library",
+            "description": (
+                "对指定策略库中的当前场景做只读查询，不依赖目标机 SELinux 工具。\n"
+                "query_type 取值：\n"
+                "  rules        —— 列出当前场景全部 allow 规则（可先用它确认 old_rule 原文）\n"
+                "  type_info    —— 类型是否已在场景 .te 中声明、是否为属性（传 type_name）\n"
+                "  allow_search —— 按 src/tgt/tclass/perms 反查场景里的 allow 规则\n"
+                "  probe_access —— 解析资源路径对应的场景客体类型，并判断权限是否已被放行；"
+                "传 access_id 时自动带出证据包里的资源/对象类/权限\n"
+                "任何要写进规则的客体类型，都必须先用 probe_access 或 type_info 确认；"
+                "任何要删除/收窄的 old_rule，都必须逐字来自场景源码。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query_type": {
+                        "type": "string",
+                        "enum": ["rules", "type_info", "allow_search", "probe_access"],
+                        "description": "查询类型",
+                    },
+                    "access_id": {"type": "string", "description": "probe_access 用：证据包里的 access_id"},
+                    "type_name": {"type": "string", "description": "type_info 用：类型名"},
+                    "src": {"type": "string", "description": "allow_search / probe_access 用：源类型（缺省取场景主体）"},
+                    "tgt": {"type": "string", "description": "allow_search 用：客体类型"},
+                    "tclass": {"type": "string", "description": "allow_search / probe_access 用：对象类"},
+                    "perms": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "allow_search / probe_access 用：权限列表",
+                    },
+                    "resource": {"type": "string", "description": "probe_access 用：被访问资源路径"},
+                },
+                "required": ["query_type"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "emit_policy_proposal",
             "description": (
                 "提交策略建议。后端会用确定性规则校验它（安全阀、最小化、黑名单、"
@@ -598,6 +716,191 @@ TOOLS = [
     },
 ]
 
+# 库模式专用的提案 schema：支持 edits 增删改与 DELETE_ALLOW。
+# 实时模式沿用 TOOLS 内的原定义，两者不可共用（见 run_skill_analysis）。
+_LIBRARY_EMIT_PROPOSAL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "emit_policy_proposal",
+        "description": (
+            "提交策略建议。后端用确定性规则校验它（安全阀、最小化、黑名单、"
+            "类型存在性、任务测试回归、生效性检查；实时模式另有客体置信度与沙箱编译），"
+            "校验通过才输出规则/修改后的 .te；未通过则逐条返回违规原因，"
+            "你需要按原因修正后重新提交。\n"
+            "指定策略库模式下支持对场景已有 allow 规则做增/删/改：\n"
+            "  新增（ADD_ALLOW）—— 用 rules 或 add_rules 提交完整 allow 语句；\n"
+            "  删除（DELETE_ALLOW）—— 用 edits 提交 {old_rule, new_rule:\"\"}；\n"
+            "  修改/收窄/补权（MODIFY_ALLOW）—— 用 edits 提交 {old_rule, new_rule}。\n"
+            "实时目标机模式只允许新增与补权，不允许删除或收窄。\n"
+            "old_rule 必须逐字来自场景 .te 源码；new_rule 必须使用场景已声明的类型。\n"
+            "改标签（RELABEL_OBJECT）：实时模式用于把实际标签收敛回默认类型；"
+            "指定策略库模式仅在场景声明了 actual_labels 标签夹具时可用，"
+            "且不得与 allow 规则同时提交。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "proposal": {
+                    "type": "object",
+                    "description": "策略建议对象",
+                    "properties": {
+                        "decision": {
+                            "type": "string",
+                            "enum": ["ADD_ALLOW", "MODIFY_ALLOW", "DELETE_ALLOW",
+                                     "RELABEL_OBJECT", "NO_CHANGE"],
+                            "description": (
+                                "决策：ADD_ALLOW=缺规则需新增（用 rules/add_rules）；"
+                                "MODIFY_ALLOW=已有规则需补权或收窄（用 edits）；"
+                                "DELETE_ALLOW=整条规则不在任务范围内需删除（用 edits，new_rule 留空）；"
+                                "RELABEL_OBJECT=客体标签过宽需收敛到默认类型"
+                                "（实时模式，或库模式场景声明了 actual_labels 时）；"
+                                "NO_CHANGE=不产出任何规则或改标签项"
+                            ),
+                        },
+                        "reason_code": {
+                            "type": "string",
+                            "enum": [
+                                "MISSING_RULE", "INSUFFICIENT_PERMS", "EXCESSIVE_PERMISSION",
+                                "RULE_NOT_NEEDED", "OBJECT_MISLABELED",
+                                "ALREADY_ALLOWED", "SOURCE_UNCONFINED", "OVERPRIVILEGE_ONLY",
+                                "LABEL_MISMATCH", "BOOLEAN_GATED", "PERMISSIVE_MODE",
+                                "EVIDENCE_INSUFFICIENT", "NOT_POLICY_ISSUE",
+                            ],
+                            "description": (
+                                "决策理由码。MISSING_RULE 配 ADD_ALLOW；"
+                                "INSUFFICIENT_PERMS / EXCESSIVE_PERMISSION 配 MODIFY_ALLOW；"
+                                "EXCESSIVE_PERMISSION / RULE_NOT_NEEDED 配 DELETE_ALLOW；"
+                                "OBJECT_MISLABELED 配 RELABEL_OBJECT；其余都必须配 NO_CHANGE"
+                            ),
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "一句话说明为什么是这个决策",
+                        },
+                        "module_name": {
+                            "type": "string",
+                            "description": (
+                                "仅实时模式新增规则时必填，须匹配 ^[a-z][a-z0-9_]{2,30}$；"
+                                "指定策略库模式与 NO_CHANGE 时留空"
+                            ),
+                        },
+                        "target_policy_version": {
+                            "type": "string",
+                            "description": "目标机 policyvers，取证据包里的 selinux_posture.policyvers，如 33",
+                        },
+                        "rules": {
+                            "type": "array",
+                            "description": (
+                                "新增的 allow 规则（结构化形式）。ADD_ALLOW 必填；"
+                                "实时模式也用它。NO_CHANGE 时必须为空数组"
+                            ),
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "src": {"type": "string", "description": "源类型：实时模式等于证据 source_type，库模式等于场景主体"},
+                                    "tgt": {"type": "string", "description": "客体类型，必须来自 probe_access 的解析结果"},
+                                    "tclass": {"type": "string", "description": "对象类"},
+                                    "perms": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "description": "权限，不得超出证据里实际观察到的权限（库模式下也可等于任务正向测试要求的权限）",
+                                    },
+                                    "evidence": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "description": "支撑本规则的 access_id 列表（实时模式至少一个）",
+                                    },
+                                    "reason": {"type": "string", "description": "这条规则解决什么具体访问"},
+                                },
+                                "required": ["src", "tgt", "tclass", "perms"],
+                            },
+                        },
+                        "add_rules": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "新增 allow 规则的完整字符串形式，与 rules 等价，例如 "
+                                "\"allow agent_t agent_tmp_t:file { getattr open read };\""),
+                        },
+                        "edits": {
+                            "type": "array",
+                            "description": (
+                                "对场景已有 allow 规则的删除或修改（仅指定策略库模式）。"
+                                "old_rule 必须逐字来自场景 .te；new_rule 为空串表示删除该规则"
+                            ),
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "old_rule": {"type": "string", "description": "场景源码中原样的一条 allow 规则"},
+                                    "new_rule": {"type": "string", "description": "替换后的完整 allow 规则；空串=删除"},
+                                    "evidence": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "description": "该改动依据的 access_id（可选）",
+                                    },
+                                    "reason": {"type": "string", "description": "为什么删除或收窄/补权"},
+                                },
+                                "required": ["old_rule", "new_rule"],
+                            },
+                        },
+                        "relabel": {
+                            "type": "array",
+                            "description": (
+                                "改标签项，仅 RELABEL_OBJECT 时使用，其余决策必须为空数组。"
+                                "与 rules 互斥。每项不得包含任何 perms/src/tgt 授权信息"
+                            ),
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "access_id": {"type": "string", "description": "证据包里该客体访问的 access_id"},
+                                    "path": {"type": "string", "description": "客体绝对路径"},
+                                    "current_type": {"type": "string", "description": "probe_access 解析出的实际标签类型"},
+                                    "expected_type": {"type": "string", "description": "probe_access 解析出的默认类型，必须与之一致，不得自造"},
+                                    "reason": {"type": "string", "description": "为什么这个客体标签过宽、需要收敛"},
+                                },
+                                "required": ["access_id", "path", "current_type", "expected_type"],
+                            },
+                        },
+                        "notes": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "诊断说明：越权访问需要收敛、应当迁移到受限域、"
+                                "标签不匹配、boolean 门控等只能写在这里"
+                            ),
+                        },
+                        "evidence_refs": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "本次决策参考过的全部 access_id",
+                        },
+                        "must_not_allow": {
+                            "type": "array",
+                            "description": "你判断绝不能放行的访问，后端会与规则交叉验证",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "access_id": {"type": "string"},
+                                    "resource": {"type": "string"},
+                                    "reason": {"type": "string"},
+                                },
+                                "required": ["access_id", "reason"],
+                            },
+                        },
+                        "confidence": {
+                            "type": "string",
+                            "enum": ["high", "medium", "low"],
+                            "description": "对本建议的信心；查询降级、证据不全时应为 low",
+                        },
+                    },
+                    "required": ["decision", "reason_code", "summary"],
+                },
+            },
+            "required": ["proposal"],
+        },
+    },
+}
+
 # ─── 默认系统提示词（可通过 anomaly_llm_skill_prompt 配置覆盖） ──
 DEFAULT_SKILL_SYSTEM_PROMPT = (
     "你叫「小异」，是 ClawAVC 平台的异常分析检测大模型（二阶段），"
@@ -614,8 +917,10 @@ DEFAULT_SKILL_SYSTEM_PROMPT = (
     "(a) allow 规则（ADD_ALLOW / MODIFY_ALLOW）—— 补足 Agent 正当访问所需的授权；\n"
     "(b) 客体改标签（RELABEL_OBJECT）—— 当某个已被放行的客体标签过宽（实际标签≠默认标签）时，"
     "把它收敛回默认类型，渲染成 semanage fcontext + restorecon 说明交人工执行。\n"
-    "除此之外不得建议删除 allow 规则、修改 boolean、加 dontaudit、改主体标签或迁移域，"
+    "除此之外不得建议修改 boolean、加 dontaudit、改主体标签或迁移域，"
     "也不得建议 setenforce / semodule 之类改动 SELinux 状态或装卸模块的操作；这些只能写进 notes。\n"
+    "实时目标机模式下不得删除或收窄已有 allow 规则；指定策略库模式下允许对场景规则做增/删/改"
+    "（以运行模式说明为准）。\n"
     "1. 调用 get_overprivilege_evidence —— 取得本轮越权资源访问证据包（唯一证据来源），"
     "里面已带采集时刻目标机的 SELinux 姿态（mode / policyvers）\n"
     "2. 若分析机就是目标机，可再调用 query_selinux_policy(query_type=posture) 核对当前状态；"
@@ -654,8 +959,9 @@ DEFAULT_SKILL_SYSTEM_PROMPT = (
     "并把「需在目标机用 matchpathcon 复核」写进 notes。改标签只针对客体，不改主体标签、不迁移域。\n"
     "  - 目标机处于 permissive 模式：拒绝并不会真正发生，结论里要说明这一点；"
     "任何情况下都不得建议 setenforce 0 或关闭 SELinux。\n\n"
-    "最小化要求：规则的 src 必须等于证据包的 source_type；tgt 必须等于 probe_access 解析出的"
-    "客体类型；perms 只能是被引用证据里实际观察到的权限，一个都不能多；"
+    "最小化要求：规则的 src 必须等于证据包的 source_type（指定策略库模式下则固定为场景主体 subject）；"
+    "tgt 必须等于 probe_access 解析出的"
+    "客体类型；perms 只能是被引用证据里实际观察到的权限，一个都不能多（库模式下也可等于任务正向测试要求的权限）；"
     "每条规则必须引用至少一个 access_id。改标签项的 expected_type 必须等于 probe_access "
     "解析出的默认类型，且不得携带任何授权信息。\n\n"
     "获取足够信息后，请综合分析该 Agent 行为是否存在越权访问、越界操作、数据外泄、"
@@ -669,6 +975,49 @@ DEFAULT_SKILL_SYSTEM_PROMPT = (
     "不要在正文里另写一份与提交结果不一致的规则。\n\n"
     "使用工具时，一次调用可以同时请求多个工具（并行），以减少轮次。"
     "获取到足够信息后，用自然语言输出最终分析结果。"
+)
+
+
+# 指定策略库模式：目标机策略不可直接读取，所有策略事实来自随请求加载的场景
+_LIBRARY_MODE_TAG = "### 运行模式：指定策略库"
+_LIBRARY_MODE_PROMPT = (
+    "\n\n" + _LIBRARY_MODE_TAG + "\n"
+    "本次分析不使用目标机已加载策略，query_selinux_policy 与 read_local_selinux_policy 已停用。"
+    "策略事实全部来自已加载的场景（其 .te 源码、类型、文件上下文、任务测试和敏感目标见本轮用户消息）。"
+    "load_policy_scene 只用于切换场景，通常不需要调用。\n\n"
+    "完成标准：场景任务测试全部通过（task_after.fully_correct=true）。"
+    "场景通常同时存在过宽授权和授权缺口，因此只要还有未通过的测试，就必须继续用 "
+    "emit_policy_proposal 提交修正，不得在未提交提案的情况下直接给出结论。\n\n"
+    "流程：\n"
+    "1. get_overprivilege_evidence —— 取得本轮证据包，access_id 只以这里为准；\n"
+    "2. query_policy_library(query_type=probe_access, access_id=...) —— 逐条确认"
+    "当前场景下该访问是否已放行、客体类型解析成什么；\n"
+    "3. query_policy_library(query_type=type_info, type_name=...) —— "
+    "确认准备写进规则的每个类型名确实存在于场景声明中；\n"
+    "4. emit_policy_proposal 提交，库模式下允许三类改动：\n"
+    "   - add_rules：新增 allow 规则，元素是 \"allow src tgt:class perms;\" 字符串；\n"
+    "   - edits[]：old_rule 从场景 .te 源码逐字复制（忽略缩进），new_rule 为改写后的规则 = 修改；\n"
+    "   - edits[]：old_rule 同上，new_rule 传空字符串 = 删除该条规则；\n"
+    "   删除或收窄已有规则只走 edits，不要把它们再写进 rules。\n"
+    "5. 若校验未通过，按返回的每条违规原因修正后重新提交；"
+    "若返回 TASK_INCOMPLETE / TASK_STILL_OVERPRIVILEGED 警告，继续调整规则，"
+    "直到任务测试全部通过（fully_correct=true）。\n\n"
+    "库模式判定规则：\n"
+    "  - 任务测试 expected=true 但当前未通过：新增规则或扩权（ADD_ALLOW / MODIFY_ALLOW）；\n"
+    "  - 任务测试 expected=false 但当前被放行：删除或收窄对应规则"
+    "（DELETE_ALLOW/RULE_NOT_NEEDED 或 MODIFY_ALLOW/EXCESSIVE_PERMISSION）；\n"
+    "  - scene 的 sensitive_targets 上已有放行：必须用 edits 删除或收窄，"
+    "不能因为它是敏感访问就判 NO_CHANGE 让它继续被放行；\n"
+    "  - src 固定为场景 subject；tgt 取场景声明的类型；权限不得超出任务测试或证据里实际出现的权限；\n"
+    "  - sensitive_targets 上的访问绝不能新增或扩权，只能删除/收窄；\n"
+    "  - 只有场景显式声明了 actual_labels（实际标签夹具）时，才可对「实际标签与 .fc "
+    "默认类型不一致」的客体判 RELABEL_OBJECT：relabel[] 每项给 "
+    "{access_id, path, current_type, expected_type}，current_type 取 actual_labels、"
+    "expected_type 取 .fc 解析结果，且不得同时给 allow 规则；"
+    "场景没有实际标签夹具时不得判 RELABEL_OBJECT，只能把标签问题写进 notes。\n"
+    "最终目标：让场景任务测试由当前的未通过状态变为全部通过，且不引入任何超出任务要求的授权。"
+    "处置建议只能写人工复核、告警、审计这类动作；不得建议自动应用规则、"
+    "自动执行 semodule/restorecon 或装卸策略模块。\n"
 )
 
 
@@ -935,8 +1284,10 @@ def _load_policy_stack():
         try:
             import overpriv_evidence
             import policy_gate
+            import policy_library
             import selinux_policy_query as spq
-            return {"evidence": overpriv_evidence, "gate": policy_gate, "query": spq}
+            return {"evidence": overpriv_evidence, "gate": policy_gate,
+                    "query": spq, "library": policy_library}
         except Exception as exc:
             _POLICY_STACK_IMPORT_ERROR = exc
             if attempt == 0 and backend_dir not in sys.path:
@@ -949,9 +1300,12 @@ def _new_policy_ctx() -> Dict[str, Any]:
 
     probes / type_facts 在工具执行过程中累积，emit_policy_proposal 校验时要用它们
     证明「客体类型确实解析出来了」「类型名确实在本机已加载策略里」。
+    指定策略库模式下 library 是已加载的场景库，scene 是当前场景（成功提案后会被
+    更新为改动后的源码），保证后续提案建立在最新规则之上。
     随 run_skill_analysis 创建，因此并发请求之间互不干扰。
     """
-    return {"evidence": None, "probes": {}, "type_facts": {}, "posture": {}, "proposal": None}
+    return {"evidence": None, "probes": {}, "type_facts": {}, "posture": {},
+            "proposal": None, "library": None, "scene": None}
 
 
 def _as_str_list(value: Any) -> list:
@@ -1044,6 +1398,196 @@ def _handler_overpriv_evidence(round_id: str, ctx: Dict[str, Any]) -> str:
     ctx["evidence"] = evidence
     ctx["posture"] = evidence.get("selinux_posture") or {}
     return _render_evidence(evidence)
+
+
+# ─── 指定策略库：场景加载、渲染与只读查询 ─────────────────────────
+
+def _resolve_library_dir(explicit: str = "") -> str:
+    """解析策略库目录：显式参数 > DB 配置；两者都未设置时走实时目标机模式。
+
+    主平台默认审计真实目标机，库模式必须显式开启，不能因为随附了场景库就自动接管。
+    填 default/builtin 用随仓库附带的库，填目录路径用自定义库，
+    填 none/off/false/0 或留空则关闭库模式。
+    """
+    disabled = ("none", "off", "false", "0")
+    builtin = ("default", "builtin")
+    bundled = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "data", "policy_library")
+
+    def resolve(value: Any) -> str:
+        value = str(value or "").strip()
+        if not value or value.lower() in disabled:
+            return ""
+        return bundled if value.lower() in builtin else value
+
+    explicit = str(explicit or "").strip()
+    if explicit:
+        return resolve(explicit)
+    return resolve(db.get_config("monitor_conf.anomaly_policy_library_dir"))
+
+
+def _status_text(check: Dict[str, Any]) -> str:
+    actual = bool(check.get("actual"))
+    expected = bool(check.get("expected"))
+    if expected:
+        return "已允许" if actual else ("缺少 " + ",".join(check.get("missing_permissions") or []))
+    return "已禁止" if not actual else ("多出 " + ",".join(check.get("covered_permissions") or []) + "（应禁止）")
+
+
+def _render_scene(scene: Any) -> str:
+    """把场景渲染成 LLM 可直接读的文本：任务、规则、测试与不一致项。"""
+    stack = _load_policy_stack()
+    plib = stack["library"] if stack else None
+    lines = [
+        "指定策略库场景：%s（%s）" % (scene.name, scene.title),
+        "主体 subject：%s" % scene.subject,
+        "任务要求：%s" % scene.task,
+        "敏感目标：%s" % (", ".join(sorted(scene.sensitive_targets)) or "无"),
+        "声明类型：%s" % (", ".join(sorted(scene.types)) or "无"),
+        "实际标签夹具：%s" % (
+            ", ".join("%s -> %s" % (path, label)
+                      for path, label in sorted((scene.actual_labels or {}).items()))
+            or "无（不得判 RELABEL_OBJECT，标签问题只写进 notes）"),
+        "文件上下文：",
+    ]
+    if scene.file_contexts:
+        for fc in scene.file_contexts:
+            lines.append("  %s -> %s" % (fc.pattern, fc.type))
+    else:
+        lines.append("  （无）")
+    lines.append("")
+    lines.append("当前 .te 源码（old_rule 必须逐字来自这里）：")
+    lines.append(scene.source.rstrip())
+    lines.append("")
+
+    if plib is None:
+        return "\n".join(lines)
+    result = plib.evaluate_tests(scene)
+    lines.append("任务测试（%d/%d 通过）：" % (result["passed"], result["total"]))
+    lines.append("  名称 | 对象类 | 客体类型 | 权限 | 期望 | 当前")
+    for check in result["checks"]:
+        if check.get("kind") == "label":
+            lines.append("  %s | %s | %s | - | 标签 %s | 实际 %s" % (
+                check["name"], check["class"], check["target"],
+                check["expected"], check["actual"]))
+            continue
+        lines.append("  %s | %s | %s | %s | %s | %s" % (
+            check["name"], check["class"], check["target"],
+            ",".join(check["permissions"]) or "-",
+            "允许" if check["expected"] else "禁止",
+            _status_text(check)))
+    lines.append("")
+    audit = scene.policy_audit()
+    lines.append("当前不一致项：" if not audit else "当前不一致项（必须修复）：")
+    if not audit:
+        lines.append("  无（任务测试全部通过，不要为凑改动而修改）")
+    for item in audit:
+        lines.append("  - %s | %s:%s | 当前 %s | 要求 %s%s" % (
+            item.get("operation"), item.get("target_type"), item.get("class"),
+            item.get("current"), item.get("required"),
+            (" | 缺 " + ",".join(item.get("missing_permissions") or []))
+            if item.get("missing_permissions") else
+            ((" | 多出 " + ",".join(item.get("excess_permissions") or []))
+             if item.get("excess_permissions") else "")))
+    return "\n".join(lines)
+
+
+def _handler_list_policy_scenes(round_id: str, ctx: Dict[str, Any]) -> str:
+    library = ctx.get("library")
+    if library is None:
+        return ("当前不是指定策略库模式（未加载策略库）。"
+                "请使用 query_selinux_policy 对目标机已加载策略做查询。")
+    current = (ctx.get("scene").name if ctx.get("scene") else "")
+    return json.dumps({
+        "library_root": str(library.root),
+        "default_scene": library.default_scene,
+        "current_scene": current,
+        "scenes": library.list_public(),
+        "errors": library.errors,
+    }, ensure_ascii=False, indent=2)
+
+
+def _handler_load_policy_scene(round_id: str, ctx: Dict[str, Any], scene: str = "") -> str:
+    library = ctx.get("library")
+    if library is None:
+        return "当前不是指定策略库模式，没有可加载的场景。"
+    name = str(scene or "").strip() or library.default_scene
+    target = library.get(name)
+    if target is None:
+        return "错误：策略库中没有场景 %r；可用场景：%s" % (
+            name, ", ".join(library.names()) or "（无）")
+    ctx["scene"] = target
+    return _render_scene(target)
+
+
+def _handler_query_policy_library(round_id: str, ctx: Dict[str, Any], query_type: str = "",
+                                  access_id: str = "", type_name: str = "",
+                                  src: str = "", tgt: str = "", tclass: str = "",
+                                  perms: Any = None, resource: str = "") -> str:
+    """对当前场景做只读查询；结果形状与 selinux_policy_query 尽量保持一致。"""
+    stack = _load_policy_stack()
+    if stack is None:
+        return "策略库模块不可用（导入失败：%s）。" % _POLICY_STACK_IMPORT_ERROR
+    plib = stack["library"]
+    scene = ctx.get("scene")
+    if scene is None:
+        return "错误：当前没有已加载的场景，请先调用 load_policy_scene。"
+
+    query_type = str(query_type or "").strip().lower()
+    if query_type == "rules":
+        return json.dumps({
+            "scene": scene.name, "subject": scene.subject,
+            "rules": [r.as_dict() for r in scene.rules],
+        }, ensure_ascii=False, indent=2)
+
+    if query_type == "type_info":
+        name = str(type_name or "").strip()
+        if not name:
+            return "错误：type_info 需要 type_name 参数。"
+        info = plib.type_info(scene, name)
+        ctx["type_facts"][name] = info
+        return json.dumps(info, ensure_ascii=False, indent=2)
+
+    if query_type == "allow_search":
+        result = plib.allow_search(scene, src=str(src or "").strip(),
+                                   tgt=str(tgt or "").strip(),
+                                   tclass=str(tclass or "").strip(),
+                                   perms=_as_str_list(perms) or None)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    if query_type == "probe_access":
+        evidence = ctx.get("evidence")
+        probe_src = str(src or "").strip()
+        probe_class = str(tclass or "").strip()
+        probe_resource = str(resource or "").strip()
+        probe_perms = _as_str_list(perms)
+        aid = str(access_id or "").strip()
+        if aid:
+            if not evidence:
+                return "错误：尚未调用 get_overprivilege_evidence，无法按 access_id 探测。"
+            rec = next((r for r in (evidence.get("accesses") or [])
+                        if r.get("access_id") == aid), None)
+            if rec is None:
+                return "错误：access_id=%s 不在证据包中（可能是编造的）。" % aid
+            probe_resource = rec.get("resource") or probe_resource
+            probe_class = rec.get("tclass") or probe_class
+            probe_perms = list(rec.get("perms") or []) or probe_perms
+        if not probe_src:
+            probe_src = scene.subject
+        if not probe_resource or not probe_class:
+            return "错误：probe_access 需要 access_id，或者 resource + tclass。"
+        result = plib.probe_access(scene, probe_resource, probe_class,
+                                   perms=probe_perms or None, src=probe_src)
+        if aid:
+            result["access_id"] = aid
+            ctx["probes"][aid] = result
+        for name in (probe_src, str(result.get("resolved_target_type") or "")):
+            if name and name not in ctx["type_facts"]:
+                ctx["type_facts"][name] = plib.type_info(scene, name)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    return ("错误：query_type 必须是 rules / type_info / allow_search / probe_access，"
+            "收到 %r。" % query_type)
 
 
 _QUERY_TYPES = ("posture", "path_type", "type_info", "allow_search", "port_type", "probe_access")
@@ -1193,18 +1737,52 @@ def _handler_emit_policy_proposal(round_id: str, ctx: Dict[str, Any],
         return ('错误：proposal 必须是 JSON 对象，例如 {"proposal": {"decision": "NO_CHANGE", '
                 '"reason_code": "EVIDENCE_INSUFFICIENT", "summary": "未取得可用证据"}}')
 
-    sensitive_types = _resolve_sensitive_types(stack["query"], evidence, ctx)
+    scene = ctx.get("scene")
+    if scene is not None:
+        sensitive_types = {
+            str(rec.get("access_id")): str((ctx["probes"].get(str(rec.get("access_id"))) or {})
+                                           .get("resolved_target_type") or "")
+            for rec in (evidence.get("accesses") or [])
+            if rec.get("declaration") == "sensitive" and rec.get("access_id")
+        }
+        sensitive_types = {k: v for k, v in sensitive_types.items() if v}
+    else:
+        sensitive_types = _resolve_sensitive_types(stack["query"], evidence, ctx)
+
     result = gate.validate(proposal, evidence, probes=ctx.get("probes") or {},
                            type_facts=ctx.get("type_facts") or {},
-                           sensitive_types=sensitive_types)
+                           sensitive_types=sensitive_types,
+                           library=scene)
     # 被拒绝的建议同样入库，那是「LLM 试图为越权访问放行」的可追溯痕迹
     result["proposal_id"] = db.save_policy_proposal(round_id, result)
     ctx["proposal"] = result
+
+    # 通过的提案把场景推进到改动后的状态：后续提案的 old_rule 要基于新源码
+    if scene is not None and result.get("ok"):
+        lib_ctx = result.get("library") or {}
+        new_source = str(lib_ctx.get("updated_source") or "")
+        if new_source:
+            advanced = stack["library"].scene_from_source(scene, new_source)
+            # 改标签不改源码，但已接受的标签收敛必须带入后续提案的工作场景，
+            # 否则「先改标签再收窄规则」的复合建议会在第二步丢失标签事实
+            advanced.actual_labels = dict(scene.actual_labels)
+            for item in result.get("relabel") or []:
+                path = str(item.get("path") or "")
+                expected = str(item.get("expected_type") or "")
+                if path and expected:
+                    advanced.actual_labels[path] = expected
+            ctx["scene"] = advanced
 
     lines = ["策略建议校验结果：%s" % ("通过" if result.get("ok") else "未通过"),
              gate.render_report(result)]
     if result.get("proposal_id"):
         lines.append("已存档：proposal_id=%s" % result["proposal_id"])
+    if scene is not None and result.get("ok"):
+        remaining = ((result.get("library") or {}).get("task_after") or {})
+        lines.append(
+            "场景已更新为本次建议后的状态。若任务测试仍有未通过项（%s/%s），"
+            "必须基于上面的「修改后的 .te」继续提交后续提案；old_rule 要取新源码中的原文。"
+            % (remaining.get("passed", 0), remaining.get("total", 0)))
     correction = gate.feedback(result)
     if correction:
         lines.extend(["", correction])
@@ -1214,7 +1792,7 @@ def _handler_emit_policy_proposal(round_id: str, ctx: Dict[str, Any],
 # 参数类工具的合法入参名，多余字段会被忽略
 _ARG_TOOL_KEYS = {"query", "kind", "module", "k", "mode", "source_dir", "policy_path", "focus",
                    "query_type", "access_id", "path", "type_name", "src", "tgt", "tclass",
-                   "perms", "resource", "port", "proto", "proposal"}
+                   "perms", "resource", "port", "proto", "proposal", "scene"}
 
 
 def _call_tool_handler(func_name: str, round_id: str, arguments_json: str,
@@ -1269,6 +1847,9 @@ TOOL_HANDLERS: Dict[str, Any] = {
     "read_local_selinux_policy": _handler_read_local_policy,
     "get_overprivilege_evidence": _handler_overpriv_evidence,
     "query_selinux_policy": _handler_query_selinux_policy,
+    "list_policy_scenes": _handler_list_policy_scenes,
+    "load_policy_scene": _handler_load_policy_scene,
+    "query_policy_library": _handler_query_policy_library,
     "emit_policy_proposal": _handler_emit_policy_proposal,
 }
 
@@ -1510,12 +2091,39 @@ def _process_tool_result(result_text: str, llm_url: str, max_tokens: int, api_ke
     return result_text[:threshold] + "\n\n...（结果过长，已截断）", False
 
 
+def _scene_hint_from_round(row: Dict[str, Any]) -> str:
+    """从 round 元数据里读取场景标识；显式参数/DB 配置优先于这里。"""
+    for field in ("pid_info", "ir_json", "action_json"):
+        raw = row.get(field)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        for key in ("policy_scene", "selinux_scene", "scene"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        system = data.get("system")
+        if isinstance(system, dict):
+            for key in ("policy_scene", "selinux_scene", "scene"):
+                value = system.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return ""
+
+
 def run_skill_analysis(
     round_id: str,
     llm_url: str,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     api_key: str = "",
     model: str = "gpt-4",
+    policy_scene: str = "",
+    policy_library_dir: str = "",
 ) -> Generator[Dict[str, Any], None, None]:
     """
     技能分析编排器 —— generator 产出 SSE-compatible 事件字典。
@@ -1528,6 +2136,10 @@ def run_skill_analysis(
         {"type": "done", "total_duration_ms": ...}
         {"type": "error", "message": "..."}
         {"type": "tool_limit_reached", "message": "..."}
+
+    policy_library_dir 非空（或 DB 配置了策略库目录）时进入指定策略库模式：
+    策略事实来自场景库而非目标机已加载策略，允许对场景规则增/删/改。
+    两者都未设置时保持主平台默认的实时目标机模式。
     """
     row = db.get_round_by_id(round_id)
     if not row:
@@ -1535,24 +2147,95 @@ def run_skill_analysis(
         return
 
     t_start = time.time()
-    system_prompt = _get_skill_system_prompt()
     policy_ctx = _new_policy_ctx()
+
+    library = None
+    scene = None
+    library_dir = _resolve_library_dir(policy_library_dir)
+    if library_dir:
+        stack = _load_policy_stack()
+        if stack is None:
+            yield {"type": "error",
+                   "message": "策略库模式初始化失败（导入策略模块异常：%s）" % _POLICY_STACK_IMPORT_ERROR}
+            return
+        try:
+            library = stack["library"].load_library(library_dir)
+        except Exception as exc:
+            yield {"type": "error",
+                   "message": "策略库目录 %s 加载失败：%s" % (library_dir, exc)}
+            return
+        scene_name = ((policy_scene or "").strip()
+                      or _scene_hint_from_round(row)
+                      or library.default_scene)
+        scene = library.get(scene_name)
+        if scene is None:
+            yield {"type": "error",
+                   "message": "策略库中没有场景 %r（可用：%s）"
+                              % (scene_name, ", ".join(library.names()) or "无")}
+            return
+        policy_ctx["library"] = library
+        policy_ctx["scene"] = scene
+
+    system_prompt = _get_skill_system_prompt()
+    if library is not None and _LIBRARY_MODE_TAG not in system_prompt:
+        system_prompt += _LIBRARY_MODE_PROMPT
+
+    tools = TOOLS
+    hidden = LIBRARY_ONLY_POLICY_TOOLS if library is None else LIVE_ONLY_POLICY_TOOLS
+    if hidden:
+        tools = [t for t in TOOLS if t["function"]["name"] not in hidden]
+    if library is not None:
+        # 提案 schema 必须随模式切换：库模式用 edits 增删改，实时模式只用 rules 新增/补权。
+        # 共用一份描述会让实时模式照库模式提交 edits，进而被门禁判为「rules 为空」。
+        tools = [_LIBRARY_EMIT_PROPOSAL_TOOL if t["function"]["name"] == "emit_policy_proposal"
+                 else t for t in tools]
+
+    user_content = (
+        f"请对 Round {round_id} 进行全面的异常行为分析。\n\n"
+        f"你可以使用上述工具逐步获取所需数据。\n"
+        f"获取足够信息后，请给出：\n"
+        f"1. 异常判定（是/否）\n"
+        f"2. 风险等级（low/medium/high）\n"
+        f"3. 详细分析理由\n"
+    )
+    if library is not None:
+        audit = scene.policy_audit()
+        if audit:
+            requirement = (
+                "当前场景有 %d 项不一致（见下方清单），必须提交提案并迭代，"
+                "直到 emit 返回的 task_after 显示任务测试全部通过；" % len(audit))
+        else:
+            requirement = (
+                "当前场景任务测试已全部通过，不要为了凑改动而修改；"
+                "提交 NO_CHANGE 提案即可，edits / add_rules 留空。")
+        relabel_hint = ""
+        if scene.actual_labels:
+            relabel_hint = (
+                "本场景声明了实际标签夹具：actual_labels 与 .fc 默认类型不一致的客体属于标签错配，"
+                "应判 RELABEL_OBJECT，用 relabel[] 提交 "
+                "{access_id, path, current_type, expected_type}，"
+                "current_type 取 actual_labels、expected_type 取 .fc 默认类型，"
+                "不得同时提交 allow 规则。")
+        user_content += (
+            "4. 策略建议 —— 必须先走 get_overprivilege_evidence → "
+            "query_policy_library(probe_access / type_info) → emit_policy_proposal；"
+            "库模式下允许 add_rules 新增、edits 修改/删除已有 allow 规则。"
+            + relabel_hint +
+            requirement +
+            "正文里引用 emit_policy_proposal 的校验结果，不要另写一份规则。\n\n"
+            "以下是本次分析已加载的策略场景，old_rule 必须逐字来自其中的 .te 源码：\n\n"
+            + _render_scene(scene)
+        )
+    else:
+        user_content += (
+            "4. 策略建议 —— 必须先走 get_overprivilege_evidence → "
+            "query_selinux_policy(probe_access / type_info) → emit_policy_proposal，"
+            "正文里引用 emit_policy_proposal 的校验结果，不要另写一份规则"
+        )
+
     messages = [
         {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": (
-                f"请对 Round {round_id} 进行全面的异常行为分析。\n\n"
-                f"你可以使用上述工具逐步获取所需数据。\n"
-                f"获取足够信息后，请给出：\n"
-                f"1. 异常判定（是/否）\n"
-                f"2. 风险等级（low/medium/high）\n"
-                f"3. 详细分析理由\n"
-                f"4. 策略建议 —— 必须先走 get_overprivilege_evidence → "
-                f"query_selinux_policy(probe_access / type_info) → emit_policy_proposal，"
-                f"正文里引用 emit_policy_proposal 的校验结果，不要另写一份规则"
-            ),
-        },
+        {"role": "user", "content": user_content},
     ]
 
     tool_round = 0
@@ -1601,7 +2284,7 @@ def run_skill_analysis(
                 yield ("__result__", rt)
 
         try:
-            for ev in _stream_llm_with_tools(llm_url, messages, TOOLS, max_tokens, api_key=api_key, model=model):
+            for ev in _stream_llm_with_tools(llm_url, messages, tools, max_tokens, api_key=api_key, model=model):
                 kind = ev[0]
                 if kind == "content":
                     yield {"type": "text", "content": ev[1]}
@@ -1642,7 +2325,8 @@ def run_skill_analysis(
                 yield {"type": "error", "message": "LLM 未返回任何内容"}
                 return
             messages.append({"role": "assistant", "content": content_final})
-            yield {"type": "text_done", "content": content_final}
+            final_text, _ = _strip_forbidden_advice(content_final)
+            yield {"type": "text_done", "content": final_text}
             completed = True
             break
 
@@ -1680,6 +2364,7 @@ def run_skill_analysis(
         for chunk in _call_llm_stream(llm_url, messages, max_tokens, api_key=api_key, model=model):
             yield {"type": "text", "content": chunk}
             final_chunks.append(chunk)
-        yield {"type": "text_done", "content": "".join(final_chunks)}
+        final_text, _ = _strip_forbidden_advice("".join(final_chunks))
+        yield {"type": "text_done", "content": final_text}
 
     yield {"type": "done", "total_duration_ms": round((time.time() - t_start) * 1000)}

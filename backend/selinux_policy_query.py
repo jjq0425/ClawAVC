@@ -1179,10 +1179,31 @@ def _render_port_type(r: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _append_target_resolution(lines: List[str], r: Dict[str, Any]) -> None:
+    """把实际标签 / 默认类型 / 解析可信度渲染出来。
+
+    RELABEL_OBJECT 的 current_type 和 expected_type 只能来自这里：模型看不到
+    target_resolution 就无法区分「实际标签」与「默认类型」，只能猜。
+    """
+    tr = r.get("target_resolution") or {}
+    actual = tr.get("actual_label") or {}
+    if isinstance(actual, dict) and actual.get("type"):
+        lines.append("  实际标签：%s:%s:%s:%s" % (
+            actual.get("user"), actual.get("role"), actual.get("type"), actual.get("level")))
+    if tr.get("expected_type"):
+        lines.append("  默认类型：%s（来源 %s，可信度 %s%s）" % (
+            tr["expected_type"], tr.get("expected_source") or "-",
+            tr.get("expected_trust") or "?", "，泛型/兜底" if tr.get("expected_is_generic") else ""))
+    lines.append("  标签错配：%s" % ("是" if tr.get("label_mismatch") else "否"))
+    if tr.get("expected_trust_reason"):
+        lines.append("  改标签可信度：" + tr["expected_trust_reason"])
+
+
 def _render_probe_access(r: Dict[str, Any]) -> str:
     lines = ["访问探测 %s → %s（%s）：verdict=%s" % (
         r.get("src", ""), r.get("resource", ""), r.get("tclass", ""),
         r.get("verdict") or "unknown")]
+    _append_target_resolution(lines, r)
     if not r.get("available"):
         lines.append(_indent(_unavailable_line(r)))
         if r.get("resolved_target_type"):

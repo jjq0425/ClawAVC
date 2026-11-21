@@ -126,10 +126,15 @@
                   >
                     <span class="xy-proposal__vcode">{{ v.code }}</span>
                     <span class="xy-proposal__vmsg">{{ v.message }}</span>
-                    <code v-if="v.rule" class="xy-proposal__vrule">
-                      allow {{ v.rule.src }} {{ v.rule.tgt }}:{{ v.rule.tclass }}
-                      { {{ (v.rule.perms || []).join(" ") }} };
-                    </code>
+                    <template v-if="v.rule">
+                      <code v-if="v.rule.src && v.rule.tclass" class="xy-proposal__vrule">
+                        allow {{ v.rule.src }} {{ v.rule.tgt }}:{{ v.rule.tclass }}
+                        { {{ (v.rule.perms || []).join(" ") }} };
+                      </code>
+                      <code v-else-if="v.rule.path" class="xy-proposal__vrule">
+                        {{ v.rule.path }}：{{ v.rule.current_type }} → {{ v.rule.expected_type }}
+                      </code>
+                    </template>
                   </div>
                 </div>
 
@@ -139,6 +144,58 @@
                     <code>allow {{ r.src }} {{ r.tgt }}:{{ r.tclass }} { {{ (r.perms || []).join(" ") }} };</code>
                     <em v-if="r.evidence && r.evidence.length">依据 {{ r.evidence.join(", ") }}</em>
                   </div>
+                </div>
+
+                <div v-if="p.edits && p.edits.length" class="xy-proposal__rules">
+                  <div class="xy-proposal__label">规则变更（{{ p.edits.length }}）</div>
+                  <div v-for="(e, ei) in p.edits" :key="ei" class="xy-proposal__rule">
+                    <code>{{ e.old_rule }} → {{ e.new_rule || "（删除）" }}</code>
+                    <em v-if="e.reason">{{ e.reason }}</em>
+                  </div>
+                </div>
+
+                <div v-if="p.library" class="xy-proposal__facts">
+                  <span>场景 {{ p.library.scene }}（主体 {{ p.library.subject }}）</span>
+                  <span v-if="p.library.task_after">
+                    任务测试 {{ p.library.task_after.passed }}/{{ p.library.task_after.total }}
+                  </span>
+                </div>
+
+                <div v-if="p.library && p.library.diff" class="xy-proposal__te">
+                  <div class="xy-proposal__label">
+                    <span>场景 .te 变更</span>
+                    <t-button size="small" variant="text" theme="primary" @click="copyText(p.library.updated_source, '已复制修改后的 .te')">
+                      <template #icon><t-icon name="file-copy" /></template>
+                      复制修改后的 .te
+                    </t-button>
+                  </div>
+                  <pre class="xy-proposal__code">{{ p.library.diff }}</pre>
+                </div>
+
+                <div v-if="p.relabel && p.relabel.length" class="xy-proposal__relabel">
+                  <div class="xy-proposal__label">客体改标签（{{ p.relabel.length }}）</div>
+                  <div v-for="(r, ri) in p.relabel" :key="ri" class="xy-proposal__relabel-item">
+                    <code class="xy-proposal__relabel-path">{{ r.path }}</code>
+                    <span class="xy-proposal__relabel-flow">
+                      <span class="xy-proposal__relabel-from">{{ r.current_type }}</span>
+                      <t-icon name="arrow-right" />
+                      <span class="xy-proposal__relabel-to">{{ r.expected_type }}</span>
+                    </span>
+                    <span class="xy-proposal__relabel-acc">依据 {{ r.access_id }}</span>
+                    <span v-if="r.reason" class="xy-proposal__relabel-reason">{{ r.reason }}</span>
+                  </div>
+                </div>
+
+                <div v-if="p.relabel_text" class="xy-proposal__te">
+                  <div class="xy-proposal__label">
+                    <span>改标签命令（人工执行）</span>
+                    <t-button size="small" variant="text" theme="primary" @click="copyText(p.relabel_text, '已复制改标签命令')">
+                      <template #icon><t-icon name="file-copy" /></template>
+                      复制
+                    </t-button>
+                  </div>
+                  <pre class="xy-proposal__code">{{ p.relabel_text }}</pre>
+                  <div v-if="p.relabel_sha256" class="xy-proposal__sha">sha256 {{ p.relabel_sha256.slice(0, 16) }}</div>
                 </div>
 
                 <div v-if="p.te" class="xy-proposal__te">
@@ -174,7 +231,7 @@
                 </div>
 
                 <div class="xy-proposal__disclaimer">
-                  本模块只产出 allow 级建议，不会改动任何目标机策略。{{
+                  本模块只产出 allow 级建议或客体改标签建议，不会改动任何目标机策略。{{
                     p.ok ? "请人工复核后再决定是否采纳。" : "被拒绝的建议同样入库留痕。"
                   }}
                 </div>
@@ -406,8 +463,7 @@ function toggleExpand(m) {
   m._expanded = !m._expanded
 }
 
-async function copyTe(p) {
-  const text = p.te || ""
+async function copyText(text, okMsg) {
   if (!text) return
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -423,10 +479,14 @@ async function copyTe(p) {
       document.execCommand("copy")
       document.body.removeChild(ta)
     }
-    MessagePlugin.success("已复制 .te 文本")
+    MessagePlugin.success(okMsg)
   } catch {
     MessagePlugin.error("复制失败，请手动选中复制")
   }
+}
+
+function copyTe(p) {
+  return copyText(p.te || "", "已复制 .te 文本")
 }
 
 function persist() {
@@ -1111,6 +1171,36 @@ async function sendRound() {
   color: #99a2b3;
   font-style: normal;
 }
+.xy-proposal__relabel-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 4px 0;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.xy-proposal__relabel-path {
+  font-family: "SF Mono", "Consolas", monospace;
+  background: #f2f5fa;
+  border-radius: 4px;
+  padding: 1px 5px;
+  word-break: break-all;
+}
+.xy-proposal__relabel-flow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: "SF Mono", "Consolas", monospace;
+  color: #8a94a6;
+}
+.xy-proposal__relabel-from { color: #a8071a; }
+.xy-proposal__relabel-to { color: #237804; font-weight: 600; }
+.xy-proposal__relabel-acc {
+  font-family: "SF Mono", "Consolas", monospace;
+  color: #99a2b3;
+}
+.xy-proposal__relabel-reason { flex-basis: 100%; color: #4a5a72; }
 .xy-proposal__code {
   margin: 0;
   padding: 10px 12px;

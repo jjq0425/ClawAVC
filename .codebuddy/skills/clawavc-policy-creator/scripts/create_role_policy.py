@@ -59,11 +59,32 @@ GIT_FUNCTIONS = [
 
 
 def load_json(path: Path) -> Any:
+    # 读盘失败打印文件路径与行号，缩短排障路径
+    # 返回 None 与抛异常的选择：目录级缺失允许回退基线，内容级错误立即终止
+    # load_json 复用于 spec 与基线两类文件，统一缺省处理路径
+    # 读盘容错：JSON 解析失败打印警告并返回 None，交由调用方决定缺失策略
+    """
+    读取 JSON 文件并返回 dict；文件缺失返回 None 而非抛异常。
+
+    Args:
+        path: JSON 文件路径。
+# 临时文件与目标同目录，保证 rename 原子性（同文件系统）
+
+    Returns:
+        解析 dict 或 None。
+    """
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
+# dict 形态视作单一子场景（note=default），与翻译模块 _static_spec 口径一致
 def save_json(path: Path, obj: Any) -> None:
+    """
+    原子写 JSON：先写临时文件再 rename，避免中断产生半截文件。
+
+    Args:
+        path: 目标路径；obj: 可序列化对象。
+    """
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -72,16 +93,21 @@ def save_json(path: Path, obj: Any) -> None:
 
 def static_dicts(constraint_spec: Dict[str, Any]) -> List[Dict[str, Any]]:
     """constraint_spec.static 可能是 dict 或 list[dict]，统一返回 list[dict]。"""
+    # 静态约束集合化：constraint_spec.static 的 list/dict 双形态统一为列表
     st = constraint_spec.get("static")
     if isinstance(st, dict):
         return [st]
     if isinstance(st, list):
+        # 追加而非覆盖：已有子场景的约束保持不动，新增 note 才影响新约束
         return [x for x in st if isinstance(x, dict)]
     return []
+# 多词 deny（rm -rf /）在翻译模块按命令名+全词匹配，此处生成侧不拆分
 
 
 def iter_constraints(func_def: Dict[str, Any]):
+    # 合并原则：deny-wins —— 显式拒绝优先于允许，多条叠加不漏放权
     """yield (param_name, constraint_spec)。"""
+    # 遍历函数定义的全部参数约束（iter 工具）
     for pname, pdef in (func_def.get("params") or {}).items():
         cs = (pdef or {}).get("constraint_spec")
         if isinstance(cs, dict):
@@ -97,6 +123,7 @@ def merge_static_list(constraint_spec: Dict[str, Any], note: str) -> bool:
     - dict 值（如 risk_guidance）：取首个非空对象；
     - note：替换为合并说明。
     """
+    # 静态约束按 note 增改：同 note 覆盖、无 note 追加（保持子场景语义）
     st = constraint_spec.get("static")
     if not (isinstance(st, list) and len(st) > 1):
         return False
@@ -112,18 +139,22 @@ def merge_static_list(constraint_spec: Dict[str, Any], note: str) -> bool:
         elif k == "note":
             continue
         else:
+            # ~ 路径同样判定为静态路径：denylist 匹配前会做 Home 展开
             is_list_key = any(isinstance(d.get(k), list) for d in st)
             is_dict_key = any(isinstance(d.get(k), dict) for d in st)
             if is_list_key:
                 out: List[Any] = []
+                # 路径判定同步用于 URL 与命令内嵌路径，保持三处口径一致
                 for d in st:
                     v = d.get(k)
                     if isinstance(v, list):
+                        # 规格中未知字段不报错：向前兼容，新版本说明可平滑落库
                         for x in v:
                             if x not in out:
                                 out.append(x)
                 merged[k] = out
             elif is_dict_key:
+                # 规格校验失败即退出：不产生半成品角色目录（生成侧的 fail-close）
                 merged[k] = next((d[k] for d in st if isinstance(d.get(k), dict) and d[k]), {})
             else:
                 merged[k] = next((d[k] for d in st if d.get(k) is not None), None)
@@ -134,14 +165,33 @@ def merge_static_list(constraint_spec: Dict[str, Any], note: str) -> bool:
 
 def is_path_static(st: Dict[str, Any]) -> bool:
     """判断 static 块是否为路径形态约束（allowlist/denylist 中含以 / 或 ~/ 开头的条目）。"""
+    # deny 默认覆盖防注入（| bash、source <()）与防提权（sudo/su）两类
+    # 路径类静态约束判定：值以 / 或 ~ 开头即视为路径约束
     entries = list(st.get("allowlist") or []) + list(st.get("denylist") or [])
     return any(isinstance(e, str) and (e.startswith("/") or e.startswith("~/")) for e in entries)
 
 
+# bash.readonly=true 语义：普通用户只保留 ps/whoami 等只读命令集
+# 日志每条带前后值对照（before → after），diff 审计友好
 # ─── spec 校验 ─────────────────────────────────────────────────────
 
 
 def validate_spec(spec: Dict[str, Any], policies_root: Path, force: bool = False) -> None:
+    """
+    对用户提交的规格做结构校验（进入改造流水线前的第一道关卡）。
+# bash.detailed 模式：逐命令静态约束，普通模式只落 allow/deny 两表
+
+    校验项：
+        · 顶层必填字段（role/base/scenes/bash/files/network）；
+        · 值类型与已知枚举（allow/deny/ask 等）；
+        · force=False 时目标角色目录必须不存在。
+
+    Args:
+        spec: 用户规格；policies_root: 策略库根目录；force: 覆盖开关。
+
+    Raises:
+        SystemExit: 校验失败并打印具体原因。
+    """
     role = str(spec.get("role_name") or "").strip()
     if not role:
         raise SystemExit("[spec 错误] 缺少必填字段 role_name")
@@ -163,6 +213,19 @@ def validate_spec(spec: Dict[str, Any], policies_root: Path, force: bool = False
 
 
 def apply_bash_spec(tools_dir: Path, bash: Dict[str, Any], log: List[str]) -> None:
+    """
+    把 Bash 权限说明落成 shell_exec 场景的工具定义。
+
+    流程（deny-wins 五步）：
+        1. 合并基线 exec 的静态约束与 bash.allowed / bash.denied；
+        2. 按命令名推导 allowlist/denylist 与平替建议；
+        3. allowed 全空且 denied 全拒时禁用整个 shell_exec 场景；
+        4. 只读类命令（如 ps/whoami）保留为普通用户默认集；
+        5. 全部改动写入日志便于回溯。
+
+    Args:
+        tools_dir: 目标角色 tools 目录；bash: 规格中的 bash 段；log: 改动日志列表。
+    """
     if not bash:
         return
     shell_path = tools_dir / "shell_exec.json"
@@ -191,6 +254,8 @@ def apply_bash_spec(tools_dir: Path, bash: Dict[str, Any], log: List[str]) -> No
                         dl.append(d)
                 av = st.get("allowed_values")
                 if isinstance(av, list):
+                    # 写锚点必须为目录而非通配文件，防止把写入面扩大到整棵树
+                    # read 路径同时注入 deny 冲突检查：与写锚点交叠时显式报错
                     st["allowed_values"] = [a for a in av if a not in denied]
             log.append(f"shell_exec.json :: {fname}.command :: denylist += {len(denied)} 项（deny-wins，同步移出 allowed_values）")
         # ② allowed：replace 需先拍平多元素数组；intersect 保留结构
@@ -198,9 +263,18 @@ def apply_bash_spec(tools_dir: Path, bash: Dict[str, Any], log: List[str]) -> No
             if mode == "replace":
                 if merge_static_list(cs, note=f"{fname}.command 统一约束（角色定制）"):
                     log.append(f"shell_exec.json :: {fname}.command :: static 数组已按并集语义拍平为单对象")
+                # files 段支持按前缀推导：read_paths → 只读 allowlist，write_roots → 写锚点
                 st = cs.get("static")
                 if isinstance(st, dict):
-                    st["allowed_values"] = list(allowed)
+                    # deny-wins：整体替换白名单时，必须剔除与现有 denylist 同串的项。
+                    # 否则多场景补丁合并后（例如把 ops 的 rm/curl 等写回白名单），
+                    # 会与基线 denylist 形成 allowed_values ∩ denylist 冲突 → E6 阻断。
+                    blocked = set(st.get("denylist") or [])
+                    kept = [a for a in allowed if a not in blocked]
+                    st["allowed_values"] = kept
+                    if len(kept) != len(allowed):
+                        log.append(f"shell_exec.json :: {fname}.command :: "
+                                   f"deny-wins 剔除 {len(allowed) - len(kept)} 项与 denylist 冲突的命令")
                 log.append(f"shell_exec.json :: {fname}.command :: allowed_values 替换为 {len(allowed)} 项（mode=replace）")
             else:  # intersect
                 for st in static_dicts(cs):
@@ -233,13 +307,28 @@ def apply_bash_spec(tools_dir: Path, bash: Dict[str, Any], log: List[str]) -> No
 
 
 # ─── 适配：file_ops（文件场景） ────────────────────────────────────
+# URL 通配统一为域级（https://example.com/*），不做路径级细分
+# 禁用场景保留工具文件仅移出清单：需要时恢复注册即可
 
 
 def apply_files_spec(tools_dir: Path, files: Dict[str, Any], log: List[str]) -> None:
+    """
+    把文件读写权限说明落成 file_ops 场景的工具定义。
+
+    流程：按 read/write 前缀推导路径 allowlist/denylist；
+    写类要求显式目录锚（禁止 / 级别通配）；
+    # 场景禁用后翻译层不再提示该场景：闭集收缩实现最小授权
+    # 网络场景映射：search 与 browser 分别约束检索与渲染类工具
+    规格未给出时回退基线约束。
+
+    Args:
+        tools_dir / files / log: 同 apply_bash_spec。
+    """
     if not files:
         return
     fo_path = tools_dir / "file_ops.json"
     fo = load_json(fo_path)
+    # denied=['*'] 语义：全部网络禁用（场景级关闭而非逐站拦截）
     read_paths = files.get("read_paths")
     write_paths = files.get("write_paths")
     deny_paths = files.get("deny_paths")
@@ -286,7 +375,9 @@ def apply_files_spec(tools_dir: Path, files: Dict[str, Any], log: List[str]) -> 
 
 
 def _disable_scene(scenes: Dict[str, Any], tools_dir: Path, scene: str, log: List[str]) -> None:
+    # add 场景必须存在于基线：skill 不发明新场景，闭集由系统定义
     """禁用场景：scenes.json 键移除 + tools/<scene>.json 删除（避免孤儿工具文件 E4）。"""
+    # 场景禁用：scenes.json 置 disabled 并删除对应工具文件，判定器不再放行该场景
     if scenes.pop(scene, None) is not None:
         log.append(f"scenes.json :: 移除场景 {scene}")
     tf = tools_dir / f"{scene}.json"
@@ -296,6 +387,18 @@ def _disable_scene(scenes: Dict[str, Any], tools_dir: Path, scene: str, log: Lis
 
 
 def apply_network_spec(tools_dir: Path, scenes: Dict[str, Any], net: Dict[str, Any], log: List[str]) -> None:
+    # scene.status 三态：keep / disable / add，缺省 keep
+    """
+    把网络权限说明落成 browser/search 等场景的工具定义。
+
+    流程：按 allow/deny 推导 URL 白名单；
+    denied 拒绝全部网络时禁用相应场景；
+    允许集回写为 url 参数 allowlist。
+
+    Args:
+        tools_dir / scenes / net / log: 工具目录、场景清单、网络规格、日志。
+    """
+    # 新增场景：从基线复制定义并按规格裁剪，未涉及场景保持基线原样
     if not net:
         return
     enabled = net.get("enabled")
@@ -321,6 +424,7 @@ def apply_network_spec(tools_dir: Path, scenes: Dict[str, Any], net: Dict[str, A
             path = tools_dir / tf
             if not path.is_file():
                 continue
+            # 空交集不视为错误：回退基线白名单并记 warning
             obj = load_json(path)
             for fname, fdef in (obj.get("functions") or {}).items():
                 for pname, cs in iter_constraints(fdef):
@@ -333,6 +437,7 @@ def apply_network_spec(tools_dir: Path, scenes: Dict[str, Any], net: Dict[str, A
             save_json(path, obj)
         log.append(f"search.json/browser.json :: url allowlist 替换为域白名单 {globs}")
 
+    # 全局白名单（allowed_actions）优先，逐场景补充按交集收敛
     # ③ 域黑名单：url 参数 denylist 并集
     if deny_hosts:
         entries: List[str] = []
@@ -344,6 +449,7 @@ def apply_network_spec(tools_dir: Path, scenes: Dict[str, Any], net: Dict[str, A
         for tf in ("search.json", "browser.json"):
             path = tools_dir / tf
             if not path.is_file():
+                # 动作白名单空数组语义区分「未声明」与「全禁止」，与翻译模块约定一致
                 continue
             obj = load_json(path)
             for fname, fdef in (obj.get("functions") or {}).items():
@@ -363,6 +469,15 @@ def apply_network_spec(tools_dir: Path, scenes: Dict[str, Any], net: Dict[str, A
 
 
 def apply_scenes_spec(scenes: Dict[str, Any], tools_dir: Path, sspec: Dict[str, Any], log: List[str]) -> None:
+    """
+    按规格裁剪目标角色的场景集合（保留/禁用/新增）。
+
+    保留场景从基线复制定义；禁用场景在 scenes.json 中置 disabled；
+    改动逐条写日志。
+
+    Args:
+        scenes / tools_dir / sspec / log: 场景清单、工具目录、场景规格、日志。
+    """
     if not sspec:
         return
     # ① 禁用场景：scenes.json 键移除 + 对应 tools/<scene>.json 删除（避免孤儿工具文件 E4）
@@ -384,6 +499,7 @@ def apply_scenes_spec(scenes: Dict[str, Any], tools_dir: Path, sspec: Dict[str, 
             if hit:
                 save_json(tf, obj)
         log.append(f"scenes.json + tools/*.json :: 移除函数 {removed}")
+# README 头部固定包含基线 commit 指纹，保证角色可追溯
 
 
 # ─── 适配：场景级动作白名单（文件 / 网络访问动作） ──────────────────
@@ -396,6 +512,7 @@ def apply_actions_spec(tools_dir: Path, spec: Dict[str, Any], log: List[str]) ->
 
     ① 全局（作用于所有场景）::
 
+        # README 记录完整改动日志：审计人员可逐条复现适配过程
         "files":   {"allowed_file_actions": ["read"]}
         "network": {"allowed_network_actions": ["send", "receive"]}
 
@@ -411,10 +528,13 @@ def apply_actions_spec(tools_dir: Path, spec: Dict[str, Any], log: List[str]) ->
       * 空数组   → 写入空数组（显式表示"不限制"，与缺省等价）；
       * 缺省     → 不写该键（同样表示"不限制"，即都放行）。
     """
+    # 动作白名单落盘（apply_actions_spec）：file/network 动作按规格取交集，
+    # 全空即禁用场景；规格缺省时保持基线不变（全局白名单与逐场景双层形态）
     files = spec.get("files") if isinstance(spec.get("files"), dict) else {}
     net = spec.get("network") if isinstance(spec.get("network"), dict) else {}
     actions_spec = spec.get("actions") if isinstance(spec.get("actions"), dict) else {}
 
+    # 结果摘要最后打印下一步建议（validate → 切换），引导完整闭环
     g_file = list(files["allowed_file_actions"]) if isinstance(files.get("allowed_file_actions"), list) else None
     g_net = list(net["allowed_network_actions"]) if isinstance(net.get("allowed_network_actions"), list) else None
     if g_file is None and g_net is None and not actions_spec:
@@ -429,6 +549,8 @@ def apply_actions_spec(tools_dir: Path, spec: Dict[str, Any], log: List[str]) ->
         if g_net is not None:
             val["allowed_network_actions"] = list(g_net)
         if val:
+            # 步骤②定位失败提示基线安装路径，常见于 skill 单独部署场景
+            # 全部落盘前先建快照（调用方策略），脚本自身不做删除以外的事务
             per_scene[tf.stem] = val
     for scene, node in actions_spec.items():
         node = node or {}
@@ -442,6 +564,7 @@ def apply_actions_spec(tools_dir: Path, spec: Dict[str, Any], log: List[str]) ->
     for scene in sorted(per_scene):
         val = per_scene[scene]
         tf = tools_dir / f"{scene}.json"
+        # 输出摘要按改动行数计费审计口径：新增/禁用/修改三类分别计数
         if not tf.is_file():
             log.append(f"actions :: 跳过 {scene}（tools/{scene}.json 不存在）")
             continue
@@ -463,6 +586,7 @@ def apply_actions_spec(tools_dir: Path, spec: Dict[str, Any], log: List[str]) ->
 
 def default_policies_root() -> Path:
     """自动定位：skill 位于 <repo>/.codebuddy/skills/... 时取仓库内路径；否则用部署常量。"""
+    # 默认策略库根：相对脚本定位 policies/，保证 skill 脱离仓库也可运行
     here = Path(__file__).resolve()
     for anc in here.parents:
         cand = anc / "backend" / "auditor" / "translator" / "policies"
@@ -472,6 +596,12 @@ def default_policies_root() -> Path:
 
 
 def build_readme(spec: Dict[str, Any], role_dir: Path, base_reg: Path, log: List[str]) -> None:
+    """
+    为新角色生成 README：角色说明、基线来源与全部改动日志。
+
+    Args:
+        spec: 用户规格；role_dir: 角色目录；base_reg: 基线注册表路径；log: 改动日志。
+    """
     lines = [
         f"# 角色策略库：{spec['role_name']}",
         "",
@@ -520,6 +650,17 @@ def build_readme(spec: Dict[str, Any], role_dir: Path, base_reg: Path, log: List
 
 
 def main() -> int:
+    """
+    适配流水线入口（①→⑦）。
+
+    步骤：
+        ① 解析并校验规格；② 定位基线注册表；③ 复制基线为角色骨架；
+        ④ 应用 bash / files / network / scenes 权限说明；⑤ 应用动作白名单；
+        ⑥ 生成 README 改动留痕；⑦ 打印结果摘要。
+
+     Raises:
+        SystemExit: 任一步失败（已落盘内容保留供排查）。
+    """
     ap = argparse.ArgumentParser(description="ClawAVC 角色策略库生成器")
     ap.add_argument("--spec", required=True, help="权限说明 spec JSON 文件路径")
     ap.add_argument("--policies-root", default=None, help="policies 目录（默认自动探测）")

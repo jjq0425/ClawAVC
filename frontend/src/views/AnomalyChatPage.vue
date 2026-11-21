@@ -204,6 +204,38 @@
           </div>
         </section>
 
+        <!-- 指定策略库 -->
+        <section class="xy-set__section">
+          <div class="xy-set__section-head">
+            <t-icon name="folder-open" />
+            <span>指定策略库</span>
+          </div>
+          <p class="xy-set__desc">
+            技能分析默认查询目标机已加载的 SELinux 策略。启用策略库后改为对随附的 <code>.te</code>
+            场景做离线研判，允许对场景规则增/删/改，并按场景任务测试判定改动是否合格；不触碰目标机。
+          </p>
+          <div class="xy-set__field">
+            <label class="xy-set__label">策略库目录</label>
+            <t-input
+              v-model="settingsLibraryDir"
+              placeholder="留空=实时目标机模式；填 default 用自带场景库；或填自定义目录绝对路径"
+              clearable
+            />
+          </div>
+          <div class="xy-set__field">
+            <label class="xy-set__label">默认场景</label>
+            <t-input
+              v-model="settingsLibraryScene"
+              placeholder="留空则用库默认场景；如 agent_workspace_rw、err_wide_perm"
+              clearable
+            />
+          </div>
+          <p class="xy-set__desc">
+            场景也可由 Round 元数据里的 <code>policy_scene</code> 指定，优先级低于此处配置。
+            目录填 <code>none</code> 可强制回到实时目标机模式。
+          </p>
+        </section>
+
         <t-alert v-if="settingsMsg" :theme="settingsOk ? 'success' : 'error'" class="xy-set__alert">
           {{ settingsMsg }}
         </t-alert>
@@ -235,6 +267,8 @@ const settingsSkill = ref("")
 const settingsMaxTokens = ref(null)
 const settingsCompress = ref(false)
 const settingsCompressMax = ref(null)
+const settingsLibraryDir = ref("")
+const settingsLibraryScene = ref("")
 const settingsSaving = ref(false)
 const settingsMsg = ref("")
 const settingsOk = ref(true)
@@ -352,6 +386,10 @@ async function openSettings() {
     const j = await r.json()
     if (j.ok && j.data) {
       settingsUrl.value = j.data.anomaly_llm_url_v2 || ""
+      settingsModel.value = j.data.anomaly_llm_model || ""
+      settingsHasApiKey.value = !!j.data.has_anomaly_llm_api_key
+      settingsKeyMasked.value = j.data.anomaly_llm_api_key_masked || ""
+      settingsApiKey.value = ""
       settingsPrompt.value = j.data.anomaly_llm_base_prompt || ""
       settingsSystem.value = j.data.anomaly_llm_system_prompt || ""
       settingsSkill.value = j.data.anomaly_llm_skill_prompt || ""
@@ -360,6 +398,8 @@ async function openSettings() {
       settingsCompress.value = (j.data.anomaly_llm_tool_compress || "").trim() === "true"
       const cm = j.data.anomaly_llm_tool_compress_max
       settingsCompressMax.value = cm ? Number(cm) : null
+      settingsLibraryDir.value = j.data.anomaly_policy_library_dir || ""
+      settingsLibraryScene.value = j.data.anomaly_policy_library_scene || ""
       configured.value = !!settingsUrl.value
     }
   } catch {}
@@ -381,6 +421,8 @@ async function saveSettings() {
       { key: "anomaly_llm_max_tokens", value: settingsMaxTokens.value != null ? String(settingsMaxTokens.value) : "" },
       { key: "anomaly_llm_tool_compress", value: settingsCompress.value ? "true" : "false" },
       { key: "anomaly_llm_tool_compress_max", value: settingsCompressMax.value != null ? String(settingsCompressMax.value) : "" },
+      { key: "anomaly_policy_library_dir", value: settingsLibraryDir.value },
+      { key: "anomaly_policy_library_scene", value: settingsLibraryScene.value },
     ]
     let okAll = true
     let err = ""

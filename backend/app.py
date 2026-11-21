@@ -40,6 +40,20 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent", path="/wss")
 
 
+@app.errorhandler(500)
+def _api_error_as_json(e):  # noqa: ANN001
+    """API 路由的未捕获异常统一返回 JSON。
+
+    Flask 默认返回 HTML 错误页（<!doctype html>），前端直接 res.json() 会报
+    "Unexpected token '<'"，把真实错误完全掩盖。这里保证 /api/* 永远拿到
+    结构化错误体，同时把异常栈写进日志便于排查。
+    """
+    if request.path.startswith("/api/"):
+        app.logger.exception("API 500 on %s", request.path)
+        return jsonify({"ok": False, "error": f"服务端异常：{str(e)[:300]}"}), 500
+    return "Internal Server Error", 500
+
+
 def _get_webhook_urls() -> List[str]:
     """从数据库获取 webhook URL 列表"""
     urls_json = db.get_config("webhook.urls", "[]")
@@ -699,7 +713,14 @@ def test_translator():
         # Allow override config from request for testing
         if data.get("config"):
             config.update(data["config"])
+        execution_scope = None
+        if data.get("cache_for_execution") is True:
+            from auditor.translator.execution_cache import current_scope
+            execution_scope = current_scope()
         result = translate(query, config=config, is_ui_test=True)
+        if data.get("cache_for_execution") is True:
+            from auditor.translator.execution_cache import prepare
+            result.setdefault("meta", {})["execution_cache_prepared"] = prepare(query, config, result, expected_scope=execution_scope)
         return jsonify({"ok": True, "data": result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -736,7 +757,14 @@ def run_translate():
         
         # Step 3: 执行翻译（传入回调）
         config = get_llm_config()
-        result = translate(query, config=config, is_ui_test=False, round_id=round_id, on_level1_done=on_level1_done)
+        from auditor.translator.execution_cache import consume
+        result = consume(query, config)
+        if result is None:
+            result = translate(query, config=config, is_ui_test=False, round_id=round_id, on_level1_done=on_level1_done)
+        else:
+            if round_id:
+                on_level1_done(round_id, result.get("level1", []), result.get("meta", {}).get("level1", {}))
+            db.insert_or_update_translation_log(result, is_ui_test=False, round_id=round_id)
         
         return jsonify({"ok": True, "data": result})
     except Exception as e:
@@ -1317,10 +1345,22 @@ def put_ai_writer_config():
     return jsonify(_aiw().set_config(request.get_json(force=True)))
 
 
+@app.route("/api/translator/ai-writer/config/copy-from-ir", methods=["POST"])
+def copy_ir_to_ai_writer_config():
+    """一键复用 IR 意图翻译模型的连接参数（含本地网关 token）。"""
+    try:
+        return jsonify(_aiw().copy_ir_config())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:300]}), 200
+
+
 @app.route("/api/translator/ai-writer/test", methods=["POST"])
 def test_ai_writer_llm():
-    """连通性自检：用当前配置做一次最小调用。"""
-    return jsonify(_aiw().test_connection())
+    """连通性自检：用当前配置做一次最小调用。任何失败都返回结构化 JSON。"""
+    try:
+        return jsonify(_aiw().test_connection())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:300]}), 200
 
 
 @app.route("/api/translator/ai-writer/skill-doc", methods=["GET"])
@@ -1573,6 +1613,15 @@ def put_sensitive_ai_config():
     return jsonify(_sensitive().set_ai_config(request.get_json(force=True) or {}))
 
 
+@app.route("/api/translator/sensitive/ai-config/copy-from-ir", methods=["POST"])
+def copy_ir_to_sensitive_ai_config():
+    """一键复用 IR 意图翻译模型的连接参数（含本地网关 token）。"""
+    try:
+        return jsonify(_sensitive().copy_ir_config())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:300]}), 200
+
+
 @app.route("/api/translator/sensitive/test", methods=["POST"])
 def test_sensitive_llm():
     """敏感文件配置专用模型的连通性自检。"""
@@ -1628,9 +1677,22 @@ def put_rsi_config():
     return jsonify(_rsi().set_config(request.get_json(force=True) or {}))
 
 
+@app.route("/api/translator/rsi/config/copy-from-ir", methods=["POST"])
+def copy_ir_to_rsi_config():
+    """一键复用 IR 意图翻译模型的连接参数（含本地网关 token）。"""
+    try:
+        return jsonify(_rsi().copy_ir_config())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:300]}), 200
+
+
 @app.route("/api/translator/rsi/test", methods=["POST"])
 def test_rsi_llm():
-    return jsonify(_rsi().test_connection())
+    """RSI 模型连通性自检：任何失败都返回结构化 JSON。"""
+    try:
+        return jsonify(_rsi().test_connection())
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:300]}), 200
 
 
 @app.route("/api/translator/rsi/prompts", methods=["GET"])
@@ -1966,7 +2028,9 @@ MONITOR_CONF_KEYS = ["gateway_log_path", "openclaw_root", "use_gateway", "tool_t
                       "anomaly_llm_model", "anomaly_llm_api_key",
                       # 提示注入检测：工具返回结果监测关键词（每行一个）
                       "tool_result_injection_keywords",
-                      "param_content_rules"]
+                      "param_content_rules",
+                      # 指定策略库模式：留空=实时目标机模式，default=自带场景库，或填自定义目录
+                      "anomaly_policy_library_dir", "anomaly_policy_library_scene"]
 # 二阶段异常分析基础 prompt 默认值（可在「异常判断大模型（二阶段）设置」中覆盖）
 ANOMALY_LLM_DEFAULT_BASE_PROMPT = (
     "请基于以下 Round 的完整多维行为轨迹审计数据（覆盖用户意图、IR 权限声明、用户态与内核态行为、"
@@ -2117,6 +2181,36 @@ def put_monitor_config():
     return jsonify(result)
 
 
+# 本地 Portkey 网关配置：用于小异请求发出前校正凭据与模型别名
+_LOCAL_GATEWAY_CONFIG = os.environ.get(
+    "CLAWAVC_LOCAL_GATEWAY_CONFIG",
+    "/home/hx/jjq/auditor/portkey/portkey-ai-gateway/.portkey/local-gateway.config.json",
+)
+
+
+def _anomaly_llm_credentials(llm_url: str, api_key: str, model: str):
+    """对接本机 Portkey 网关（18788）时，按网关自身配置兜底凭据与模型别名。
+
+    网关的 headerless 路由要求 model 是已配置别名、Authorization 是 gatewayKeys 之一。
+    「小异设置」里这两项容易被清空或误填，这里在请求发出前校正，避免网关回
+    "x-portkey-config or x-portkey-provider header is required"。其他 OpenAI 兼容地址不受影响。
+    """
+    if "18788" not in (llm_url or ""):
+        return api_key, model
+    try:
+        with open(_LOCAL_GATEWAY_CONFIG, encoding="utf-8") as f:
+            cfg = json.load(f)
+        keys = [str(k).strip() for k in (cfg.get("gatewayKeys") or []) if str(k).strip()]
+        aliases = [str(k) for k in (cfg.get("models") or {})]
+        if keys and api_key not in keys:
+            api_key = keys[0]
+        if aliases and not model:
+            model = aliases[0]
+    except Exception:
+        pass
+    return api_key, model
+
+
 def request_anomaly_llm_url_v2(round_id: str) -> Dict[str, Any]:
     """二阶段异常判断：根据 round_id 拉取本轮数据，向 anomaly_llm_url_v2 配置的大模型地址发起判断请求。
 
@@ -2183,9 +2277,10 @@ def request_anomaly_llm_url_v2(round_id: str) -> Dict[str, Any]:
     )
 
     # 4. 组装 OpenAI chat/completions 风格请求体并发起请求
-    #    模型名/API Key 取「模型接入」配置：模型名留空回退默认，API Key 留空则不带 Authorization
-    _model = (db.get_config("monitor_conf.anomaly_llm_model") or "").strip() or "clawavc-anomaly-v2"
+    #    模型名/API Key 取「模型接入」配置，并在对接本地网关时按网关配置校正
+    _model = (db.get_config("monitor_conf.anomaly_llm_model") or "").strip()
     _api_key = (db.get_config("monitor_conf.anomaly_llm_api_key") or "").strip()
+    _api_key, _model = _anomaly_llm_credentials(url, _api_key, _model)
     payload = {
         "model": _model,
         "temperature": 0,
@@ -2265,9 +2360,10 @@ def monitor_anomaly_llm_chat():
         "stream": True,
         "max_tokens": max_tokens,
     }
-    # 模型名/API Key 取「模型接入」配置：模型名留空则不传，API Key 留空则不带 Authorization
+    # 模型名/API Key 取「模型接入」配置，并在对接本地网关时按网关配置校正
     _model = (db.get_config("monitor_conf.anomaly_llm_model") or "").strip()
     _api_key = (db.get_config("monitor_conf.anomaly_llm_api_key") or "").strip()
+    _api_key, _model = _anomaly_llm_credentials(url, _api_key, _model)
     if _model:
         payload["model"] = _model
     headers = {"Content-Type": "application/json"}
@@ -2310,17 +2406,19 @@ def monitor_anomaly_llm_chat():
 @api_doc(
     summary="小异技能分析（基于工具调用的逐步异常分析）",
     category="运行监控",
-    description="通过工具调用机制，让大模型逐步获取 Round 数据并生成综合异常分析。返回 SSE 事件流。",
+    description="通过工具调用机制，让大模型逐步获取 Round 数据并生成综合异常分析。返回 SSE 事件流。"
+                "可选 policy_library_dir 启用指定策略库模式（default=自带场景库，none=强制实时目标机模式），"
+                "policy_scene 指定场景；两者留空时按监控配置解析，默认实时目标机模式。",
     public=True,
 )
 @app.route("/api/monitor/anomaly-llm-skill", methods=["POST"])
 def monitor_anomaly_llm_skill():
     """小异技能分析接口：工具调用驱动的逐步异常分析，返回 SSE 事件流。
 
-    Request: { "round_id": "xxx" }
+    Request: { "round_id": "xxx", "policy_scene": "", "policy_library_dir": "" }
 
     Response: text/event-stream with events:
-      tool_call → text (streaming) → text_done → done
+      tool_call → text (streaming) → text_done → proposal → done
     """
     body = request.get_json(force=True, silent=True) or {}
     round_id = (body.get("round_id") or "").strip()
@@ -2342,12 +2440,22 @@ def monitor_anomaly_llm_skill():
         max_tokens = 4096
 
     api_key = (db.get_config("monitor_conf.anomaly_llm_api_key") or "").strip()
-    model = (db.get_config("monitor_conf.anomaly_llm_model") or "").strip() or "gpt-4"
+    model = (db.get_config("monitor_conf.anomaly_llm_model") or "").strip()
+    api_key, model = _anomaly_llm_credentials(llm_url, api_key, model)
+
+    # 场景：请求体 > 监控配置 > round 元数据提示 > 库默认场景（后两级在 xy_skill 内解析）
+    policy_scene = (body.get("policy_scene")
+                    or db.get_config("monitor_conf.anomaly_policy_library_scene") or "").strip()
+    # 目录只传请求体覆盖值，留空时由 xy_skill._resolve_library_dir 读监控配置，避免两处各解析一遍
+    policy_library_dir = (body.get("policy_library_dir") or "").strip()
 
     from xy_skill import run_skill_analysis
 
     def generate():
-        for event in run_skill_analysis(round_id, llm_url, max_tokens, api_key=api_key, model=model):
+        for event in run_skill_analysis(
+            round_id, llm_url, max_tokens, api_key=api_key, model=model,
+            policy_scene=policy_scene, policy_library_dir=policy_library_dir,
+        ):
             yield f"event: {event['type']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return Response(

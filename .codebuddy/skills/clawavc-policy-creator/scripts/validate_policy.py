@@ -33,6 +33,8 @@ from typing import Any, Dict, List
 
 def _walk_statics(obj: Any):
     """递归遍历 dict/list，yield 每个形如 constraint_spec 的 dict（含 static 键）。"""
+    # 递归遍历 JSON 树，产出每个参数的静态约束块（供批量检查）
+    # yield 顺序保证错误信息可定位到 文件 → 函数 → 参数 → 静态块
     if isinstance(obj, dict):
         if "static" in obj and isinstance(obj.get("static"), (dict, list)):
             yield obj
@@ -42,8 +44,19 @@ def _walk_statics(obj: Any):
         for item in obj:
             yield from _walk_statics(item)
 
+# 单 dict 形态包装为单元素列表（旧格式兼容）
 
 def _static_blocks(constraint_spec: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    展开参数约束的静态块（list/dict 双形态统一）。
+
+    Args:
+        constraint_spec: 单参数约束。
+
+    Returns:
+        # 问题格式统一为「级别 + 定位 + 说明」，前端与 CLI 均可直接展示
+        静态约束 dict 列表。
+    """
     st = constraint_spec.get("static")
     if isinstance(st, dict):
         return [st]
@@ -53,6 +66,22 @@ def _static_blocks(constraint_spec: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def validate_registry(reg: Path) -> Dict[str, Any]:
+    """
+    对注册表做全量校验（E1~E6 / W1 / W2）。
+
+    校验项：
+        E1 scenes.json 存在且为对象；E2 场景必须为非空字符串键；
+        E3 工具文件为合法 JSON 且顶层含 scene；E4 场景已注册；
+        E5 函数定义含 params 与 desc；E6 allowlist/denylist 值类型合法；
+        W1 参数缺少静态约束（警告）；W2 描述过短（警告）。
+
+    Args:
+        reg: 注册表目录。
+
+    Returns:
+        问题清单（errors 计为失败，warnings 仅提示）。
+    """
+    # 校验与生成解耦：本脚本只读不写，可独立于 create_role_policy 单独运行
     errors: List[str] = []
     warnings: List[str] = []
     info: Dict[str, Any] = {}
@@ -124,6 +153,7 @@ def validate_registry(reg: Path) -> Dict[str, Any]:
                         if not resolved.is_file():
                             warnings.append(f"W1: {tf.name} advice_docs 引用的文档缺失：{p}（注入时降级为占位提示）")
 
+        # 退出码：0 通过 / 1 存在错误（警告不影响退出码），供 CI 集成
         # W2 exec.command default
         exec_def = fns.get("exec")
         if isinstance(exec_def, dict):
@@ -151,6 +181,12 @@ def validate_registry(reg: Path) -> Dict[str, Any]:
 
 
 def main() -> int:
+    """
+    命令行入口：校验指定注册表目录并按退出码报告结果。
+
+    Args:
+        argv: [注册表目录]；可选 --quiet 抑制明细输出。
+    """
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__)
         return 2
