@@ -67,7 +67,7 @@
         </div>
       </div>
       <div class="xy-main__chat">
-        <XiaoYiChat :session-id="activeId" :seed="activeMessages" @persist="onPersist" />
+        <XiaoYiChat v-if="chatReady" :key="chatKey" :session-id="activeId" :seed="activeMessages" @persist="onPersist" />
       </div>
     </section>
 
@@ -245,7 +245,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue"
+import { ref, computed, onMounted, watch } from "vue"
 import { useRoute } from "vue-router"
 import { MessagePlugin } from "tdesign-vue-next"
 import XiaoYiChat from "../components/XiaoYiChat.vue"
@@ -275,7 +275,30 @@ const settingsOk = ref(true)
 
 const activeSession = computed(() => sessions.value.find((s) => s.session_id === activeId.value) || null)
 const activeTitle = computed(() => activeSession.value?.title || "")
-const activeMessages = computed(() => activeSession.value?.messages || [])
+
+// 会话列表只含元数据（标题/预览/时间），当前会话的消息按需单独拉取
+const activeMessages = ref([])
+const chatReady = ref(false)
+const chatKey = ref(0)
+let loadToken = 0
+
+watch(activeId, async (id) => {
+  chatReady.value = false
+  activeMessages.value = []
+  if (!id) return
+  const token = ++loadToken
+  try {
+    const r = await fetch(`/api/monitor/anomaly-chats/${id}`)
+    const j = await r.json()
+    if (token !== loadToken) return
+    activeMessages.value = j.ok && Array.isArray(j.data?.messages) ? j.data.messages : []
+  } catch {
+    if (token !== loadToken) return
+    activeMessages.value = []
+  }
+  chatReady.value = true
+  chatKey.value += 1  // 消息就绪后重建聊天组件，确保 seed 已被读取
+}, { immediate: true })
 
 onMounted(async () => {
   await loadConfigStatus()
@@ -314,7 +337,7 @@ async function loadSessions(keepActive = false) {
 async function createNew() {
   // 清理当前没有任何用户消息的空会话，避免堆积
   const cur = activeSession.value
-  if (cur && (!cur.messages || cur.messages.filter((m) => m.role === "user").length === 0)) {
+  if (cur && (!activeMessages.value || activeMessages.value.filter((m) => m.role === "user").length === 0)) {
     await fetch(`/api/monitor/anomaly-chats/${cur.session_id}`, { method: "DELETE" })
     sessions.value = sessions.value.filter((s) => s.session_id !== cur.session_id)
   }
@@ -370,6 +393,7 @@ async function onPersist({ sessionId, title, messages }) {
     })
     const j = await r.json()
     if (j.ok) {
+      activeMessages.value = messages  // 列表不再回传消息，本地同步以免「新建对话」误判为空会话
       await loadSessions(true) // 刷新标题/预览/时间，保留当前会话
     } else {
       MessagePlugin.error(j.error || "保存对话失败")

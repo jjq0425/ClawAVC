@@ -2476,8 +2476,9 @@ def monitor_anomaly_llm_skill():
 )
 @app.route("/api/monitor/anomaly-chats", methods=["GET"])
 def monitor_anomaly_chats_list():
-    """列出全部小异对话会话。"""
-    return jsonify({"ok": True, "data": db.list_anomaly_chats()})
+    """列出全部小异对话会话（默认只含元数据；full=1 时含完整消息，兼容旧调用）。"""
+    full = request.args.get("full") in ("1", "true", "yes")
+    return jsonify({"ok": True, "data": db.list_anomaly_chats(include_messages=full)})
 
 
 @api_doc(

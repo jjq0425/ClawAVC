@@ -5,7 +5,7 @@
       <div class="xy-chat__title">
         <div>
           <div class="xy-chat__name">小异</div>
-          <div class="xy-chat__sub">异常分析检测大模型 · 二阶段</div>
+          <div class="xy-chat__sub">异常分析检测大模型</div>
         </div>
       </div>
       <div class="xy-chat__status">
@@ -284,16 +284,6 @@
         <t-button
           size="small"
           variant="outline"
-          theme="primary"
-          :disabled="busy"
-          @click="toggleRoundInput"
-        >
-          <template #icon><t-icon name="browse" /></template>
-          快速分析
-        </t-button>
-        <t-button
-          size="small"
-          variant="outline"
           theme="warning"
           :disabled="busy"
           @click="toggleSkillInput"
@@ -301,28 +291,6 @@
           <template #icon><t-icon name="code" /></template>
           技能分析（Skill）
         </t-button>
-        <transition name="xy-round-input-fade">
-          <div v-if="showRoundInput" class="xy-round-input">
-            <t-input
-              v-model="roundIdInput"
-              class="xy-round-input__field"
-              placeholder="输入 Round ID"
-              :disabled="busy"
-              clearable
-              @enter="sendRound"
-            >
-              <template #prefix-icon><t-icon name="hash" /></template>
-            </t-input>
-            <t-button
-              size="small"
-              theme="primary"
-              :disabled="busy || !roundIdInput.trim()"
-              @click="sendRound"
-            >
-              发送
-            </t-button>
-          </div>
-        </transition>
         <transition name="xy-round-input-fade">
           <div v-if="showSkillInput" class="xy-round-input">
             <t-input
@@ -505,12 +473,21 @@ function maybeAutoSend(id) {
   if (!id || autoSentFor.value === id) return
   const idx = messages.findIndex((m) => m.meta && m.meta.type === "round_analysis")
   if (idx < 0) return
+  // 技能分析结果以工具步骤卡片为主，content 可能为空，故按 meta 一并判定为「已分析」
   const answered = messages
     .slice(idx + 1)
-    .some((m) => m.role === "assistant" && m.content && !isGreeting(m))
+    .some((m) => m.role === "assistant"
+      && ((m.content && !isGreeting(m)) || m.meta?.type === "skill_analysis"))
   if (!answered) {
     autoSentFor.value = id
-    runStream()
+    const rid = String(messages[idx].meta?.round_id || "").trim()
+    if (rid) {
+      // 「问问小异」入口默认走技能分析（Skill），不再自动发起普通快速分析
+      skillRoundIdInput.value = rid
+      sendSkillRound()
+    } else {
+      runStream()  // 兜底：seed 未带 round_id 时回退快速分析
+    }
   }
 }
 

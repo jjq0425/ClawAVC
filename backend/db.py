@@ -876,8 +876,13 @@ def set_round_anomaly_chat_session(round_id: str, session_id: str) -> str:
 # 小异（二阶段异常判断大模型）对话会话存储
 # ============================================================
 
-def list_anomaly_chats() -> List[Dict]:
-    """列出全部对话会话（含完整 messages），按最近更新倒序。"""
+def list_anomaly_chats(include_messages: bool = False) -> List[Dict]:
+    """列出全部对话会话，按最近更新倒序。
+
+    默认只返回左侧列表所需的元数据，不携带 messages —— 否则会话积累后
+    列表接口会一次性返回全部历史（曾达到 1MB+），公网加载明显变慢。
+    需要完整消息时传 include_messages=True（兼容旧调用）。
+    """
     conn = get_conn()
     try:
         rows = conn.execute(
@@ -895,14 +900,16 @@ def list_anomaly_chats() -> List[Dict]:
                 if m.get("role") == "user":
                     preview = (m.get("content") or "")[:40]
                     break
-            result.append({
+            item = {
                 "session_id": r["session_id"],
                 "title": r["title"] or "新对话",
                 "preview": preview,
-                "messages": msgs,
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
-            })
+            }
+            if include_messages:
+                item["messages"] = msgs
+            result.append(item)
         return result
     except Exception as e:
         print(f"[db] list_anomaly_chats error: {e}")
